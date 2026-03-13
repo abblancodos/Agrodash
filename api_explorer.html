@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>API Explorer</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
+    input, select { background: #2d2d2d; color: #d4d4d4; border: 1px solid #555; padding: 6px; width: 100%; box-sizing: border-box; }
+    button { background: #0e639c; color: white; border: none; padding: 8px 16px; cursor: pointer; margin-top: 8px; }
+    button:hover { background: #1177bb; }
+    pre { background: #2d2d2d; padding: 12px; overflow-x: auto; border-left: 3px solid #0e639c; white-space: pre-wrap; }
+    .label { color: #9cdcfe; margin-top: 16px; display: block; }
+    .error { color: #f48771; }
+    .ok { color: #4ec9b0; }
+    h2 { color: #569cd6; }
+    .row { display: flex; gap: 8px; align-items: flex-end; }
+    .row input { flex: 1; }
+  </style>
+</head>
+<body>
+  <h2>🔍 API Explorer</h2>
+
+  <span class="label">URL base de la API</span>
+  <input id="baseUrl" type="text" value="http://localhost:3000" placeholder="http://tu-servidor.com" />
+
+  <span class="label">Endpoint a probar</span>
+  <div class="row">
+    <input id="endpoint" type="text" value="/api/boxes" placeholder="/api/boxes" />
+    <select id="method">
+      <option>GET</option>
+      <option>POST</option>
+    </select>
+  </div>
+
+  <span class="label">Sugerencias rápidas</span>
+  <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:4px">
+    <button onclick="setEndpoint('/api/boxes')">GET /api/boxes</button>
+    <button onclick="setEndpoint('/api/Caja S')">GET /api/Caja S</button>
+    <button onclick="setEndpoint('/api/Caja S?limit=36')">?limit=36</button>
+    <button onclick="setEndpoint('/api/Caja S?hours=12')">?hours=12</button>
+    <button onclick="setEndpoint('/api/Caja S/history')">../history</button>
+    <button onclick="setEndpoint('/api/export/csv?box=Caja S')">export CSV</button>
+    <button onclick="setEndpoint('/api/docs')">GET /api/docs</button>
+    <button onclick="setEndpoint('/docs')">GET /docs</button>
+  </div>
+
+  <button onclick="doFetch()" style="margin-top:16px; width:100%">▶ Ejecutar</button>
+
+  <span class="label">Respuesta</span>
+  <div id="status"></div>
+  <pre id="output">// La respuesta aparecerá aquí</pre>
+
+  <script>
+    function setEndpoint(val) {
+      document.getElementById('endpoint').value = val;
+    }
+
+    async function doFetch() {
+      const base = document.getElementById('baseUrl').value.replace(/\/$/, '');
+      const endpoint = document.getElementById('endpoint').value;
+      const method = document.getElementById('method').value;
+      const output = document.getElementById('output');
+      const status = document.getElementById('status');
+      const url = base + endpoint;
+
+      output.textContent = '⏳ Consultando...';
+      status.textContent = '';
+
+      try {
+        const res = await fetch(url, { method });
+        const text = await res.text();
+
+        status.innerHTML = `<span class="${res.ok ? 'ok' : 'error'}">HTTP ${res.status} ${res.statusText}</span> — ${url}`;
+
+        try {
+          const json = JSON.parse(text);
+          output.textContent = JSON.stringify(json, null, 2);
+        } catch {
+          output.textContent = text;
+        }
+      } catch (err) {
+        status.innerHTML = `<span class="error">Error de red</span>`;
+        output.textContent = err.toString();
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,145 @@
+/* theme.css
+   ─────────────────────────────────────────────────────────────────────────────
+   Design tokens for AgroDash.
+   UI chrome: strictly neutral greys.
+   Sensor colors: warm/natural palette (unchanged — they're data, not UI).
+   Toggle: <html class="light"> or <html class="dark"> (default: dark)
+   ─────────────────────────────────────────────────────────────────────────────
+*/
+
+/* ── Dark mode (default) ───────────────────────────────────────────────────── */
+:root {
+  /* Surfaces */
+  --bg-base:        #0f1013;
+  --bg-surface:     #161719;
+  --bg-elevated:    #1c1d20;
+  --bg-inset:       #111214;
+  --bg-overlay:     #131417;
+
+  /* Borders */
+  --border-subtle:  #252628;
+  --border-default: #2e3032;
+  --border-strong:  #3c3e42;
+
+  /* Text */
+  --text-primary:   #d8d9db;
+  --text-secondary: #8a8d92;
+  --text-muted:     #52555a;
+  --text-faint:     #32353a;
+
+  /* Interactive states */
+  --interactive-bg:       #1c1d20;
+  --interactive-hover:    #232528;
+  --interactive-active:   #2a2c30;
+  --interactive-border:   #2e3032;
+  --interactive-focus:    #484a4f;
+
+  /* Active/selected (grey, no blue) */
+  --accent-bg:      #252729;
+  --accent-border:  #404348;
+  --accent-text:    #b0b3b8;
+
+  /* Live indicator (green is data/status, allowed) */
+  --live-color:     #3da85a;
+  --live-bg:        #0d1f12;
+  --live-border:    #1e4a28;
+
+  /* Error */
+  --error-color:    #b94040;
+  --error-bg:       #1a0e0e;
+  --error-border:   #3a1818;
+
+  /* Chart grid */
+  --chart-grid:     #1e2024;
+  --chart-tick:     #52555a;
+  --chart-tooltip-bg:     #1a1b1e;
+  --chart-tooltip-border: #2e3032;
+  --chart-tooltip-title:  #8a8d92;
+  --chart-tooltip-body:   #d8d9db;
+
+  /* Topbar specific */
+  --tb-bg:          #f0f0ef;  /* topbar stays light even in dark mode for contrast */
+  --tb-border:      #d4d4d2;
+  --tb-text:        #1a1a18;
+  --tb-muted:       #9b9b96;
+  --tb-secondary:   #6b6b67;
+  --tb-accent:      #3d7a4f;
+
+  /* Skeleton animation colors */
+  --skeleton-from:  #1a1b1e;
+  --skeleton-to:    #212326;
+}
+
+/* ── Light mode ────────────────────────────────────────────────────────────── */
+html.light {
+  /* Surfaces */
+  --bg-base:        #f4f4f3;
+  --bg-surface:     #ffffff;
+  --bg-elevated:    #fafaf9;
+  --bg-inset:       #eeeeec;
+  --bg-overlay:     #f7f7f6;
+
+  /* Borders */
+  --border-subtle:  #e4e4e2;
+  --border-default: #d8d8d6;
+  --border-strong:  #c0c0be;
+
+  /* Text */
+  --text-primary:   #1a1a18;
+  --text-secondary: #5a5a58;
+  --text-muted:     #909090;
+  --text-faint:     #c4c4c2;
+
+  /* Interactive */
+  --interactive-bg:       #f0f0ee;
+  --interactive-hover:    #e8e8e6;
+  --interactive-active:   #e0e0de;
+  --interactive-border:   #d0d0ce;
+  --interactive-focus:    #a0a09e;
+
+  /* Active/selected */
+  --accent-bg:      #e8e8e6;
+  --accent-border:  #c0c0be;
+  --accent-text:    #2a2a28;
+
+  /* Live */
+  --live-color:     #2d8a47;
+  --live-bg:        #edf7f0;
+  --live-border:    #b0dcc0;
+
+  /* Error */
+  --error-color:    #a03030;
+  --error-bg:       #fdf0f0;
+  --error-border:   #e8c0c0;
+
+  /* Chart */
+  --chart-grid:     #ebebea;
+  --chart-tick:     #909090;
+  --chart-tooltip-bg:     #ffffff;
+  --chart-tooltip-border: #d8d8d6;
+  --chart-tooltip-title:  #6a6a68;
+  --chart-tooltip-body:   #1a1a18;
+
+  /* Topbar in light mode */
+  --tb-bg:          #e8e8e6;
+  --tb-border:      #ccccc8;
+  --tb-text:        #1a1a18;
+  --tb-muted:       #808078;
+  --tb-secondary:   #505048;
+  --tb-accent:      #2d6a3f;
+
+  /* Skeleton */
+  --skeleton-from:  #e8e8e6;
+  --skeleton-to:    #f0f0ee;
+}
+
+/* ── Base resets ───────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  margin: 0;
+  font-family: 'DM Mono', 'Fira Mono', monospace;
+  transition: background 0.2s, color 0.2s;
+}
