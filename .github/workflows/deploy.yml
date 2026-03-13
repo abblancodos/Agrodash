@@ -1,0 +1,73 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Frontend (SvelteKit) ──────────────────────────────────────────────────
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+        env:
+          VITE_API_BASE: https://api-agrodash.nm.35-208-114-233.nip.io
+
+      # ── Backend (Rust) ────────────────────────────────────────────────────────
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/rust
+
+      - name: Install cross-compilation linker
+        run: sudo apt-get install -y gcc-x86-64-linux-gnu
+
+      - name: Build API
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+        working-directory: src/rust
+        env:
+          SQLX_OFFLINE: "true"
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: x86_64-linux-gnu-gcc
+
+      # ── Deploy ────────────────────────────────────────────────────────────────
+      - name: Copy frontend to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: build/*
+          target: /var/www/agrodash
+          strip_components: 1
+
+      - name: Copy API binary to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: src/rust/target/x86_64-unknown-linux-gnu/release/agrodash-api
+          target: /opt/agrodash-api
+          strip_components: 5
+
+      - name: Restart API service
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            sudo systemctl restart agrodash-api
