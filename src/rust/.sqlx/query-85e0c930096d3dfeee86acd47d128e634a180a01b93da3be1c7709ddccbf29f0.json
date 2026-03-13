@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT r.value::float8 AS \"value!\"\n        FROM readings r\n        JOIN sensors  s ON s.id = r.sensor_id\n        WHERE LOWER(s.type) IN ('temperatura', 'temperature', 'air temperature (°c)', 't')\n        ORDER BY r.created_at DESC\n        LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value!",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "85e0c930096d3dfeee86acd47d128e634a180a01b93da3be1c7709ddccbf29f0"
+}

@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            b.id      AS box_id,\n            b.name    AS box_name,\n            s.id      AS \"sensor_id?: uuid::Uuid\",\n            s.sensor_number AS \"sensor_number?: i32\",\n            s.type    AS \"sensor_type?: String\"\n        FROM boxes b\n        LEFT JOIN sensors s ON s.box_id = b.id\n        ORDER BY b.name, s.sensor_number, s.type\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "box_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "box_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "sensor_id?: uuid::Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "sensor_number?: i32",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "sensor_type?: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "187587ed68fcb7a932463479ec51c6a0991983405ce6488faa6e1184556e94d8"
+}

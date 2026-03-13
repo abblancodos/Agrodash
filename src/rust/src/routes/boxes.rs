@@ -1,7 +1,3 @@
-// src/routes/boxes.rs
-// GET /api/v1/boxes
-// Devuelve todas las cajas con sus sensores anidados.
-
 use axum::{extract::State, http::StatusCode, Json};
 use sqlx::PgPool;
 
@@ -10,16 +6,14 @@ use crate::models::{BoxResponse, SensorResponse};
 pub async fn get_boxes(
     State(pool): State<PgPool>,
 ) -> Result<Json<Vec<BoxResponse>>, (StatusCode, String)> {
-    // Traemos boxes y sensors en una sola query con JOIN.
-    // Usamos query! (no query_as!) para poder manejar el join manualmente.
     let rows = sqlx::query!(
         r#"
         SELECT
             b.id      AS box_id,
             b.name    AS box_name,
-            s.id      AS sensor_id,
-            s.sensor_number,
-            s.type    AS sensor_type
+            s.id      AS "sensor_id?: uuid::Uuid",
+            s.sensor_number AS "sensor_number?: i32",
+            s.type    AS "sensor_type?: String"
         FROM boxes b
         LEFT JOIN sensors s ON s.box_id = b.id
         ORDER BY b.name, s.sensor_number, s.type
@@ -29,19 +23,19 @@ pub async fn get_boxes(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Agrupamos manualmente en Rust: [row] → Vec<BoxResponse>
-    // Más explícito que JSON aggregation en SQL, más fácil de debuggear.
     let mut boxes: Vec<BoxResponse> = Vec::new();
 
     for row in rows {
-        // ¿Ya existe esta caja en el vec?
-        let entry = boxes.iter_mut().find(|b| b.id == row.box_id);
+        let sensor = match (row.sensor_id, row.sensor_number, row.sensor_type) {
+            (Some(sid), Some(num), Some(typ)) => Some(SensorResponse {
+                id:            sid,
+                sensor_number: num,
+                sensor_type:   typ,
+            }),
+            _ => None,
+        };
 
-        let sensor = row.sensor_id.map(|sid| SensorResponse {
-            id:            sid,
-            sensor_number: row.sensor_number.unwrap_or(0),
-            sensor_type:   row.sensor_type.unwrap_or_default(),
-        });
+        let entry = boxes.iter_mut().find(|b| b.id == row.box_id);
 
         match entry {
             Some(b) => {
