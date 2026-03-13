@@ -1,0 +1,15 @@
+[Unit]
+Description=AgroDash API
+After=network.target
+
+[Service]
+User=abblancodos
+ExecStart=/opt/agrodash-api/agrodash-api
+WorkingDirectory=/opt/agrodash-api
+Environment=PORT=3000
+Environment=DATABASE_URL=__DATABASE_URL__
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
