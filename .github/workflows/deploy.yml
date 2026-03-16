@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 jobs:
-  # ── Job 1: regenerar sqlx cache si cambió código Rust ──────────────────────
+  # ── Job 1: regenerar sqlx cache en el VPS ──────────────────────────────────
   sqlx-prepare:
     runs-on: ubuntu-latest
 
@@ -42,7 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main  # pull latest including possible sqlx cache commit
+          ref: main
 
       # ── Frontend (SvelteKit) ────────────────────────────────────────────────
       - uses: actions/setup-node@v4
@@ -89,6 +89,16 @@ jobs:
           strip_components: 1
           overwrite: true
 
+      - name: Stop API container
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /root
+            docker compose -f docker-compose.yml stop agrodash-api
+
       - name: Copy API binary to server
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -100,11 +110,12 @@ jobs:
           strip_components: 5
           overwrite: true
 
-      - name: Copy service file and restart
+      - name: Start API container
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            docker compose -f /root/docker-compose.yml up -d --force-recreate agrodash-api
+            cd /root
+            docker compose -f docker-compose.yml up -d agrodash-api
