@@ -72,6 +72,5 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            cd /root
-            docker compose -f docker-compose.yml pull agrodash-api 2>/dev/null || true
-            docker compose -f docker-compose.yml up -d --force-recreate agrodash-api
+            docker compose -f /root/docker-compose.yml pull agrodash-api 2>/dev/null || true
+            docker compose -f /root/docker-compose.yml up -d --force-recreate agrodash-api
