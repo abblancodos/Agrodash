@@ -1,6 +1,4 @@
 // src/routes/readings.rs
-// GET /api/v1/readings?sensor_id=&from=&to=&points=
-// GET /api/v1/readings/time-range
 
 use axum::{
     extract::{Query, State},
@@ -12,16 +10,10 @@ use sqlx::PgPool;
 use crate::models::{ReadingBucket, ReadingsQuery, TemperatureResponse, TimeRange};
 
 /// GET /api/v1/readings
-///
-/// Devuelve lecturas submuestreadas para un sensor en un rango de tiempo.
-/// El bucket size se calcula automáticamente según el rango y los puntos pedidos,
-/// así el frontend siempre recibe ~points puntos sin importar el zoom.
 pub async fn get_readings(
     State(pool): State<PgPool>,
     Query(params): Query<ReadingsQuery>,
 ) -> Result<Json<Vec<ReadingBucket>>, (StatusCode, String)> {
-    // Calculamos el intervalo de bucket en segundos.
-    // Ej: rango de 24h con 300 puntos → bucket de ~288 segundos (~5 min).
     let range_secs = (params.to - params.from).num_seconds().max(1);
     let bucket_secs = (range_secs / params.points).max(1);
 
@@ -57,8 +49,7 @@ pub async fn get_readings(
 
 /// GET /api/v1/readings/time-range
 ///
-/// Devuelve el primer y último timestamp con datos en toda la base.
-/// El frontend lo usa para inicializar el rango del date picker.
+/// Filtra fechas razonables (entre 2020 y 2030) para excluir datos basura en la DB.
 pub async fn get_time_range(
     State(pool): State<PgPool>,
 ) -> Result<Json<TimeRange>, (StatusCode, String)> {
@@ -69,6 +60,7 @@ pub async fn get_time_range(
             MIN(created_at) AS "first!: chrono::NaiveDateTime",
             MAX(created_at) AS "last!:  chrono::NaiveDateTime"
         FROM readings
+        WHERE created_at BETWEEN '2020-01-01' AND NOW()
         "#
     )
     .fetch_one(&pool)
@@ -80,8 +72,7 @@ pub async fn get_time_range(
 
 /// GET /api/v1/environment/temperature
 ///
-/// Devuelve la lectura más reciente de cualquier sensor de tipo temperatura.
-/// El Topbar lo usa para mostrar la temperatura ambiente actual.
+/// Lectura más reciente de sensores de temperatura, dentro del rango válido.
 pub async fn get_temperature(
     State(pool): State<PgPool>,
 ) -> Result<Json<TemperatureResponse>, (StatusCode, String)> {
@@ -91,6 +82,8 @@ pub async fn get_temperature(
         FROM readings r
         JOIN sensors  s ON s.id = r.sensor_id
         WHERE LOWER(s.type) IN ('temperatura', 'temperature', 'air temperature (°c)', 't')
+          AND r.created_at BETWEEN '2020-01-01' AND NOW()
+          AND r.value BETWEEN -10 AND 60
         ORDER BY r.created_at DESC
         LIMIT 1
         "#
