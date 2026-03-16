@@ -7,7 +7,7 @@ use axum::{
 };
 use sqlx::PgPool;
 
-use crate::models::{ReadingBucket, ReadingsQuery, TemperatureResponse, TimeRange};
+use crate::models::{LastReadingQuery, ReadingBucket, ReadingsQuery, TemperatureResponse, TimeRange};
 
 /// GET /api/v1/readings
 pub async fn get_readings(
@@ -95,4 +95,32 @@ pub async fn get_temperature(
     Ok(Json(TemperatureResponse {
         temperature_c: row.value,
     }))
+}
+
+/// GET /api/v1/readings/last?sensor_id=
+///
+/// Devuelve la última lectura conocida de un sensor, sin importar el rango.
+pub async fn get_last_reading(
+    State(pool): State<PgPool>,
+    Query(params): Query<LastReadingQuery>,
+) -> Result<Json<Option<ReadingBucket>>, (StatusCode, String)> {
+    let row = sqlx::query_as!(
+        ReadingBucket,
+        r#"
+        SELECT
+            created_at AS "bucket!: chrono::NaiveDateTime",
+            value::float8 AS "value!: f64"
+        FROM readings
+        WHERE sensor_id = $1
+          AND created_at BETWEEN '2020-01-01' AND NOW()
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#,
+        params.sensor_id,
+    )
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(row))
 }

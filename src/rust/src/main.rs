@@ -50,6 +50,7 @@ async fn main() {
         .route("/api/v1/boxes", get(routes::boxes::get_boxes))
         // Readings — el orden importa: /time-range debe ir antes de /
         .route("/api/v1/readings/time-range",      get(routes::readings::get_time_range))
+        .route("/api/v1/readings/last",             get(routes::readings::get_last_reading))
         .route("/api/v1/readings",                 get(routes::readings::get_readings))
         .route("/api/v1/environment/temperature",  get(routes::readings::get_temperature))
         // Middlewares

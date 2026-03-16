@@ -1,8 +1,4 @@
 <script lang="ts">
-
-  export const prerender = true;
-  export const ssr = false;	
-
   import '$lib/theme.css';
   import favicon from '$lib/assets/favicon.svg';
   import Topbar from '$lib/components/Topbar.svelte';

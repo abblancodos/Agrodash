@@ -85,3 +85,9 @@ pub struct ReadingsQuery {
 }
 
 fn default_points() -> i64 { 300 }
+
+/// Query params de GET /api/v1/readings/last
+#[derive(Debug, Deserialize)]
+pub struct LastReadingQuery {
+    pub sensor_id: Uuid,
+}

@@ -140,3 +140,14 @@ export async function fetchTimeRange(): Promise<TimeRange> {
   const data = await res.json();
   return { first: new Date(data.first), last: new Date(data.last) };
 }
+
+export interface LastReading {
+  bucket: string;
+  value: number;
+}
+
+export async function fetchLastReading(sensorId: string): Promise<LastReading | null> {
+  const res = await fetch(`${API_BASE}/api/v1/readings/last?sensor_id=${sensorId}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}

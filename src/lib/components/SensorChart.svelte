@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { fetchReadings, sensorColor, normaliseSensorLabel, type Reading } from '$lib/api';
+  import { fetchReadings, fetchLastReading, sensorColor, normaliseSensorLabel, type Reading } from '$lib/api';
 
   interface Props {
     sensorId: string; sensorType: string; label?: string;
@@ -13,20 +13,36 @@
   let loading = $state(true);
   let error = $state('');
   let lastValue = $state<number | null>(null);
+  let lastTimestamp = $state<string | null>(null);
+  let empty = $state(false);
 
   const displayLabel = label ?? normaliseSensorLabel(sensorType);
   const color = sensorColor(sensorType);
 
-  // Read CSS variable values at runtime so chart respects current theme
   function cssVar(name: string) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }
 
   async function loadData() {
-    loading = true; error = '';
+    loading = true; error = ''; empty = false;
     try {
       const readings: Reading[] = await fetchReadings(sensorId, sensorType, from, to);
-      lastValue = readings.length ? readings[readings.length - 1].value : null;
+      if (readings.length === 0) {
+        empty = true;
+        const last = await fetchLastReading(sensorId);
+        if (last) {
+          lastValue = last.value;
+          lastTimestamp = new Date(last.bucket + 'Z').toLocaleString('es-CR', {
+            day: '2-digit', month: '2-digit', year: '2-digit',
+            hour: '2-digit', minute: '2-digit',
+          });
+        }
+        if (chart) { chart.destroy(); chart = null; }
+        return;
+      }
+      lastValue = readings[readings.length - 1].value;
+      lastTimestamp = null;
+      empty = false;
       renderChart(readings);
     } catch (e: any) { error = e.message ?? 'Error'; }
     finally { loading = false; }
@@ -35,7 +51,7 @@
   function renderChart(readings: Reading[]) {
     if (!canvas) return;
     const labels = readings.map(r =>
-      new Date(r.bucket).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })
+      new Date(r.bucket + 'Z').toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })
     );
     const data = readings.map(r => r.value);
 
@@ -107,12 +123,19 @@
   <div class="sc__header">
     <span class="sc__dot" style="background:{color}"></span>
     <span class="sc__label">{displayLabel}</span>
-    {#if lastValue !== null}<span class="sc__value">{lastValue.toFixed(2)}</span>{/if}
+    {#if lastValue !== null && !empty}<span class="sc__value">{lastValue.toFixed(2)}</span>{/if}
     {#if live}<span class="sc__live">LIVE</span>{/if}
   </div>
   <div class="sc__body">
     {#if loading && !chart}<div class="sc__skeleton"></div>
     {:else if error}<div class="sc__error">{error}</div>
+    {:else if empty}
+      <div class="sc__empty">
+        <span class="sc__empty-main">Sin datos en el rango seleccionado</span>
+        {#if lastTimestamp}
+          <span class="sc__empty-last">Último dato: {lastTimestamp} · {lastValue?.toFixed(2)}</span>
+        {/if}
+      </div>
     {:else}<canvas bind:this={canvas}></canvas>{/if}
   </div>
 </div>
@@ -135,4 +158,17 @@
   @keyframes shimmer { 0%{background-position:200% center}100%{background-position:-200% center} }
 
   .sc__error { display:flex; align-items:center; justify-content:center; height:100%; font-size:10px; font-family:'DM Mono',monospace; color:var(--error-color); }
+
+  .sc__empty {
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    height:100%; gap:4px;
+  }
+  .sc__empty-main {
+    font-size:9.5px; font-family:'DM Mono',monospace; letter-spacing:.05em;
+    color:var(--text-faint);
+  }
+  .sc__empty-last {
+    font-size:8.5px; font-family:'DM Mono',monospace; letter-spacing:.04em;
+    color:var(--text-faint); opacity:.7;
+  }
 </style>

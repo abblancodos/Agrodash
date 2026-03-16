@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { fetchBoxes, fetchTimeRange, type Box } from '$lib/api';
   import BoxCard from '$lib/components/BoxCard.svelte';
+  import BoxSelector from '$lib/components/BoxSelector.svelte';
   import DateTimePicker from '$lib/components/DateTimePicker.svelte';
 
   let boxes = $state<Box[]>([]);
@@ -16,11 +17,16 @@
   let rangeLoading = $state(false);
   let rangeError   = $state(false);
 
+  // Box selection — starts empty, filled after boxes load
+  let selectedBoxIds = $state<Set<string>>(new Set());
+
   async function loadTimeRange() {
     rangeLoading = true; rangeError = false;
     try {
       const { first, last } = await fetchTimeRange();
-      minDate = first; maxDate = last; toDate = last;
+      minDate = first; maxDate = last;
+      toDate = last;
+      fromDate = new Date(last.getTime() - 24 * 60 * 60 * 1000);
     } catch { rangeError = true; }
     finally { rangeLoading = false; }
   }
@@ -44,14 +50,18 @@
   let search = $state('');
 
   const filteredBoxes = $derived(
-    search.trim()
-      ? boxes.filter(b => b.name.toLowerCase().includes(search.toLowerCase()))
-      : boxes
+    boxes.filter(b =>
+      selectedBoxIds.has(b.id) &&
+      (!search.trim() || b.name.toLowerCase().includes(search.toLowerCase()))
+    )
   );
 
   onMount(async () => {
     await Promise.all([
-      fetchBoxes().then(b => boxes = b).catch(e => error = e.message),
+      fetchBoxes().then(b => {
+        boxes = b;
+        selectedBoxIds = new Set(b.length ? [b[0].id] : []);
+      }).catch(e => error = e.message),
       loadTimeRange(),
     ]);
     loading = false;
@@ -97,6 +107,15 @@
       <span class="live-btn__dot"></span>
       {live ? 'LIVE ON' : 'LIVE OFF'}
     </button>
+
+    <!-- Box selector -->
+    {#if !loading && boxes.length}
+      <BoxSelector
+        {boxes}
+        selected={selectedBoxIds}
+        onchange={(s) => selectedBoxIds = s}
+      />
+    {/if}
   </div>
 
   {#if !loading}
@@ -114,8 +133,8 @@
       {#each Array(4) as _}<div class="skeleton"></div>{/each}
     {:else if error}
       <div class="error-msg">Error: {error}</div>
-    {:else if filteredBoxes.length === 0}
-      <div class="error-msg">Sin resultados para "{search}"</div>
+    {:else if filteredBoxes.length === 0 && boxes.length > 0}
+      <div class="error-msg">Sin cajas seleccionadas{search ? ` que coincidan con "${search}"` : ''}.</div>
     {:else}
       {#each filteredBoxes as box (box.id)}<BoxCard {box} from={fromDate} to={toDate} {live} />{/each}
     {/if}
