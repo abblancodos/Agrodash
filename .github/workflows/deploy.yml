@@ -22,7 +22,9 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             cd ~/Agrodash
+            git stash
             git pull --rebase
+            git stash pop || true
             cd src/rust
             source ~/.cargo/env
             cargo sqlx prepare
@@ -30,7 +32,7 @@ jobs:
             git config user.name "CI Bot"
             git add .sqlx
             git diff --cached --quiet || git commit -m "chore: update sqlx cache [skip ci]"
-            git push
+            git push --force-with-lease
 
   # ── Job 2: build y deploy ──────────────────────────────────────────────────
   deploy:
