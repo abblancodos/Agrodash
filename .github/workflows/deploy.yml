@@ -72,11 +72,6 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            # Instalar service file si no existe
-            if [ ! -f /etc/systemd/system/agrodash-api.service ]; then
-              sudo cp /opt/agrodash-api/agrodash-api.service /etc/systemd/system/
-              sudo sed -i "s|__DATABASE_URL__|postgres://postgres:${{ secrets.DB_PASSWORD }}@100.104.63.3:5432/control|g" /etc/systemd/system/agrodash-api.service
-              sudo systemctl daemon-reload
-              sudo systemctl enable agrodash-api
-            fi
-            sudo systemctl restart agrodash-api
+            cd /root
+            docker compose -f docker-compose.yml pull agrodash-api 2>/dev/null || true
+            docker compose -f docker-compose.yml up -d --force-recreate agrodash-api
