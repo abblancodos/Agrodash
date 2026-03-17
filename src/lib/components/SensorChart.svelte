@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onDestroy } from 'svelte';
+  import Chart from 'chart.js/auto';
   import { fetchReadings, fetchLastReading, sensorColor, normaliseSensorLabel, type Reading } from '$lib/api';
 
   interface Props {
@@ -8,7 +9,7 @@
   }
   let { sensorId, sensorType, label, from, to, live = false }: Props = $props();
 
-  let canvas: HTMLCanvasElement;
+  let canvas = $state<HTMLCanvasElement | null>(null);
   let chart: any = null;
   let loading = $state(true);
   let error = $state('');
@@ -23,35 +24,10 @@
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }
 
-  async function loadData() {
-    loading = true; error = ''; empty = false;
-    try {
-      const readings: Reading[] = await fetchReadings(sensorId, sensorType, from, to);
-      if (readings.length === 0) {
-        empty = true;
-        const last = await fetchLastReading(sensorId);
-        if (last) {
-          lastValue = last.value;
-          lastTimestamp = new Date(last.bucket + 'Z').toLocaleString('es-CR', {
-            day: '2-digit', month: '2-digit', year: '2-digit',
-            hour: '2-digit', minute: '2-digit',
-          });
-        }
-        if (chart) { chart.destroy(); chart = null; }
-        return;
-      }
-      lastValue = readings[readings.length - 1].value;
-      lastTimestamp = null;
-      empty = false;
-      renderChart(readings);
-    } catch (e: any) { error = e.message ?? 'Error'; }
-    finally { loading = false; }
-  }
-
   function renderChart(readings: Reading[]) {
     if (!canvas) return;
     const labels = readings.map(r =>
-      new Date(r.bucket + 'Z').toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })
+      new Date(r.bucket).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit', hour12: false })
     );
     const data = readings.map(r => r.value);
 
@@ -62,61 +38,99 @@
       return;
     }
 
-    import('chart.js/auto').then(({ default: Chart }) => {
-      if (chart) chart.destroy();
-      chart = new Chart(canvas, {
-        type: 'line',
-        data: {
-          labels,
-          datasets: [{
-            label: displayLabel, data,
-            borderColor: color,
-            backgroundColor: color + '18',
-            borderWidth: 1.5,
-            pointRadius: readings.length > 80 ? 0 : 2,
-            pointHoverRadius: 4,
-            fill: true, tension: 0.3,
-          }],
-        },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          animation: { duration: 300 },
-          interaction: { mode: 'index', intersect: false },
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              backgroundColor: cssVar('--chart-tooltip-bg'),
-              titleColor: cssVar('--chart-tooltip-title'),
-              bodyColor: cssVar('--chart-tooltip-body'),
-              borderColor: cssVar('--chart-tooltip-border'),
-              borderWidth: 1, padding: 8,
-              callbacks: { label: (ctx: any) => ` ${ctx.parsed.y.toFixed(3)}` },
-            },
-          },
-          scales: {
-            x: {
-              ticks: { color: cssVar('--chart-tick'), font: { size: 9, family: "'DM Mono',monospace" }, maxTicksLimit: 6, maxRotation: 0 },
-              grid: { color: cssVar('--chart-grid') }, border: { color: cssVar('--chart-grid') },
-            },
-            y: {
-              ticks: { color: cssVar('--chart-tick'), font: { size: 9, family: "'DM Mono',monospace" }, maxTicksLimit: 4 },
-              grid: { color: cssVar('--chart-grid') }, border: { color: cssVar('--chart-grid') },
-            },
+    chart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: displayLabel, data,
+          borderColor: color,
+          backgroundColor: color + '18',
+          borderWidth: 1.5,
+          pointRadius: readings.length > 80 ? 0 : 2,
+          pointHoverRadius: 4,
+          fill: true, tension: 0.3,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: { duration: 300 },
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: cssVar('--chart-tooltip-bg'),
+            titleColor: cssVar('--chart-tooltip-title'),
+            bodyColor: cssVar('--chart-tooltip-body'),
+            borderColor: cssVar('--chart-tooltip-border'),
+            borderWidth: 1, padding: 8,
+            callbacks: { label: (ctx: any) => ` ${ctx.parsed.y.toFixed(3)}` },
           },
         },
-      });
+        scales: {
+          x: {
+            ticks: { color: cssVar('--chart-tick'), font: { size: 9, family: "'DM Mono',monospace" }, maxTicksLimit: 6, maxRotation: 0 },
+            grid: { color: cssVar('--chart-grid') }, border: { color: cssVar('--chart-grid') },
+          },
+          y: {
+            ticks: { color: cssVar('--chart-tick'), font: { size: 9, family: "'DM Mono',monospace" }, maxTicksLimit: 4 },
+            grid: { color: cssVar('--chart-grid') }, border: { color: cssVar('--chart-grid') },
+          },
+        },
+      },
     });
   }
 
   let liveInterval: ReturnType<typeof setInterval> | null = null;
+  let rafId: number | null = null;
+
+  async function loadData() {
+    loading = true; error = ''; empty = false;
+    try {
+      const readings: Reading[] = await fetchReadings(sensorId, sensorType, from, to);
+      if (readings.length === 0) {
+        empty = true;
+        if (chart) { chart.destroy(); chart = null; }
+        const last = await fetchLastReading(sensorId);
+        if (last) {
+          lastValue = last.value;
+          lastTimestamp = new Date(last.bucket).toLocaleString('es-CR', {
+            day: '2-digit', month: '2-digit', year: '2-digit',
+            hour: '2-digit', minute: '2-digit',
+          });
+        }
+        return;
+      }
+      lastValue = readings[readings.length - 1].value;
+      lastTimestamp = null;
+      empty = false;
+      // Use rAF to ensure canvas is in DOM after loading=false triggers re-render
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        rafId = requestAnimationFrame(() => {
+          renderChart(readings);
+        });
+      });
+    } catch (e: any) { error = e.message ?? 'Error'; }
+    finally { loading = false; }
+  }
 
   $effect(() => {
+    // Re-run when from/to/sensorId change
+    void from; void to; void sensorId;
     loadData();
     if (live) liveInterval = setInterval(loadData, 15_000);
-    return () => { if (liveInterval) clearInterval(liveInterval); };
+    return () => {
+      if (liveInterval) clearInterval(liveInterval);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   });
 
-  onDestroy(() => { chart?.destroy(); if (liveInterval) clearInterval(liveInterval); });
+  onDestroy(() => {
+    chart?.destroy();
+    if (liveInterval) clearInterval(liveInterval);
+    if (rafId) cancelAnimationFrame(rafId);
+  });
 </script>
 
 <div class="sc">
@@ -136,7 +150,9 @@
           <span class="sc__empty-last">Último dato: {lastTimestamp} · {lastValue?.toFixed(2)}</span>
         {/if}
       </div>
-    {:else}<canvas bind:this={canvas}></canvas>{/if}
+    {:else}
+      <canvas bind:this={canvas}></canvas>
+    {/if}
   </div>
 </div>
 
@@ -165,10 +181,10 @@
   }
   .sc__empty-main {
     font-size:9.5px; font-family:'DM Mono',monospace; letter-spacing:.05em;
-    color:var(--text-faint);
+    color:var(--text-muted);
   }
   .sc__empty-last {
     font-size:8.5px; font-family:'DM Mono',monospace; letter-spacing:.04em;
-    color:var(--text-faint); opacity:.7;
+    color:var(--text-muted); opacity:.6;
   }
 </style>

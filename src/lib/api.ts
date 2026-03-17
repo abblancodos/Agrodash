@@ -112,10 +112,11 @@ export async function fetchReadings(
   to: Date,
   points = 300,
 ): Promise<Reading[]> {
+  const fmt = (d: Date) => d.toISOString().slice(0, 19) + 'Z';
   const params = new URLSearchParams({
     sensor_id: sensorId,
-    from: from.toISOString(),
-    to: to.toISOString(),
+    from: fmt(from),
+    to:   fmt(to),
     points: String(points),
   });
   const res = await fetch(`${API_BASE}/api/v1/readings?${params}`);
@@ -138,7 +139,7 @@ export async function fetchTimeRange(): Promise<TimeRange> {
   const res = await fetch(`${API_BASE}/api/v1/readings/time-range`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
-  return { first: new Date(data.first), last: new Date(data.last) };
+  return { first: new Date(data.first + 'Z'), last: new Date(data.last + 'Z') };
 }
 
 export interface LastReading {

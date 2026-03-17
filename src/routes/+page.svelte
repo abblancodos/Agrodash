@@ -3,6 +3,7 @@
   import { fetchBoxes, fetchTimeRange, type Box } from '$lib/api';
   import BoxCard from '$lib/components/BoxCard.svelte';
   import BoxSelector from '$lib/components/BoxSelector.svelte';
+  import TypeSelector from '$lib/components/TypeSelector.svelte';
   import DateTimePicker from '$lib/components/DateTimePicker.svelte';
 
   let boxes = $state<Box[]>([]);
@@ -19,6 +20,9 @@
 
   // Box selection — starts empty, filled after boxes load
   let selectedBoxIds = $state<Set<string>>(new Set());
+
+  // Type selection — all types active by default
+  let activeTypes = $state<Set<string>>(new Set());
 
   async function loadTimeRange() {
     rangeLoading = true; rangeError = false;
@@ -61,6 +65,8 @@
       fetchBoxes().then(b => {
         boxes = b;
         selectedBoxIds = new Set(b.length ? [b[0].id] : []);
+        // Collect all unique types across all boxes
+        activeTypes = new Set(b.flatMap(box => box.sensors.map(s => s.type.toLowerCase())));
       }).catch(e => error = e.message),
       loadTimeRange(),
     ]);
@@ -115,6 +121,11 @@
         selected={selectedBoxIds}
         onchange={(s) => selectedBoxIds = s}
       />
+      <TypeSelector
+        {boxes}
+        selected={activeTypes}
+        onchange={(s) => activeTypes = s}
+      />
     {/if}
   </div>
 
@@ -136,7 +147,7 @@
     {:else if filteredBoxes.length === 0 && boxes.length > 0}
       <div class="error-msg">Sin cajas seleccionadas{search ? ` que coincidan con "${search}"` : ''}.</div>
     {:else}
-      {#each filteredBoxes as box (box.id)}<BoxCard {box} from={fromDate} to={toDate} {live} />{/each}
+      {#each filteredBoxes as box (box.id)}<BoxCard {box} from={fromDate} to={toDate} {live} {activeTypes} />{/each}
     {/if}
   </div>
 </main>

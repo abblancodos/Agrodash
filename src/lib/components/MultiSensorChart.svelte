@@ -1,6 +1,10 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onDestroy } from 'svelte';
+  import Chart from 'chart.js/auto';
   import { fetchReadings, sensorColor, normaliseSensorLabel, type Sensor, type Reading } from '$lib/api';
+
+  // zoom plugin registered lazily on first render (hammerjs requires browser)
+  let zoomRegistered = false;
   // chartjs-adapter-date-fns is required for the time scale.
   // Install with: npm install chartjs-adapter-date-fns date-fns
 
@@ -10,7 +14,7 @@
   }
   let { sensors, from, to, live = false, onRangeChange }: Props = $props();
 
-  let canvas: HTMLCanvasElement;
+  let canvas = $state<HTMLCanvasElement | null>(null);
   let chart: any = null;
   let loading = $state(true);
   let error = $state('');
@@ -32,13 +36,20 @@
 
   let datasets: { sensor: Sensor; readings: Reading[] }[] = [];
 
+  let rafId: number | null = null;
+
   async function loadAll() {
     loading = true; error = '';
     try {
       datasets = await Promise.all(
         sensors.map(async s => ({ sensor: s, readings: await fetchReadings(s.id, s.type, from, to) }))
       );
-      renderChart();
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        rafId = requestAnimationFrame(() => {
+          renderChart(); // async but we don't need to await here
+        });
+      });
     } catch (e: any) { error = e.message ?? 'Error'; }
     finally { loading = false; }
   }
@@ -73,19 +84,17 @@
     };
   }
 
+  async function registerZoom() {
+    if (zoomRegistered) return;
+    const { default: zoomPlugin } = await import('chartjs-plugin-zoom');
+    Chart.register(zoomPlugin);
+    Chart.register(makeCrosshairPlugin(cssVar));
+    zoomRegistered = true;
+  }
+
   async function renderChart() {
     if (!canvas) return;
-    const [{ default: Chart }, { default: zoomPlugin }] = await Promise.all([
-      import('chart.js/auto'),
-      import('chartjs-plugin-zoom'),
-      import('chartjs-adapter-date-fns'), // registers itself automatically
-    ]);
-    Chart.register(zoomPlugin);
-
-    // Register crosshair once
-    if (!Chart.registry.plugins.get('agro-crosshair')) {
-      Chart.register(makeCrosshairPlugin(cssVar));
-    }
+    await registerZoom();
 
     // Shared time axis — union of all buckets, sorted
     const allTimes = [...new Set(datasets.flatMap(d => d.readings.map(r => r.bucket)))].sort();
@@ -139,18 +148,10 @@
     return {
       responsive: true,
       maintainAspectRatio: false,
-      animation: false,          // ← kill animation entirely; zoom would queue hundreds of frames
-      parsing: false,            // data is pre-parsed as {x,y}
-      normalized: true,          // data is already sorted and normalized
+      animation: false,
       interaction: { mode: 'index', intersect: false, axis: 'x' },
       plugins: {
         legend: { display: false },
-        decimation: {
-          enabled: true,
-          algorithm: 'lttb',     // Largest-Triangle-Three-Buckets — best quality/perf tradeoff
-          samples: 300,          // max points rendered per dataset at any zoom level
-          threshold: 300,
-        },
         tooltip: {
           animation: false,
           mode: 'index',
@@ -251,9 +252,16 @@
   $effect(() => {
     loadAll();
     if (live) liveInterval = setInterval(loadAll, 15_000);
-    return () => { if (liveInterval) clearInterval(liveInterval); };
+    return () => {
+      if (liveInterval) clearInterval(liveInterval);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   });
-  onDestroy(() => { chart?.destroy(); if (liveInterval) clearInterval(liveInterval); });
+  onDestroy(() => {
+    chart?.destroy();
+    if (liveInterval) clearInterval(liveInterval);
+    if (rafId) cancelAnimationFrame(rafId);
+  });
 </script>
 
 <svelte:window onclick={handleOutside} />
