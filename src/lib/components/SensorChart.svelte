@@ -197,10 +197,10 @@
   }
   .sc__empty-main {
     font-size:9.5px; font-family:'DM Mono',monospace; letter-spacing:.05em;
-    color:var(--text-muted);
+    color:var(--text-secondary);
   }
   .sc__empty-last {
     font-size:8.5px; font-family:'DM Mono',monospace; letter-spacing:.04em;
-    color:var(--text-muted); opacity:.6;
+    color:var(--text-secondary); opacity:.8;
   }
 </style>

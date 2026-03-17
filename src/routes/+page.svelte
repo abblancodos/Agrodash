@@ -114,13 +114,7 @@
       {live ? 'LIVE ON' : 'LIVE OFF'}
     </button>
 
-    <!-- Box selector -->
     {#if !loading && boxes.length}
-      <BoxSelector
-        {boxes}
-        selected={selectedBoxIds}
-        onchange={(s) => selectedBoxIds = s}
-      />
       <TypeSelector
         {boxes}
         selected={activeTypes}
@@ -139,13 +133,23 @@
     </div>
   {/if}
 
+  {#if !loading && boxes.length}
+    <div class="box-selector-bar">
+      <BoxSelector
+        {boxes}
+        selected={selectedBoxIds}
+        onchange={(s) => selectedBoxIds = s}
+      />
+    </div>
+  {/if}
+
   <div class="box-grid">
     {#if loading}
       {#each Array(4) as _}<div class="skeleton"></div>{/each}
     {:else if error}
       <div class="error-msg">Error: {error}</div>
     {:else if filteredBoxes.length === 0 && boxes.length > 0}
-      <div class="error-msg">Sin cajas seleccionadas{search ? ` que coincidan con "${search}"` : ''}.</div>
+      <div class="no-selection">Seleccioná una o más cajas para ver los datos.</div>
     {:else}
       {#each filteredBoxes as box (box.id)}<BoxCard {box} from={fromDate} to={toDate} {live} {activeTypes} />{/each}
     {/if}
@@ -195,4 +199,6 @@
   @keyframes shimmer { 0%{background-position:200% center}100%{background-position:-200% center} }
 
   .error-msg { font-size:11px; color:var(--error-color); padding:24px; text-align:center; border:1px solid var(--error-border); border-radius:6px; background:var(--error-bg); }
+  .box-selector-bar { margin-bottom: 12px; }
+  .no-selection { font-size:11px; color:var(--text-faint); padding:48px; text-align:center; font-family:'DM Mono',monospace; letter-spacing:.06em; }
 </style>

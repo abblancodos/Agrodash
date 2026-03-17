@@ -27,19 +27,12 @@
 
   function toggleBox(id: string) {
     const next = new Set(selected);
-    if (next.has(id)) {
-      if (next.size > 1) next.delete(id); // keep at least one
-    } else {
-      next.add(id);
-    }
+    if (next.has(id)) { next.delete(id); } else { next.add(id); }
     onchange(next);
   }
 
   function selectAll() { onchange(new Set(boxes.map(b => b.id))); }
-  function selectNone() {
-    // keep first one selected
-    if (boxes.length) onchange(new Set([boxes[0].id]));
-  }
+  function selectNone() { onchange(new Set()); }
 
   const selectedCount = $derived(selected.size);
 </script>
@@ -55,6 +48,7 @@
     onclick={toggle}
     title="Seleccionar cajas"
   >
+    <span class="bsel__label">Seleccionar cajas</span>
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <rect x="3" y="3" width="7" height="7"/>
       <rect x="14" y="3" width="7" height="7"/>
@@ -107,7 +101,8 @@
   .bsel__btn:hover { background:var(--interactive-hover); color:var(--text-secondary); border-color:var(--border-strong); }
   .bsel__btn--active { background:var(--accent-bg); border-color:var(--accent-border); color:var(--accent-text); }
 
-  .bsel__count { font-variant-numeric:tabular-nums; }
+  .bsel__label { letter-spacing:.04em; margin-right:0.75rem; }
+  .bsel__count { font-variant-numeric:tabular-nums; opacity:.7; }
 
   /* Pulse animation to attract attention on first load */
   .bsel__btn--pulse { border-color:var(--accent-border); }
@@ -131,9 +126,10 @@
     display:flex; flex-direction:column; overflow:hidden;
   }
 
+
   .bsel__header {
     display:flex; align-items:center; justify-content:space-between;
-    padding:10px 12px 8px; border-bottom:1px solid var(--border-subtle); flex-shrink:0;
+    padding:12px 14px 10px; border-bottom:1px solid var(--border-subtle); flex-shrink:0;
   }
   .bsel__title { font-family:'DM Mono',monospace; font-size:8.5px; letter-spacing:.14em; color:var(--text-faint); }
   .bsel__actions { display:flex; align-items:center; gap:4px; }
@@ -145,10 +141,10 @@
   .bsel__action:hover { color:var(--text-secondary); }
   .bsel__sep { color:var(--border-default); font-size:10px; }
 
-  .bsel__list { overflow-y:auto; padding:6px; display:flex; flex-direction:column; gap:2px; }
+  .bsel__list { overflow-y:auto; padding:8px; display:flex; flex-direction:column; gap:4px; }
 
   .bsel__item {
-    display:flex; align-items:center; gap:8px; padding:6px 8px;
+    display:flex; align-items:center; gap:8px; padding:8px 12px;
     background:none; border:1px solid transparent; border-radius:3px;
     cursor:pointer; transition:all .1s; text-align:left; width:100%;
   }

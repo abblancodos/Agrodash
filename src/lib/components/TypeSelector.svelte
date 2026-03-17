@@ -113,7 +113,7 @@
 
   .tsel__header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 12px 8px; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0;
+    padding:12px 14px 10px; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0;
   }
   .tsel__title { font-family: 'DM Mono', monospace; font-size: 8.5px; letter-spacing: .14em; color: var(--text-faint); }
   .tsel__actions { display: flex; align-items: center; gap: 4px; }
@@ -124,10 +124,10 @@
   .tsel__action:hover { color: var(--text-secondary); }
   .tsel__sep { color: var(--border-default); font-size: 10px; }
 
-  .tsel__list { overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+  .tsel__list { overflow-y: auto; padding:8px; display: flex; flex-direction: column; gap: 2px; }
 
   .tsel__item {
-    display: flex; align-items: center; gap: 7px; padding: 5px 8px;
+    display: flex; align-items: center; gap: 7px; padding: 8px 12px;
     background: none; border: 1px solid transparent; border-radius: 3px;
     cursor: pointer; transition: all .1s; text-align: left; width: 100%;
   }

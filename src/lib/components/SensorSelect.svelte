@@ -26,7 +26,7 @@
     open = !open;
     if (open && btnEl) {
       const r = btnEl.getBoundingClientRect();
-      const panelWidth = 200;
+      const panelWidth = 280;
       const left = Math.min(r.left, window.innerWidth - panelWidth - 8);
       panelStyle = `top:${r.bottom + 6}px;left:${left}px;width:${panelWidth}px;`;
     }
@@ -181,13 +181,13 @@
     position: fixed; z-index: 9999;
     background: var(--bg-overlay); border: 1px solid var(--border-default);
     border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.2);
-    padding: 0.3rem; display: flex; flex-direction: column; gap: 2px;
+    padding: 0.4rem; display: flex; flex-direction: column; gap: 3px;
     max-height: 280px; overflow-y: auto;
   }
 
   .ss__panel-header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 0.375rem 0.5rem 0.25rem;
+    padding:0.5rem 0.75rem 0.25rem;
     border-bottom: 1px solid var(--border-subtle); margin-bottom: 0.2rem;
   }
   .ss__panel-title { font-family: 'DM Mono', monospace; font-size: 0.5rem; letter-spacing: .14em; color: var(--text-faint); }
@@ -210,7 +210,7 @@
 
   .ss__opt-select {
     display: flex; align-items: center; gap: 0.5rem;
-    padding: 0.3rem 0.5rem; border: none; background: none;
+    padding: 0.45rem 0.625rem; border: none; background: none;
     cursor: pointer; flex: 1; text-align: left;
   }
   .ss__opt-num {
