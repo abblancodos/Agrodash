@@ -120,7 +120,7 @@
     });
 
     const labels = allTimes.map(t =>
-      new Date(t).toLocaleString('es-CR', {
+      new Date(t + 'Z').toLocaleString('es-CR', {
         day: '2-digit', month: '2-digit', year: '2-digit',
         hour: '2-digit', minute: '2-digit', second: '2-digit',
       })
@@ -247,6 +247,24 @@
   function handleOutside(e: MouseEvent) {
     if (menuOpen && menuEl && !menuEl.contains(e.target as Node)) menuOpen = false;
   }
+
+  // Update chart colors on theme change
+  $effect(() => {
+    const obs = new MutationObserver(() => {
+      if (!chart) return;
+      const grid = cssVar('--chart-grid');
+      const tick = cssVar('--chart-tick');
+      chart.options.scales.x.ticks.color = tick;
+      chart.options.scales.x.grid.color = grid;
+      chart.options.scales.x.border.color = grid;
+      chart.options.scales.y.ticks.color = tick;
+      chart.options.scales.y.grid.color = grid;
+      chart.options.scales.y.border.color = grid;
+      chart.update('none');
+    });
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => obs.disconnect();
+  });
 
   let liveInterval: ReturnType<typeof setInterval> | null = null;
   $effect(() => {

@@ -7,6 +7,9 @@
    ─────────────────────────────────────────────────────────────────────────────
 */
 
+/* ── Base scale ────────────────────────────────────────────────────────────── */
+html { font-size: 120%; }
+
 /* ── Dark mode (default) ───────────────────────────────────────────────────── */
 :root {
   /* Surfaces */
@@ -50,20 +53,20 @@
   --error-border:   #3a1818;
 
   /* Chart grid */
-  --chart-grid:     #1e2024;
-  --chart-tick:     #52555a;
+  --chart-grid:     #2a2c31;
+  --chart-tick:     #5a5d63;
   --chart-tooltip-bg:     #1a1b1e;
   --chart-tooltip-border: #2e3032;
   --chart-tooltip-title:  #8a8d92;
   --chart-tooltip-body:   #d8d9db;
 
   /* Topbar specific */
-  --tb-bg:          #f0f0ef;  /* topbar stays light even in dark mode for contrast */
-  --tb-border:      #d4d4d2;
-  --tb-text:        #1a1a18;
-  --tb-muted:       #9b9b96;
-  --tb-secondary:   #6b6b67;
-  --tb-accent:      #3d7a4f;
+  --tb-bg:          #2a2c30;
+  --tb-border:      #383a3f;
+  --tb-text:        #c8c9cb;
+  --tb-muted:       #606368;
+  --tb-secondary:   #8a8d92;
+  --tb-accent:      #4a9a62;
 
   /* Skeleton animation colors */
   --skeleton-from:  #1a1b1e;

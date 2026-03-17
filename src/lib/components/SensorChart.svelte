@@ -27,7 +27,7 @@
   function renderChart(readings: Reading[]) {
     if (!canvas) return;
     const labels = readings.map(r =>
-      new Date(r.bucket).toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit', hour12: false })
+      new Date(r.bucket + 'Z').toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit', hour12: false })
     );
     const data = readings.map(r => r.value);
 
@@ -94,7 +94,7 @@
         const last = await fetchLastReading(sensorId);
         if (last) {
           lastValue = last.value;
-          lastTimestamp = new Date(last.bucket).toLocaleString('es-CR', {
+          lastTimestamp = new Date(last.bucket + 'Z').toLocaleString('es-CR', {
             day: '2-digit', month: '2-digit', year: '2-digit',
             hour: '2-digit', minute: '2-digit',
           });
@@ -114,6 +114,22 @@
     } catch (e: any) { error = e.message ?? 'Error'; }
     finally { loading = false; }
   }
+
+  // Update chart colors when theme changes
+  $effect(() => {
+    const obs = new MutationObserver(() => {
+      if (!chart) return;
+      chart.options.scales.x.ticks.color = cssVar('--chart-tick');
+      chart.options.scales.x.grid.color = cssVar('--chart-grid');
+      chart.options.scales.x.border.color = cssVar('--chart-grid');
+      chart.options.scales.y.ticks.color = cssVar('--chart-tick');
+      chart.options.scales.y.grid.color = cssVar('--chart-grid');
+      chart.options.scales.y.border.color = cssVar('--chart-grid');
+      chart.update('none');
+    });
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => obs.disconnect();
+  });
 
   $effect(() => {
     // Re-run when from/to/sensorId change
