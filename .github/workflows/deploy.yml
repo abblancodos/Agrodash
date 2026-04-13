@@ -1,121 +1,66 @@
 name: Deploy
-
 on:
   push:
     branches: [main]
 
 jobs:
-  # ── Job 1: regenerar sqlx cache en el VPS ──────────────────────────────────
   sqlx-prepare:
-    runs-on: ubuntu-latest
-
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GITEA_TOKEN }}
 
-      - name: Run cargo sqlx prepare on VPS and commit
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            cd ~/Agrodash
-            git stash
-            git pull --rebase
-            git stash pop || true
-            cd src/rust
-            source ~/.cargo/env
-            cargo sqlx prepare
-            git config user.email "ci@agrodash"
-            git config user.name "CI Bot"
-            git add .sqlx
-            git diff --cached --quiet || git commit -m "chore: update sqlx cache [skip ci]"
-            git push --force-with-lease
+      - name: cargo sqlx prepare
+        working-directory: src/rust
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          source ~/.cargo/env
+          cargo sqlx prepare
 
-  # ── Job 2: build y deploy ──────────────────────────────────────────────────
+      - name: Commit sqlx cache si cambió
+        run: |
+          git config user.email "ci@agrodash"
+          git config user.name "CI Bot"
+          git add src/rust/.sqlx
+          git diff --cached --quiet || git commit -m "chore: update sqlx cache [skip ci]"
+          git push --force-with-lease
+
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: sqlx-prepare
-
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
 
-      # ── Frontend (SvelteKit) ────────────────────────────────────────────────
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
+      - name: Instalar dependencias frontend
+        run: npm ci
 
-      - run: npm ci
-
-      - run: npm run build
+      - name: Build frontend
         env:
-          VITE_API_BASE: https://api-agrodash.nm.35-208-114-233.nip.io
+          VITE_API_BASE: ${{ secrets.VITE_API_BASE }}
+        run: npm run build
 
-      # ── Backend (Rust) ──────────────────────────────────────────────────────
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-gnu
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/rust -> src/rust/target
-          cache-on-failure: true
-          key: x86_64-unknown-linux-gnu
-
-      - name: Install cross-compilation linker
-        run: sudo apt-get install -y gcc-x86-64-linux-gnu
+      - name: Copiar frontend a nginx
+        run: |
+          sudo mkdir -p /opt/agrodash-web
+          sudo rsync -a --delete build/ /opt/agrodash-web/
 
       - name: Build API
-        run: cargo build --release --target x86_64-unknown-linux-gnu
         working-directory: src/rust
         env:
-          SQLX_OFFLINE: "true"
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: x86_64-linux-gnu-gcc
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          source ~/.cargo/env
+          cargo build --release
 
-      # ── Deploy ──────────────────────────────────────────────────────────────
-      - name: Copy frontend to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          source: build/*
-          target: /var/www/agrodash
-          strip_components: 1
-          overwrite: true
+      - name: Copiar binario
+        run: |
+          sudo mkdir -p /opt/agrodash-api
+          sudo cp src/rust/target/release/agrodash-api /opt/agrodash-api/agrodash-api
+          sudo chmod +x /opt/agrodash-api/agrodash-api
 
-      - name: Stop API container
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            cd /root
-            docker compose -f docker-compose.yml stop agrodash-api
-
-      - name: Copy API binary to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          source: src/rust/target/x86_64-unknown-linux-gnu/release/agrodash-api
-          target: /opt/agrodash-api
-          strip_components: 5
-          overwrite: true
-
-      - name: Start API container
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            cd /root
-            docker compose -f docker-compose.yml up -d agrodash-api
+      - name: Restart API container
+        run: docker compose -f /opt/iot-server/docker-compose.yml restart agrodash-api
