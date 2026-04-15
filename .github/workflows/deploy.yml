@@ -16,7 +16,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          source ~/.cargo/env
+          cargo install sqlx-cli --no-default-features --features postgres
           cargo sqlx prepare
 
       - name: Commit sqlx cache si cambió
