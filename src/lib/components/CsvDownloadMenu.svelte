@@ -276,7 +276,7 @@
   }
   .panel-head {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 14px 16px 12px;
+    padding: calc(14px * var(--font-scale)) calc(16px * var(--font-scale)) calc(12px * var(--font-scale));
     border-bottom: 0.5px solid var(--border-subtle);
     position: sticky; top: 0;
     background: var(--bg-surface); z-index: 1;
@@ -292,7 +292,7 @@
 
   .section-label {
     padding: 10px 16px 5px; font-size: calc(14px * var(--font-scale)); letter-spacing: .08em;
-    color: var(--text-muted); display: flex; align-items: center; gap: 8px;
+    color: var(--text-muted); display: flex; align-items: center; gap: calc(8px * var(--font-scale));
     font-family: 'DM Mono', monospace;
   }
   .toggle-all {
@@ -302,9 +302,9 @@
   }
 
   /* ── Presets ─────────────────────────────────────────────────────────── */
-  .presets { display: flex; gap: 6px; padding: 0 16px 10px; }
+  .presets { display: flex; gap: calc(6px * var(--font-scale)); padding: 0 16px 10px; }
   .pbtn {
-    padding: 5px 13px;
+    padding: calc(5px * var(--font-scale)) calc(13px * var(--font-scale));
     border: 0.5px solid var(--border-default); border-radius: 5px;
     background: transparent; color: var(--text-secondary);
     font-family: 'DM Mono', monospace; font-size: calc(14px * var(--font-scale));
@@ -314,11 +314,11 @@
   .pbtn.active { background: var(--accent-bg); color: var(--accent-text); border-color: transparent; }
 
   /* ── Fechas ──────────────────────────────────────────────────────────── */
-  .date-row { display: flex; align-items: flex-end; gap: 8px; padding: 0 16px 12px; flex-wrap: wrap; }
-  .date-field { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 160px; }
+  .date-row { display: flex; align-items: flex-end; gap: calc(8px * var(--font-scale)); padding: 0 16px 12px; flex-wrap: wrap; }
+  .date-field { display: flex; flex-direction: column; gap: calc(3px * var(--font-scale)); flex: 1; min-width: 160px; }
   .field-label { font-size: calc(14px * var(--font-scale)); letter-spacing: .07em; color: var(--text-muted); font-family: 'DM Mono', monospace; }
   .date-input {
-    padding: 6px 8px; width: 100%;
+    padding: calc(6px * var(--font-scale)) calc(8px * var(--font-scale)); width: 100%;
     border: 0.5px solid var(--border-default); border-radius: 5px;
     background: var(--bg-elevated); color: var(--text-primary);
     font-family: 'DM Mono', monospace; font-size: calc(14px * var(--font-scale)); outline: none;
@@ -330,17 +330,17 @@
   .res-badge {
     font-size: calc(14px * var(--font-scale)); font-weight: 500; color: var(--text-primary);
     background: var(--bg-elevated);
-    padding: 2px 7px; border-radius: 4px; letter-spacing: .02em;
+    padding: calc(2px * var(--font-scale)) calc(7px * var(--font-scale)); border-radius: 4px; letter-spacing: .02em;
   }
-  .res-row { display: flex; align-items: center; gap: 10px; padding: 2px 16px 4px; }
+  .res-row { display: flex; align-items: center; gap: calc(10px * var(--font-scale)); padding: calc(2px * var(--font-scale)) calc(16px * var(--font-scale)) calc(4px * var(--font-scale)); }
   .res-tick { font-size: calc(14px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; min-width: 22px; }
   .res-slider { flex: 1; }
   .res-hint { padding: 0 16px 12px; font-size: calc(14px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; letter-spacing: .04em; }
 
   /* ── Sensores ────────────────────────────────────────────────────────── */
-  .sensor-list { display: flex; flex-direction: column; gap: 1px; padding: 0 16px 12px; max-height: 150px; overflow-y: auto; }
+  .sensor-list { display: flex; flex-direction: column; gap: calc(1px * var(--font-scale)); padding: 0 16px 12px; max-height: 150px; overflow-y: auto; }
   .sensor-item {
-    display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+    display: flex; align-items: center; gap: calc(8px * var(--font-scale)); padding: calc(5px * var(--font-scale)) calc(8px * var(--font-scale));
     border-radius: 5px; cursor: pointer; font-size: calc(14px * var(--font-scale));
     color: var(--text-primary); transition: background .1s;
   }
@@ -352,23 +352,23 @@
 
   /* ── Preview ─────────────────────────────────────────────────────────── */
   .preview {
-    margin: 0 16px 10px; padding: 7px 10px;
+    margin: 0 16px 10px; padding: calc(7px * var(--font-scale)) calc(10px * var(--font-scale));
     background: var(--bg-elevated);
     border: 0.5px solid var(--border-subtle);
     border-radius: 5px; font-size: calc(14px * var(--font-scale)); color: var(--text-muted);
     letter-spacing: .04em; font-family: 'DM Mono', monospace;
-    display: flex; align-items: center; gap: 6px;
+    display: flex; align-items: center; gap: calc(6px * var(--font-scale));
   }
   .sep { color: var(--border-default, #ccc); }
 
   .error-msg {
-    margin: 0 16px 8px; padding: 6px 10px;
-    background: #FCEBEB; border: 0.5px solid #F09595;
+    margin: 0 16px 8px; padding: calc(6px * var(--font-scale)) calc(10px * var(--font-scale));
+    background: var(--error-bg); border: 0.5px solid #F09595;
     border-radius: 5px; font-size: calc(14px * var(--font-scale)); color: #A32D2D;
   }
 
   .download-btn {
-    margin: 0 16px 16px; padding: 9px;
+    margin: 0 16px 16px; padding: calc(9px * var(--font-scale));
     background: var(--text-primary); color: var(--bg-surface);
     border: none; border-radius: 6px;
     font-family: 'DM Mono', monospace; font-size: calc(14px * var(--font-scale)); font-weight: 500;
@@ -388,8 +388,8 @@
   }
 
   .spinner-card {
-    display: flex; flex-direction: column; align-items: center; gap: 14px;
-    padding: 32px 40px;
+    display: flex; flex-direction: column; align-items: center; gap: calc(14px * var(--font-scale));
+    padding: calc(32px * var(--font-scale)) calc(40px * var(--font-scale));
     background: var(--bg-surface);
     border: 0.5px solid var(--border-default);
     border-radius: 14px;
@@ -428,7 +428,7 @@
   }
 
   .cancel-btn {
-    margin-top: 2px; padding: 5px 18px;
+    margin-top: 2px; padding: calc(5px * var(--font-scale)) calc(18px * var(--font-scale));
     border: 0.5px solid var(--border-default);
     border-radius: 5px; background: transparent;
     color: var(--text-muted);

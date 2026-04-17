@@ -1,8 +1,4 @@
 // src/lib/stores/preferences.ts
-//
-// Preferencias de UI persistidas en localStorage.
-// Actualmente: font scale (sm / md / lg).
-// Fácil de extender con más preferencias sin tocar los componentes.
 
 import { writable } from 'svelte/store';
 
@@ -10,6 +6,7 @@ export type FontScale = 'sm' | 'md' | 'lg';
 
 export interface Preferences {
   fontScale: FontScale;
+  fontScaleValue: number;  // valor real 0.8–1.5
 }
 
 export const FONT_SCALES: Record<FontScale, number> = {
@@ -19,41 +16,39 @@ export const FONT_SCALES: Record<FontScale, number> = {
 };
 
 const STORAGE_KEY = 'agrodash-prefs';
-
-const DEFAULT: Preferences = { fontScale: 'md' };
+const DEFAULT: Preferences = { fontScale: 'md', fontScaleValue: 1.0 };
 
 function load(): Preferences {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT;
     return { ...DEFAULT, ...JSON.parse(raw) };
-  } catch {
-    return DEFAULT;
-  }
+  } catch { return DEFAULT; }
 }
 
 function save(p: Preferences) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
-  } catch {}
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(p)); } catch {}
 }
 
 function createPreferences() {
   const { subscribe, set, update } = writable<Preferences>(DEFAULT);
-
   return {
     subscribe,
-
-    /** Llamar una vez al montar el layout para cargar desde localStorage */
-    init() {
-      set(load());
-    },
-
+    init() { set(load()); },
     setFontScale(scale: FontScale) {
       update(p => {
-        const next = { ...p, fontScale: scale };
-        save(next);
-        return next;
+        const next = { ...p, fontScale: scale, fontScaleValue: FONT_SCALES[scale] };
+        save(next); return next;
+      });
+    },
+    setFontScaleValue(value: number) {
+      // Mapear al FontScale más cercano para compatibilidad
+      const entry = Object.entries(FONT_SCALES).reduce((best, [k, v]) =>
+        Math.abs(v - value) < Math.abs(FONT_SCALES[best as FontScale] - value) ? k : best
+      , 'md' as string) as FontScale;
+      update(p => {
+        const next = { ...p, fontScale: entry, fontScaleValue: value };
+        save(next); return next;
       });
     },
   };

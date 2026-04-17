@@ -297,15 +297,15 @@
     border-radius: 10px;
     overflow: hidden;
   }
-  .box-card.has-warn  { border-color: #FAC775; }
-  .box-card.has-alert { border-color: #F09595; }
+  .box-card.has-warn  { border-color: rgba(186,117,23,0.5); }
+  .box-card.has-alert { border-color: rgba(176,48,48,0.4); }
 
   /* Header */
   .card-head {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
+    gap: calc(12px * var(--font-scale));
+    padding: calc(10px * var(--font-scale)) calc(14px * var(--font-scale));
     border-bottom: 0.5px solid var(--border-subtle);
     flex-wrap: wrap;
   }
@@ -316,18 +316,18 @@
     color: var(--text-primary);
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: calc(6px * var(--font-scale));
   }
   .card-head__sub {
     font-size: calc(14px * var(--font-scale));
     color: var(--text-muted);
     margin-top: 2px;
   }
-  .card-head__presets { display: flex; gap: 3px; }
+  .card-head__presets { display: flex; gap: calc(3px * var(--font-scale)); }
 
   /* Preset buttons */
   .pbtn {
-    padding: 3px 7px;
+    padding: calc(3px * var(--font-scale)) calc(7px * var(--font-scale));
     border: 0.5px solid var(--border-default);
     border-radius: 4px;
     background: transparent;
@@ -346,9 +346,9 @@
   .sensor-row {
     display: grid;
     grid-template-columns: 48px 90px 1fr 80px 70px 90px;
-    gap: 8px;
+    gap: calc(8px * var(--font-scale));
     align-items: center;
-    padding: 6px 14px;
+    padding: calc(6px * var(--font-scale)) calc(14px * var(--font-scale));
     font-size: calc(14px * var(--font-scale));
   }
   .sensor-cols-head {
@@ -392,7 +392,7 @@
     font-size: calc(14px * var(--font-scale));
     color: var(--text-muted);
     letter-spacing: .06em;
-    padding: 5px 14px 3px;
+    padding: calc(5px * var(--font-scale)) calc(14px * var(--font-scale)) calc(3px * var(--font-scale));
     background: var(--bg-elevated);
     border-top: 0.5px solid var(--border-subtle);
     border-bottom: 0.5px solid var(--border-subtle);
@@ -400,7 +400,7 @@
 
   /* Gráfica expandida */
   .sensor-expanded {
-    padding: 10px 14px;
+    padding: calc(10px * var(--font-scale)) calc(14px * var(--font-scale));
     border-bottom: 0.5px solid var(--border-subtle);
     background: var(--bg-surface);
   }
@@ -408,8 +408,8 @@
   .csv-btn {
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 3px 8px;
+    gap: calc(4px * var(--font-scale));
+    padding: calc(3px * var(--font-scale)) calc(8px * var(--font-scale));
     border: 0.5px solid var(--border-default);
     border-radius: 4px;
     background: transparent;
@@ -428,7 +428,7 @@
   /* Badges */
   .badge {
     font-size: calc(14px * var(--font-scale));
-    padding: 2px 6px;
+    padding: calc(2px * var(--font-scale)) calc(6px * var(--font-scale));
     border-radius: 4px;
     letter-spacing: .04em;
     font-weight: 500;
