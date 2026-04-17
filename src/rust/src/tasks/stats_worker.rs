@@ -27,7 +27,7 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
     // Usamos query! y mapeamos manualmente para evitar que sqlx infiera
     // id/box_id como Option<Uuid> por el esquema de la tabla.
     let sensor_rows = sqlx::query!(
-        r#"SELECT id AS "id: uuid::Uuid", box_id AS "box_id: uuid::Uuid", type AS sensor_type FROM sensors"#
+        r#"SELECT id AS "id!: uuid::Uuid", box_id AS "box_id!: uuid::Uuid", type AS "sensor_type!" FROM sensors"#
     )
     .fetch_all(pool)
     .await?;
