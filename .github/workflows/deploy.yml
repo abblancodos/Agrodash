@@ -26,7 +26,18 @@ jobs:
           docker rm -f agrodash-web-tmp
 
       - name: Build API image
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: docker build -f Dockerfile.api -t agrodash-api:latest .
+
+      - name: Deploy API
+        run: |
+          docker rm -f agrodash-api-tmp 2>/dev/null || true
+          docker run -d --name agrodash-api-tmp \
+            -v /home/embebidos/.server-lab/agrodash/api:/output \
+            alpine sleep 30
+          docker cp $(docker create agrodash-api:latest):/app/agrodash-api agrodash-api-tmp:/output/
+          docker rm -f agrodash-api-tmp
 
       - name: Restart API container
         run: docker restart server-lab-api-rust-agrodash-1
