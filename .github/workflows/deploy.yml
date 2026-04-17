@@ -35,31 +35,17 @@ jobs:
         with:
           ref: main
 
-      - name: Instalar dependencias frontend
-        run: npm ci
-
-      - name: Build frontend
-        env:
-          VITE_API_BASE: ${{ secrets.VITE_API_BASE }}
-        run: npm run build
-
-      - name: Copiar frontend
-        run: |
-          mkdir -p /home/embebidos/.server-lab/agrodash/web
-          rsync -a --delete build/ /home/embebidos/.server-lab/agrodash/web/
-
-      - name: Build API
-        working-directory: src/rust
+      - name: Build API image
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: cargo build --release
+        run: docker build -f Dockerfile.api -t agrodash-api:latest .
 
-      - name: Copiar binario
+      - name: Build frontend image
         run: |
-          cp src/rust/target/release/agrodash-api /home/embebidos/.server-lab/agrodash/api/agrodash-api
-          chmod +x /home/embebidos/.server-lab/agrodash/api/agrodash-api
+          docker build -f Dockerfile.web \
+            --build-arg VITE_API_BASE=${{ secrets.VITE_API_BASE }} \
+            -t agrodash-web:latest .
 
-      - name: Restart API container
+      - name: Restart containers
         run: |
-          docker restart server-lab-api-rust-agrodash-1
-          echo "done"
+          docker compose -f /home/embebidos/.server-lab/docker-compose.api-rust-agrodash.yml up -d --force-recreate
