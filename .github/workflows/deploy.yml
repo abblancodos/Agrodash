@@ -18,6 +18,7 @@ jobs:
 
       - name: Deploy frontend
         run: |
+          docker rm -f agrodash-web-tmp 2>/dev/null || true
           docker create --name agrodash-web-tmp alpine sh
           docker cp build/. agrodash-web-tmp:/build/
           docker cp agrodash-web-tmp:/build/. /home/embebidos/.server-lab/agrodash/web/
