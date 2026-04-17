@@ -6,7 +6,7 @@
   import TypeSelector from '$lib/components/TypeSelector.svelte';
   import DateTimePicker from '$lib/components/DateTimePicker.svelte';
   import MultiSensorChart from '$lib/components/MultiSensorChart.svelte';
-  import InfoPanel from '$lib/components/InfoPanel.svelte';
+  import HelpPanel from '$lib/components/HelpPanel.svelte';
 
   // ── Estado global ─────────────────────────────────────────────────────────
 
@@ -264,7 +264,9 @@
             {@const lastSeen = boxStats.map(s => s.last_seen_at).filter(Boolean).reduce((a, b) => (a! > b! ? a : b), null as string | null)}
             {@const isExpanded = expandedBoxId === box.id}
             <div class="ct-row" class:expanded={isExpanded}
-                 onclick={() => expandedBoxId = isExpanded ? null : box.id}>
+                 role="button" tabindex="0"
+                 onclick={() => expandedBoxId = isExpanded ? null : box.id}
+                 onkeydown={(e) => e.key === 'Enter' && (expandedBoxId = isExpanded ? null : box.id)}>
               <span class="ct-name">
                 <span class="ct-chevron" class:open={isExpanded}>▶</span>
                 {box.name}
@@ -424,7 +426,7 @@
     </div>
   </div>
 
-  <InfoPanel />
+  <HelpPanel />
 </div>
 
 <style>

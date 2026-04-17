@@ -188,7 +188,9 @@
     {@const color = sensorColor(stat.sensor_type)}
 
     <div class="sensor-row" class:is-warn={ac === 'warn'} class:is-alert={ac === 'alert'}
-         onclick={() => toggleExpand(stat.sensor_id)}>
+         role="button" tabindex="0"
+         onclick={() => toggleExpand(stat.sensor_id)}
+         onkeydown={(e) => e.key === 'Enter' && toggleExpand(stat.sensor_id)}>
       <span class="s-num">#{stat.sensor_number}</span>
       <span class="s-type">{normaliseSensorLabel(stat.sensor_type)}</span>
       <div class="s-spark">

@@ -157,7 +157,8 @@
 
 <!-- Panel semi-transparente -->
 <div class="overlay" onclick={cancel} role="presentation">
-  <div class="panel" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true"
+  <div class="panel" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}
+       role="dialog" aria-modal="true" tabindex="-1"
        aria-label="Descargar CSV de {box.name}">
 
     <div class="panel-head">
