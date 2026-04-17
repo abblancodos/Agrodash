@@ -60,4 +60,6 @@ jobs:
           chmod +x /home/embebidos/.server-lab/agrodash/api/agrodash-api
 
       - name: Restart API container
-        run: docker restart server-lab-api-rust-agrodash-1
+        run: |
+          docker restart server-lab-api-rust-agrodash-1
+          echo "done"
