@@ -45,6 +45,7 @@ jobs:
 
       - name: Copiar frontend
         run: |
+          mkdir -p /home/embebidos/.server-lab/agrodash/web
           rsync -a --delete build/ /home/embebidos/.server-lab/agrodash/web/
 
       - name: Build API
