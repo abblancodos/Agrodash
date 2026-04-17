@@ -33,10 +33,12 @@ jobs:
       - name: Deploy API
         run: |
           docker rm -f agrodash-api-tmp 2>/dev/null || true
+          CONTAINER_ID=$(docker create agrodash-api:latest)
           docker run -d --name agrodash-api-tmp \
             -v /home/embebidos/.server-lab/agrodash/api:/output \
             alpine sleep 30
-          docker cp $(docker create agrodash-api:latest):/app/agrodash-api agrodash-api-tmp:/output/
+          docker cp $CONTAINER_ID:/app/agrodash-api agrodash-api-tmp:/output/
+          docker rm $CONTAINER_ID
           docker rm -f agrodash-api-tmp
 
       - name: Restart API container
