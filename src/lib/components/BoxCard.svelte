@@ -311,7 +311,7 @@
   }
   .card-head__info { flex: 1; min-width: 0; }
   .card-head__title {
-    font-size: 12px;
+    font-size: calc(14px * var(--font-scale));
     font-weight: 500;
     color: var(--text-primary);
     display: flex;
@@ -319,7 +319,7 @@
     gap: 6px;
   }
   .card-head__sub {
-    font-size: 10px;
+    font-size: calc(14px * var(--font-scale));
     color: var(--text-muted);
     margin-top: 2px;
   }
@@ -333,7 +333,7 @@
     background: transparent;
     color: var(--text-secondary);
     font-family: 'DM Mono', monospace;
-    font-size: 9px;
+    font-size: calc(14px * var(--font-scale));
     cursor: pointer;
     letter-spacing: .04em;
     transition: all .12s;
@@ -349,13 +349,13 @@
     gap: 8px;
     align-items: center;
     padding: 6px 14px;
-    font-size: 10px;
+    font-size: calc(14px * var(--font-scale));
   }
   .sensor-cols-head {
-    background: var(--bg-elevated);
+    background: var(--bg-inset);
     border-bottom: 0.5px solid var(--border-subtle);
     color: var(--text-muted);
-    font-size: 9px;
+    font-size: calc(14px * var(--font-scale));
     letter-spacing: .07em;
   }
   .sensor-row {
@@ -365,23 +365,23 @@
   }
   .sensor-row:last-child { border-bottom: none; }
   .sensor-row:hover      { background: var(--interactive-hover); }
-  .sensor-row.is-warn    { background: var(--bg-surface)df5; }
-  .sensor-row.is-alert   { background: var(--bg-surface)5f5; }
+  .sensor-row.is-warn    { background: rgba(186,117,23,0.07); }
+  .sensor-row.is-alert   { background: rgba(176,48,48,0.07); }
   .sensor-row.corr-group {
     background: var(--bg-elevated);
     cursor: default;
   }
   .sensor-row.corr-group:hover { background: var(--bg-elevated); }
 
-  .s-num  { font-size: 10px; color: var(--text-muted); }
-  .s-type { font-size: 10px; color: var(--text-secondary); }
+  .s-num  { font-size: calc(14px * var(--font-scale)); color: var(--text-muted); }
+  .s-type { font-size: calc(14px * var(--font-scale)); color: var(--text-secondary); }
   .s-spark { height: 28px; }
-  .s-val  { font-size: 11px; font-weight: 500; color: var(--text-primary); }
+  .s-val  { font-size: calc(14px * var(--font-scale)); font-weight: 500; color: var(--text-primary); }
   .s-val.warn { color: #e8a838; }
   .align-right { text-align: right; }
 
   /* Tiempo relativo */
-  .ago        { font-size: 9px; }
+  .ago        { font-size: calc(14px * var(--font-scale)); }
   .ago.fresh  { color: var(--live-color); }
   .ago.recent { color: var(--text-muted); }
   .ago.stale  { color: #e8a838; }
@@ -389,7 +389,7 @@
 
   /* Correlación label */
   .corr-label {
-    font-size: 9px;
+    font-size: calc(14px * var(--font-scale));
     color: var(--text-muted);
     letter-spacing: .06em;
     padding: 5px 14px 3px;
@@ -415,7 +415,7 @@
     background: transparent;
     color: var(--text-muted);
     font-family: 'DM Mono', monospace;
-    font-size: 9px;
+    font-size: calc(14px * var(--font-scale));
     letter-spacing: .06em;
     cursor: pointer;
     transition: all .12s;
@@ -427,7 +427,7 @@
 
   /* Badges */
   .badge {
-    font-size: 9px;
+    font-size: calc(14px * var(--font-scale));
     padding: 2px 6px;
     border-radius: 4px;
     letter-spacing: .04em;

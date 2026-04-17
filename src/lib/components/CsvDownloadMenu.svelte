@@ -281,22 +281,22 @@
     position: sticky; top: 0;
     background: var(--bg-surface); z-index: 1;
   }
-  .panel-title { font-size: 12px; font-weight: 500; color: var(--text-primary); letter-spacing: .04em; font-family: 'DM Mono', monospace; }
+  .panel-title { font-size: calc(14px * var(--font-scale)); font-weight: 500; color: var(--text-primary); letter-spacing: .04em; font-family: 'DM Mono', monospace; }
   .close-btn {
     width: 24px; height: 24px; border: none; background: transparent;
-    color: var(--text-muted); font-size: 12px; cursor: pointer;
+    color: var(--text-muted); font-size: calc(14px * var(--font-scale)); cursor: pointer;
     border-radius: 4px; display: flex; align-items: center; justify-content: center;
     transition: background .1s;
   }
   .close-btn:hover { background: var(--interactive-hover); }
 
   .section-label {
-    padding: 10px 16px 5px; font-size: 9px; letter-spacing: .08em;
+    padding: 10px 16px 5px; font-size: calc(14px * var(--font-scale)); letter-spacing: .08em;
     color: var(--text-muted); display: flex; align-items: center; gap: 8px;
     font-family: 'DM Mono', monospace;
   }
   .toggle-all {
-    font-size: 9px; font-family: 'DM Mono', monospace; color: var(--text-muted);
+    font-size: calc(14px * var(--font-scale)); font-family: 'DM Mono', monospace; color: var(--text-muted);
     border: none; background: transparent; cursor: pointer; padding: 0;
     text-decoration: underline; letter-spacing: .04em;
   }
@@ -307,7 +307,7 @@
     padding: 5px 13px;
     border: 0.5px solid var(--border-default); border-radius: 5px;
     background: transparent; color: var(--text-secondary);
-    font-family: 'DM Mono', monospace; font-size: 10px;
+    font-family: 'DM Mono', monospace; font-size: calc(14px * var(--font-scale));
     cursor: pointer; letter-spacing: .04em; transition: all .12s;
   }
   .pbtn:hover { background: var(--interactive-hover); }
@@ -316,46 +316,46 @@
   /* ── Fechas ──────────────────────────────────────────────────────────── */
   .date-row { display: flex; align-items: flex-end; gap: 8px; padding: 0 16px 12px; flex-wrap: wrap; }
   .date-field { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 160px; }
-  .field-label { font-size: 9px; letter-spacing: .07em; color: var(--text-muted); font-family: 'DM Mono', monospace; }
+  .field-label { font-size: calc(14px * var(--font-scale)); letter-spacing: .07em; color: var(--text-muted); font-family: 'DM Mono', monospace; }
   .date-input {
     padding: 6px 8px; width: 100%;
     border: 0.5px solid var(--border-default); border-radius: 5px;
     background: var(--bg-elevated); color: var(--text-primary);
-    font-family: 'DM Mono', monospace; font-size: 10px; outline: none;
+    font-family: 'DM Mono', monospace; font-size: calc(14px * var(--font-scale)); outline: none;
   }
   .date-input:focus { border-color: var(--accent-border); }
-  .date-sep { color: var(--text-muted); font-size: 11px; padding-bottom: 7px; }
+  .date-sep { color: var(--text-muted); font-size: calc(14px * var(--font-scale)); padding-bottom: 7px; }
 
   /* ── Resolución ──────────────────────────────────────────────────────── */
   .res-badge {
-    font-size: 10px; font-weight: 500; color: var(--text-primary);
+    font-size: calc(14px * var(--font-scale)); font-weight: 500; color: var(--text-primary);
     background: var(--bg-elevated);
     padding: 2px 7px; border-radius: 4px; letter-spacing: .02em;
   }
   .res-row { display: flex; align-items: center; gap: 10px; padding: 2px 16px 4px; }
-  .res-tick { font-size: 9px; color: var(--text-muted); font-family: 'DM Mono', monospace; min-width: 22px; }
+  .res-tick { font-size: calc(14px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; min-width: 22px; }
   .res-slider { flex: 1; }
-  .res-hint { padding: 0 16px 12px; font-size: 9px; color: var(--text-muted); font-family: 'DM Mono', monospace; letter-spacing: .04em; }
+  .res-hint { padding: 0 16px 12px; font-size: calc(14px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; letter-spacing: .04em; }
 
   /* ── Sensores ────────────────────────────────────────────────────────── */
   .sensor-list { display: flex; flex-direction: column; gap: 1px; padding: 0 16px 12px; max-height: 150px; overflow-y: auto; }
   .sensor-item {
     display: flex; align-items: center; gap: 8px; padding: 5px 8px;
-    border-radius: 5px; cursor: pointer; font-size: 11px;
+    border-radius: 5px; cursor: pointer; font-size: calc(14px * var(--font-scale));
     color: var(--text-primary); transition: background .1s;
   }
   .sensor-item:hover { background: var(--interactive-hover); }
   .sensor-item input[type="checkbox"] { width: 13px; height: 13px; cursor: pointer; accent-color: var(--accent-text); }
   .sensor-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
   .sensor-name { flex: 1; }
-  .sensor-num { color: var(--text-muted); font-size: 10px; margin-left: 4px; }
+  .sensor-num { color: var(--text-muted); font-size: calc(14px * var(--font-scale)); margin-left: 4px; }
 
   /* ── Preview ─────────────────────────────────────────────────────────── */
   .preview {
     margin: 0 16px 10px; padding: 7px 10px;
     background: var(--bg-elevated);
     border: 0.5px solid var(--border-subtle);
-    border-radius: 5px; font-size: 9px; color: var(--text-muted);
+    border-radius: 5px; font-size: calc(14px * var(--font-scale)); color: var(--text-muted);
     letter-spacing: .04em; font-family: 'DM Mono', monospace;
     display: flex; align-items: center; gap: 6px;
   }
@@ -364,14 +364,14 @@
   .error-msg {
     margin: 0 16px 8px; padding: 6px 10px;
     background: #FCEBEB; border: 0.5px solid #F09595;
-    border-radius: 5px; font-size: 10px; color: #A32D2D;
+    border-radius: 5px; font-size: calc(14px * var(--font-scale)); color: #A32D2D;
   }
 
   .download-btn {
     margin: 0 16px 16px; padding: 9px;
     background: var(--text-primary); color: var(--bg-surface);
     border: none; border-radius: 6px;
-    font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500;
+    font-family: 'DM Mono', monospace; font-size: calc(14px * var(--font-scale)); font-weight: 500;
     letter-spacing: .06em; cursor: pointer; transition: opacity .15s;
   }
   .download-btn:hover:not(:disabled) { opacity: .85; }
@@ -406,7 +406,7 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   .spinner-label {
-    font-size: 11px; font-family: 'DM Mono', monospace;
+    font-size: calc(14px * var(--font-scale)); font-family: 'DM Mono', monospace;
     color: var(--text-secondary); letter-spacing: .04em;
     text-align: center; max-width: 240px; line-height: 1.6;
     margin: 0;
@@ -423,7 +423,7 @@
   }
 
   .progress-pct {
-    font-size: 10px; font-family: 'DM Mono', monospace;
+    font-size: calc(14px * var(--font-scale)); font-family: 'DM Mono', monospace;
     color: var(--text-muted); letter-spacing: .06em;
   }
 
@@ -432,7 +432,7 @@
     border: 0.5px solid var(--border-default);
     border-radius: 5px; background: transparent;
     color: var(--text-muted);
-    font-family: 'DM Mono', monospace; font-size: 10px;
+    font-family: 'DM Mono', monospace; font-size: calc(14px * var(--font-scale));
     cursor: pointer; letter-spacing: .06em; transition: all .12s;
   }
   .cancel-btn:hover { background: var(--interactive-hover); color: var(--text-secondary); }

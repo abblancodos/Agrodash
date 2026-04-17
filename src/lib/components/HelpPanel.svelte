@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { preferences, FONT_SCALES, type FontScale } from '$lib/stores/preferences';
   let open = $state(false);
 </script>
 
@@ -101,6 +102,22 @@
           </div>
         </div>
 
+
+        <div class="term">
+          <div class="term__name">Tamaño de texto</div>
+          <div class="scale-btns">
+            {#each (['sm', 'md', 'lg'] as FontScale[]) as scale}
+              <button
+                class="scale-btn"
+                class:active={$preferences.fontScale === scale}
+                onclick={() => preferences.setFontScale(scale)}
+              >
+                {scale === 'sm' ? 'pequeño' : scale === 'md' ? 'normal' : 'grande'}
+              </button>
+            {/each}
+          </div>
+        </div>
+
         <div class="footer">
           Las estadísticas se recalculan automáticamente cada 5 minutos.
         </div>
@@ -164,12 +181,12 @@
     background: var(--bg-surface); z-index: 1;
   }
   .modal-title {
-    font-size: 12px; font-weight: 500; color: var(--text-primary);
+    font-size: calc(14px * var(--font-scale)); font-weight: 500; color: var(--text-primary);
     letter-spacing: .04em; font-family: 'DM Mono', monospace;
   }
   .close-btn {
     width: 24px; height: 24px; border: none; background: transparent;
-    color: var(--text-muted); font-size: 12px; cursor: pointer;
+    color: var(--text-muted); font-size: calc(14px * var(--font-scale)); cursor: pointer;
     border-radius: 4px; display: flex; align-items: center; justify-content: center;
     transition: background .1s;
   }
@@ -182,15 +199,15 @@
   }
   .term { display: flex; flex-direction: column; gap: 5px; }
   .term__name {
-    font-size: 11px; font-weight: 500; color: var(--text-primary);
+    font-size: calc(14px * var(--font-scale)); font-weight: 500; color: var(--text-primary);
     font-family: 'DM Mono', monospace; letter-spacing: .04em;
   }
   .term__def {
-    font-size: 11px; color: var(--text-secondary); line-height: 1.65;
+    font-size: calc(14px * var(--font-scale)); color: var(--text-secondary); line-height: 1.65;
   }
   .term__def strong { font-weight: 500; color: var(--text-primary); }
   .term__formula {
-    font-size: 10px; font-family: 'DM Mono', monospace;
+    font-size: calc(14px * var(--font-scale)); font-family: 'DM Mono', monospace;
     color: var(--text-muted);
     background: var(--bg-elevated);
     border: 0.5px solid var(--border-subtle);
@@ -201,10 +218,10 @@
   .color-rows { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; }
   .color-row {
     display: flex; align-items: center; gap: 10px;
-    font-size: 11px; color: var(--text-secondary); line-height: 1.5;
+    font-size: calc(14px * var(--font-scale)); color: var(--text-secondary); line-height: 1.5;
   }
   .pill {
-    font-size: 9px; font-weight: 500; padding: 3px 8px; border-radius: 4px;
+    font-size: calc(14px * var(--font-scale)); font-weight: 500; padding: 3px 8px; border-radius: 4px;
     letter-spacing: .04em; white-space: nowrap; flex-shrink: 0;
     min-width: 64px; text-align: center; font-family: 'DM Mono', monospace;
   }
@@ -221,9 +238,30 @@
 
   /* ── Footer ──────────────────────────────────────────────────────────── */
   .footer {
-    font-size: 10px; color: var(--text-muted);
+    font-size: calc(14px * var(--font-scale)); color: var(--text-muted);
     font-family: 'DM Mono', monospace; letter-spacing: .04em;
     border-top: 0.5px solid var(--border-subtle);
     padding-top: 12px;
   }
+
+  .scale-btns { display: flex; gap: 6px; margin-top: 6px; }
+  .scale-btn {
+    padding: calc(5px * var(--font-scale)) calc(14px * var(--font-scale));
+    border: 0.5px solid var(--border-default);
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: 'DM Mono', monospace;
+    font-size: calc(11px * var(--font-scale));
+    cursor: pointer;
+    letter-spacing: .04em;
+    transition: all .12s;
+  }
+  .scale-btn:hover { background: var(--interactive-hover); }
+  .scale-btn.active {
+    background: var(--accent-bg);
+    border-color: var(--accent-border);
+    color: var(--accent-text);
+  }
+
 </style>
