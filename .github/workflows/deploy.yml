@@ -28,7 +28,7 @@ jobs:
       - name: Build API image
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: docker build -f Dockerfile.api -t agrodash-api:latest .
+        run: docker build -f Dockerfile.api -t agrodash-api:latest --build-arg DATABASE_URL=$DATABASE_URL .
 
       - name: Deploy API
         run: |
