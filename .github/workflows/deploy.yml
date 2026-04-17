@@ -9,14 +9,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check tools
+        run: |
+          node --version || echo "no node"
+          npm --version || echo "no npm"
+          docker --version || echo "no docker"
+
       - name: Build API image
         run: docker build -f Dockerfile.api -t agrodash-api:latest .
 
-      - name: Build frontend image
+      - name: Deploy frontend
         run: |
-          docker build -f Dockerfile.web \
-            --build-arg VITE_API_BASE=${{ secrets.VITE_API_BASE }} \
-            -t agrodash-web:latest .
+          docker create --name agrodash-web-tmp agrodash-web:latest
+          docker cp agrodash-web-tmp:/usr/share/nginx/html/. /home/embebidos/.server-lab/agrodash/web/
+          docker rm agrodash-web-tmp
 
       - name: Restart containers
         run: docker restart server-lab-api-rust-agrodash-1
