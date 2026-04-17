@@ -24,33 +24,26 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
     info!("stats_worker: calculando estadísticas...");
 
     // ── 1. Sensores ───────────────────────────────────────────────────────────
-    // Usamos query_as con un struct explícito para evitar que sqlx infiera
-    // box_id como Option<Uuid> por el JOIN.
-    struct SensorRow {
-        sensor_id:   uuid::Uuid,
-        box_id:      uuid::Uuid,
-        sensor_type: String,
-    }
-
-    let sensors = sqlx::query_as!(
-        SensorRow,
-        r#"
-        SELECT
-            s.id       AS "sensor_id: uuid::Uuid",
-            s.box_id   AS "box_id: uuid::Uuid",
-            s.type     AS sensor_type
-        FROM sensors s
-        "#
+    // Usamos query! y mapeamos manualmente para evitar que sqlx infiera
+    // id/box_id como Option<Uuid> por el esquema de la tabla.
+    let sensor_rows = sqlx::query!(
+        r#"SELECT id AS "id: uuid::Uuid", box_id AS "box_id: uuid::Uuid", type AS sensor_type FROM sensors"#
     )
     .fetch_all(pool)
     .await?;
+
+    // Convertir a Vec de tuplas simples — tipos garantizados no-Option
+    let sensors: Vec<(uuid::Uuid, uuid::Uuid, String)> = sensor_rows
+        .into_iter()
+        .map(|r| (r.id, r.box_id, r.sensor_type))
+        .collect();
 
     let now_cr     = Utc::now().naive_utc() - chrono::Duration::seconds(CR_OFFSET_SECS);
     let window_24h = now_cr - chrono::Duration::hours(24);
     let window_1h  = now_cr - chrono::Duration::hours(1);
 
     // ── 2. Stats por sensor ───────────────────────────────────────────────────
-    for sensor in &sensors {
+    for (sensor_id, box_id, sensor_type) in &sensors {
         let stats = sqlx::query!(
             r#"
             SELECT
@@ -65,32 +58,32 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
               AND created_at <= $3
               AND created_at BETWEEN '2020-01-01' AND NOW()
             "#,
-            sensor.sensor_id,
+            sensor_id,
             window_24h,
             now_cr,
         )
-        .fetch_optional(pool)
+        .fetch_one(pool)  // COUNT(*) nunca devuelve 0 filas, fetch_one es seguro
         .await?;
 
         let last = sqlx::query!(
             r#"
             SELECT
-                value::float8 AS "value: f64",
-                created_at    AS "created_at: chrono::NaiveDateTime"
+                value::float8 AS "value!: f64",
+                created_at    AS "created_at!: chrono::NaiveDateTime"
             FROM readings
             WHERE sensor_id = $1
               AND created_at BETWEEN '2020-01-01' AND NOW()
             ORDER BY created_at DESC
             LIMIT 1
             "#,
-            sensor.sensor_id,
+            sensor_id,
         )
         .fetch_optional(pool)
         .await?;
 
         let prev_1h = sqlx::query!(
             r#"
-            SELECT value::float8 AS "value: f64"
+            SELECT value::float8 AS "value!: f64"
             FROM readings
             WHERE sensor_id = $1
               AND created_at >= $2
@@ -99,16 +92,17 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
             ORDER BY ABS(EXTRACT(EPOCH FROM (created_at - $2)))
             LIMIT 1
             "#,
-            sensor.sensor_id,
+            sensor_id,
             window_1h,
             now_cr,
         )
         .fetch_optional(pool)
         .await?;
 
-        // fetch_optional + cast ::float8 → sqlx infiere Option<f64> para value,
-        // así que last.value ya es Option<f64>, no hay doble Option.
-        let last_value: Option<f64> = last.as_ref().map(|r| r.value);
+        // Con "value!: f64" le decimos a sqlx que el campo es NOT NULL,
+        // así r.value es f64, no Option<f64>
+        let last_value: Option<f64>    = last.as_ref().map(|r| r.value);
+        let prev_value: Option<f64>    = prev_1h.as_ref().map(|r| r.value);
         let last_seen_utc = last.as_ref().map(|r| {
             chrono::DateTime::<Utc>::from_naive_utc_and_offset(
                 r.created_at + chrono::Duration::seconds(CR_OFFSET_SECS),
@@ -116,12 +110,11 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
             )
         });
 
-        let (mean_24h, stddev_24h, min_24h, max_24h, count_24h):
-            (Option<f64>, Option<f64>, Option<f64>, Option<f64>, Option<i32>) =
-            match &stats {
-                Some(s) => (s.mean_24h, s.stddev_24h, s.min_24h, s.max_24h, s.count_24h),
-                None    => (None, None, None, None, None),
-            };
+        let mean_24h:   Option<f64> = stats.mean_24h;
+        let stddev_24h: Option<f64> = stats.stddev_24h;
+        let min_24h:    Option<f64> = stats.min_24h;
+        let max_24h:    Option<f64> = stats.max_24h;
+        let count_24h:  Option<i32> = stats.count_24h;
 
         let anomaly_score: Option<f64> =
             match (last_value, mean_24h, stddev_24h, count_24h) {
@@ -131,7 +124,6 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
                 _ => None,
             };
 
-        let prev_value: Option<f64> = prev_1h.as_ref().map(|r| r.value);
         let rate_of_change: Option<f64> = match (last_value, prev_value) {
             (Some(lv), Some(pv)) => Some(lv - pv),
             _ => None,
@@ -157,7 +149,7 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
                 anomaly_score  = EXCLUDED.anomaly_score,
                 rate_of_change = EXCLUDED.rate_of_change
             "#,
-            sensor.sensor_id,
+            sensor_id,
             last_value,
             last_seen_utc,
             mean_24h,
@@ -176,12 +168,11 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
     let mut groups: std::collections::HashMap<(uuid::Uuid, String), Vec<uuid::Uuid>> =
         std::collections::HashMap::new();
 
-    for s in &sensors {
-        // box_id ya es Uuid (no Option) gracias al query_as con tipo explícito
+    for (sensor_id, box_id, sensor_type) in &sensors {
         groups
-            .entry((s.box_id, s.sensor_type.to_lowercase()))
+            .entry((*box_id, sensor_type.to_lowercase()))
             .or_default()
-            .push(s.sensor_id);
+            .push(*sensor_id);
     }
 
     for ((box_id, sensor_type), ids) in &groups {
@@ -191,7 +182,7 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
         for &sid in ids {
             let vals = sqlx::query!(
                 r#"
-                SELECT AVG(value)::float8 AS "v: f64"
+                SELECT AVG(value)::float8 AS "v!: f64"
                 FROM readings
                 WHERE sensor_id = $1
                   AND created_at >= $2
@@ -207,7 +198,7 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
             .fetch_all(pool)
             .await?
             .into_iter()
-            .filter_map(|r| r.v)
+            .map(|r| r.v)
             .collect::<Vec<f64>>();
 
             if vals.len() >= MIN_POINTS_CORR {
@@ -237,10 +228,10 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
                         pearson_r   = EXCLUDED.pearson_r,
                         computed_at = EXCLUDED.computed_at
                     "#,
-                    *box_id,
+                    box_id,
                     sensor_type,
-                    *a,
-                    *b,
+                    a,
+                    b,
                     r,
                 )
                 .execute(pool)
@@ -251,7 +242,7 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
 
     let elapsed = started.elapsed();
     if elapsed.as_secs() > INTERVAL_SECS / 2 {
-        warn!("stats_worker: ciclo tardó {}ms — considera aumentar INTERVAL_SECS", elapsed.as_millis());
+        warn!("stats_worker: ciclo tardó {}ms", elapsed.as_millis());
     } else {
         info!("stats_worker: ciclo completado en {}ms", elapsed.as_millis());
     }
@@ -263,14 +254,9 @@ fn pearson(a: &[f64], b: &[f64]) -> f64 {
     let n = a.len() as f64;
     let mean_a = a.iter().sum::<f64>() / n;
     let mean_b = b.iter().sum::<f64>() / n;
-
-    let num: f64 = a.iter().zip(b.iter())
-        .map(|(x, y)| (x - mean_a) * (y - mean_b))
-        .sum();
-
+    let num: f64 = a.iter().zip(b.iter()).map(|(x, y)| (x - mean_a) * (y - mean_b)).sum();
     let den_a: f64 = a.iter().map(|x| (x - mean_a).powi(2)).sum::<f64>().sqrt();
     let den_b: f64 = b.iter().map(|y| (y - mean_b).powi(2)).sum::<f64>().sqrt();
-
     let den = den_a * den_b;
     if den < 1e-10 { return 0.0; }
     (num / den).clamp(-1.0, 1.0)
