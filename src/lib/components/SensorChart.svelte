@@ -276,7 +276,7 @@
   .sc__dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
   .sc__label { font-size: calc(10px * var(--font-scale)); font-family: 'DM Mono', monospace; letter-spacing: .06em; color: var(--text-muted); text-transform: uppercase; flex: 1; }
   .sc__value { font-size: calc(11px * var(--font-scale)); font-family: 'DM Mono', monospace; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
-  .sc__live { font-size: calc(8px * var(--font-scale)); font-family: 'DM Mono', monospace; letter-spacing: .12em; color: var(--live-color); background: var(--live-bg); border: 1px solid var(--live-border); padding: 1px 5px; border-radius: 2px; animation: pulse 2s infinite; }
+  .sc__live { font-size: calc(8px * var(--font-scale)); font-family: 'DM Mono', monospace; letter-spacing: .12em; color: var(--live-color); background: var(--live-bg); border: 1px solid var(--live-border); padding: calc(1px * var(--font-scale)) calc(5px * var(--font-scale)); border-radius: 2px; animation: pulse 2s infinite; }
   @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.5} }
 
   .sc__body { height: 90px; position: relative; }

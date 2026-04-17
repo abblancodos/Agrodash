@@ -291,7 +291,7 @@
   .close-btn:hover { background: var(--interactive-hover); }
 
   .section-label {
-    padding: 10px 16px 5px; font-size: calc(14px * var(--font-scale)); letter-spacing: .08em;
+    padding: calc(10px * var(--font-scale)) calc(16px * var(--font-scale)) calc(5px * var(--font-scale)); font-size: calc(14px * var(--font-scale)); letter-spacing: .08em;
     color: var(--text-muted); display: flex; align-items: center; gap: calc(8px * var(--font-scale));
     font-family: 'DM Mono', monospace;
   }
@@ -302,7 +302,7 @@
   }
 
   /* ── Presets ─────────────────────────────────────────────────────────── */
-  .presets { display: flex; gap: calc(6px * var(--font-scale)); padding: 0 16px 10px; }
+  .presets { display: flex; gap: calc(6px * var(--font-scale)); padding: 0 calc(16px * var(--font-scale)) calc(10px * var(--font-scale)); }
   .pbtn {
     padding: calc(5px * var(--font-scale)) calc(13px * var(--font-scale));
     border: 0.5px solid var(--border-default); border-radius: 5px;
@@ -314,7 +314,7 @@
   .pbtn.active { background: var(--accent-bg); color: var(--accent-text); border-color: transparent; }
 
   /* ── Fechas ──────────────────────────────────────────────────────────── */
-  .date-row { display: flex; align-items: flex-end; gap: calc(8px * var(--font-scale)); padding: 0 16px 12px; flex-wrap: wrap; }
+  .date-row { display: flex; align-items: flex-end; gap: calc(8px * var(--font-scale)); padding: 0 calc(16px * var(--font-scale)) calc(12px * var(--font-scale)); flex-wrap: wrap; }
   .date-field { display: flex; flex-direction: column; gap: calc(3px * var(--font-scale)); flex: 1; min-width: 160px; }
   .field-label { font-size: calc(14px * var(--font-scale)); letter-spacing: .07em; color: var(--text-muted); font-family: 'DM Mono', monospace; }
   .date-input {
@@ -335,10 +335,10 @@
   .res-row { display: flex; align-items: center; gap: calc(10px * var(--font-scale)); padding: calc(2px * var(--font-scale)) calc(16px * var(--font-scale)) calc(4px * var(--font-scale)); }
   .res-tick { font-size: calc(14px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; min-width: 22px; }
   .res-slider { flex: 1; }
-  .res-hint { padding: 0 16px 12px; font-size: calc(14px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; letter-spacing: .04em; }
+  .res-hint { padding: 0 calc(16px * var(--font-scale)) calc(12px * var(--font-scale)); font-size: calc(14px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; letter-spacing: .04em; }
 
   /* ── Sensores ────────────────────────────────────────────────────────── */
-  .sensor-list { display: flex; flex-direction: column; gap: calc(1px * var(--font-scale)); padding: 0 16px 12px; max-height: 150px; overflow-y: auto; }
+  .sensor-list { display: flex; flex-direction: column; gap: calc(1px * var(--font-scale)); padding: 0 calc(16px * var(--font-scale)) calc(12px * var(--font-scale)); max-height: 150px; overflow-y: auto; }
   .sensor-item {
     display: flex; align-items: center; gap: calc(8px * var(--font-scale)); padding: calc(5px * var(--font-scale)) calc(8px * var(--font-scale));
     border-radius: 5px; cursor: pointer; font-size: calc(14px * var(--font-scale));

@@ -345,10 +345,10 @@
   .sensor-cols-head,
   .sensor-row {
     display: grid;
-    grid-template-columns: 48px 90px 1fr 80px 70px 90px;
-    gap: calc(8px * var(--font-scale));
+    grid-template-columns: 56px 120px 1fr 90px 76px 100px;
+    gap: calc(14px * var(--font-scale));
     align-items: center;
-    padding: calc(6px * var(--font-scale)) calc(14px * var(--font-scale));
+    padding: calc(8px * var(--font-scale)) calc(16px * var(--font-scale));
     font-size: calc(14px * var(--font-scale));
   }
   .sensor-cols-head {

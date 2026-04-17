@@ -329,7 +329,7 @@
   }
   .font-pct {
     font-size: calc(12px * var(--font-scale)); color: var(--text-muted);
-    background: var(--bg-elevated); padding: 2px 8px; border-radius: 4px;
+    background: var(--bg-elevated); padding: calc(2px * var(--font-scale)) calc(8px * var(--font-scale)); border-radius: 4px;
   }
 
   .slider-row {
@@ -349,11 +349,11 @@
   }
   .preview-label {
     font-size: calc(10px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace;
-    letter-spacing: .06em; padding: 6px 12px;
+    letter-spacing: .06em; padding: calc(6px * var(--font-scale)) calc(12px * var(--font-scale));
     border-bottom: 0.5px solid var(--border-subtle);
     background: var(--bg-inset);
   }
-  .preview-block { padding: 10px 12px; display: flex; flex-direction: column; gap: calc(4px * var(--font-scale)); }
+  .preview-block { padding: calc(10px * var(--font-scale)) calc(12px * var(--font-scale)); display: flex; flex-direction: column; gap: calc(4px * var(--font-scale)); }
   .preview-name {
     font-size: calc(13px * var(--preview-scale));
     font-weight: 500; color: var(--text-primary);
@@ -363,7 +363,7 @@
   }
   .preview-badge {
     font-size: calc(10px * var(--preview-scale));
-    padding: 2px 6px; border-radius: 4px; font-weight: 500;
+    padding: calc(2px * var(--font-scale)) calc(6px * var(--font-scale)); border-radius: 4px; font-weight: 500;
   }
   .preview-badge.warn { background: rgba(186,117,23,0.18); color: #e8a838; }
   .preview-row {
@@ -372,7 +372,7 @@
     font-size: calc(12px * var(--preview-scale));
     font-family: 'DM Mono', monospace;
     color: var(--text-primary);
-    padding: 3px 0;
+    padding: calc(3px * var(--font-scale)) 0;
     border-bottom: 0.5px solid var(--border-subtle);
   }
   .preview-row:last-child { border-bottom: none; }
