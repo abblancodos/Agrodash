@@ -251,7 +251,7 @@
       {@const color = sensorColor(group.type)}
 
       <div class="sensor-row corr-group">
-        <span class="s-num" style="color: var(--text-muted, #888)">todos</span>
+        <span class="s-num" style="color: var(--text-muted)">todos</span>
         <span class="s-type">{normaliseSensorLabel(group.type)}</span>
         <div class="s-spark">
           <!-- Sparkline del primer sensor del grupo como referencia -->
@@ -290,8 +290,8 @@
 
 <style>
   .box-card {
-    background: var(--bg-surface, #fff);
-    border: 0.5px solid var(--border-default, #e0e0e0);
+    background: var(--bg-surface);
+    border: 0.5px solid var(--border-default);
     border-radius: 10px;
     overflow: hidden;
   }
@@ -304,7 +304,7 @@
     align-items: center;
     gap: 12px;
     padding: 10px 14px;
-    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
+    border-bottom: 0.5px solid var(--border-subtle);
     flex-wrap: wrap;
   }
   .card-head__info { flex: 1; min-width: 0; }
@@ -318,7 +318,7 @@
   }
   .card-head__sub {
     font-size: 10px;
-    color: var(--text-muted, #888);
+    color: var(--text-muted);
     margin-top: 2px;
   }
   .card-head__presets { display: flex; gap: 3px; }
@@ -326,18 +326,18 @@
   /* Preset buttons */
   .pbtn {
     padding: 3px 7px;
-    border: 0.5px solid var(--border-default, #e0e0e0);
+    border: 0.5px solid var(--border-default);
     border-radius: 4px;
     background: transparent;
-    color: var(--text-secondary, #555);
+    color: var(--text-secondary);
     font-family: 'DM Mono', monospace;
     font-size: 9px;
     cursor: pointer;
     letter-spacing: .04em;
     transition: all .12s;
   }
-  .pbtn:hover  { background: var(--bg-hover, #f5f5f5); }
-  .pbtn.active { background: var(--accent-bg, #e8f0fe); color: var(--accent-text, #1a56db); border-color: transparent; }
+  .pbtn:hover  { background: var(--interactive-hover); }
+  .pbtn.active { background: var(--accent-bg); color: var(--accent-text); border-color: transparent; }
 
   /* Columnas */
   .sensor-cols-head,
@@ -350,57 +350,57 @@
     font-size: 10px;
   }
   .sensor-cols-head {
-    background: var(--bg-subtle, #f8f8f8);
-    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
-    color: var(--text-muted, #888);
+    background: var(--bg-elevated);
+    border-bottom: 0.5px solid var(--border-subtle);
+    color: var(--text-muted);
     font-size: 9px;
     letter-spacing: .07em;
   }
   .sensor-row {
-    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
+    border-bottom: 0.5px solid var(--border-subtle);
     cursor: pointer;
     transition: background .1s;
   }
   .sensor-row:last-child { border-bottom: none; }
-  .sensor-row:hover      { background: var(--bg-hover, #f5f5f5); }
-  .sensor-row.is-warn    { background: #fffdf5; }
-  .sensor-row.is-alert   { background: #fff5f5; }
+  .sensor-row:hover      { background: var(--interactive-hover); }
+  .sensor-row.is-warn    { background: var(--bg-surface)df5; }
+  .sensor-row.is-alert   { background: var(--bg-surface)5f5; }
   .sensor-row.corr-group {
-    background: var(--bg-subtle, #f8f8f8);
+    background: var(--bg-elevated);
     cursor: default;
   }
-  .sensor-row.corr-group:hover { background: var(--bg-subtle, #f8f8f8); }
+  .sensor-row.corr-group:hover { background: var(--bg-elevated); }
 
-  .s-num  { font-size: 10px; color: var(--text-muted, #888); }
-  .s-type { font-size: 10px; color: var(--text-secondary, #555); }
+  .s-num  { font-size: 10px; color: var(--text-muted); }
+  .s-type { font-size: 10px; color: var(--text-secondary); }
   .s-spark { height: 28px; }
   .s-val  { font-size: 11px; font-weight: 500; color: var(--text-primary); }
-  .s-val.warn { color: #BA7517; }
+  .s-val.warn { color: #e8a838; }
   .align-right { text-align: right; }
 
   /* Tiempo relativo */
   .ago        { font-size: 9px; }
-  .ago.fresh  { color: #3B6D11; }
-  .ago.recent { color: var(--text-muted, #888); }
-  .ago.stale  { color: #854F0B; }
-  .ago.dead   { color: #A32D2D; }
+  .ago.fresh  { color: var(--live-color); }
+  .ago.recent { color: var(--text-muted); }
+  .ago.stale  { color: #e8a838; }
+  .ago.dead   { color: var(--error-color); }
 
   /* Correlación label */
   .corr-label {
     font-size: 9px;
-    color: var(--text-muted, #888);
+    color: var(--text-muted);
     letter-spacing: .06em;
     padding: 5px 14px 3px;
-    background: var(--bg-subtle, #f8f8f8);
-    border-top: 0.5px solid var(--border-subtle, #ebebeb);
-    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
+    background: var(--bg-elevated);
+    border-top: 0.5px solid var(--border-subtle);
+    border-bottom: 0.5px solid var(--border-subtle);
   }
 
   /* Gráfica expandida */
   .sensor-expanded {
     padding: 10px 14px;
-    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
-    background: var(--bg-surface, #fff);
+    border-bottom: 0.5px solid var(--border-subtle);
+    background: var(--bg-surface);
   }
 
   .csv-btn {
@@ -408,10 +408,10 @@
     align-items: center;
     gap: 4px;
     padding: 3px 8px;
-    border: 0.5px solid var(--border-default, #e0e0e0);
+    border: 0.5px solid var(--border-default);
     border-radius: 4px;
     background: transparent;
-    color: var(--text-muted, #888);
+    color: var(--text-muted);
     font-family: 'DM Mono', monospace;
     font-size: 9px;
     letter-spacing: .06em;
@@ -419,8 +419,8 @@
     transition: all .12s;
   }
   .csv-btn:hover {
-    background: var(--bg-hover, #f5f5f5);
-    color: var(--text-secondary, #555);
+    background: var(--interactive-hover);
+    color: var(--text-secondary);
   }
 
   /* Badges */
@@ -432,10 +432,10 @@
     font-weight: 500;
     white-space: nowrap;
   }
-  .badge-normal { background: var(--bg-subtle, #f0f0f0); color: var(--text-muted, #888); }
-  .badge-muted  { background: var(--bg-subtle, #f0f0f0); color: var(--text-muted, #888); }
-  .badge-warn   { background: #FAEEDA; color: #854F0B; }
-  .badge-alert  { background: #FCEBEB; color: #A32D2D; }
-  .badge-ok     { background: #EAF3DE; color: #3B6D11; }
-  .badge-info   { background: #E6F1FB; color: #185FA5; }
+  .badge-normal { background: var(--bg-elevated); color: var(--text-muted); }
+  .badge-muted  { background: var(--interactive-bg); color: var(--text-muted); }
+  .badge-warn   { background: rgba(186,117,23,0.15); color: #e8a838; }
+  .badge-alert  { background: var(--error-bg); color: var(--error-color); }
+  .badge-ok     { background: var(--live-bg); color: var(--live-color); }
+  .badge-info   { background: rgba(74,154,98,0.12); color: var(--tb-accent); }
 </style>

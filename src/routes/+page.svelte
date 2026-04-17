@@ -6,6 +6,7 @@
   import TypeSelector from '$lib/components/TypeSelector.svelte';
   import DateTimePicker from '$lib/components/DateTimePicker.svelte';
   import MultiSensorChart from '$lib/components/MultiSensorChart.svelte';
+  import InfoPanel from '$lib/components/InfoPanel.svelte';
 
   // ── Estado global ─────────────────────────────────────────────────────────
 
@@ -25,6 +26,7 @@
   let activeTypes    = $state<Set<string>>(new Set());
   let search         = $state('');
   let live           = $state(false);
+  let expandedBoxId  = $state<string | null>(null);
 
   // ── Stats ─────────────────────────────────────────────────────────────────
 
@@ -260,8 +262,13 @@
             {@const boxStats = stats?.sensors.filter(s => s.box_id === box.id) ?? []}
             {@const score = Math.max(...boxStats.map(s => s.anomaly_score ?? 0))}
             {@const lastSeen = boxStats.map(s => s.last_seen_at).filter(Boolean).reduce((a, b) => (a! > b! ? a : b), null as string | null)}
-            <div class="ct-row" onclick={() => { mode = 'cards'; selectedBoxIds = new Set([box.id]); }}>
-              <span class="ct-name">{box.name}</span>
+            {@const isExpanded = expandedBoxId === box.id}
+            <div class="ct-row" class:expanded={isExpanded}
+                 onclick={() => expandedBoxId = isExpanded ? null : box.id}>
+              <span class="ct-name">
+                <span class="ct-chevron" class:open={isExpanded}>▶</span>
+                {box.name}
+              </span>
               <span>{box.sensors.length}</span>
               <span class="align-right">
                 {#if score >= 1.5}
@@ -292,6 +299,41 @@
                 {/if}
               </span>
             </div>
+
+            {#if isExpanded}
+              <div class="ct-expand">
+                <div class="ct-expand__cols">
+                  <span class="ct-expand__h">sensor</span>
+                  <span class="ct-expand__h">variable</span>
+                  <span class="ct-expand__h align-right">último valor</span>
+                  <span class="ct-expand__h align-right">media 24h</span>
+                  <span class="ct-expand__h align-right">score</span>
+                  <span class="ct-expand__h align-right">último dato</span>
+                </div>
+                {#each boxStats.sort((a, b) => (b.anomaly_score ?? 0) - (a.anomaly_score ?? 0)) as s (s.sensor_id)}
+                  {@const ac = (s.anomaly_score ?? 0) >= 3 ? 'alert' : (s.anomaly_score ?? 0) >= 1.5 ? 'warn' : 'ok'}
+                  {@const secsAgo = s.last_seen_at ? Math.floor((Date.now() - new Date(s.last_seen_at).getTime()) / 1000) : null}
+                  {@const agoClass = !secsAgo ? 'dead' : secsAgo < 300 ? 'fresh' : secsAgo < 1800 ? 'recent' : secsAgo < 86400 ? 'stale' : 'dead'}
+                  {@const agoText = !secsAgo ? 'sin datos' : secsAgo < 60 ? `hace ${secsAgo}s` : secsAgo < 3600 ? `hace ${Math.round(secsAgo/60)} min` : secsAgo < 86400 ? `hace ${Math.round(secsAgo/3600)} h` : secsAgo < 2592000 ? `hace ${Math.round(secsAgo/86400)} días` : `hace ${Math.round(secsAgo/2592000)} meses`}
+                  <div class="ct-expand__row" class:row-warn={ac === 'warn'} class:row-alert={ac === 'alert'}>
+                    <span class="ct-expand__cell muted">#{s.sensor_number}</span>
+                    <span class="ct-expand__cell">{s.sensor_type}</span>
+                    <span class="ct-expand__cell align-right" class:val-warn={ac !== 'ok'}>
+                      {s.last_value !== null ? s.last_value.toFixed(4) : '—'}
+                    </span>
+                    <span class="ct-expand__cell align-right muted">
+                      {s.mean_24h !== null ? s.mean_24h.toFixed(4) : '—'}
+                    </span>
+                    <span class="ct-expand__cell align-right">
+                      {#if s.anomaly_score !== null}
+                        <span class="badge badge-{ac === 'ok' ? 'muted' : ac}">{s.anomaly_score.toFixed(1)}σ</span>
+                      {:else}—{/if}
+                    </span>
+                    <span class="ct-expand__cell align-right ago {agoClass}">{agoText}</span>
+                  </div>
+                {/each}
+              </div>
+            {/if}
           {/each}
         </div>
 
@@ -381,6 +423,8 @@
 
     </div>
   </div>
+
+  <InfoPanel />
 </div>
 
 <style>
@@ -390,13 +434,13 @@
   .sidebar {
     width: 52px;
     flex-shrink: 0;
-    border-right: 0.5px solid var(--border-subtle, #ebebeb);
+    border-right: 0.5px solid var(--border-subtle);
     display: flex;
     flex-direction: column;
     align-items: center;
     padding: 12px 0;
     gap: 2px;
-    background: var(--bg-surface, #fff);
+    background: var(--bg-surface);
     position: sticky;
     top: 0;
     height: 100vh;
@@ -404,14 +448,14 @@
   .sidebar__brand {
     font-size: 13px;
     font-weight: 500;
-    color: var(--text-muted, #888);
+    color: var(--text-muted);
     letter-spacing: .1em;
     margin-bottom: 4px;
   }
   .sidebar__sep {
     width: 24px;
     height: 0.5px;
-    background: var(--border-subtle, #ebebeb);
+    background: var(--border-subtle);
     margin: 6px 0;
   }
   .mode-btn {
@@ -424,20 +468,20 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--text-muted, #888);
+    color: var(--text-muted);
     transition: all .12s;
   }
   .mode-btn svg { width: 15px; height: 15px; }
-  .mode-btn:hover { background: var(--bg-hover, #f5f5f5); color: var(--text-secondary, #555); }
+  .mode-btn:hover { background: var(--interactive-hover); color: var(--text-secondary); }
   .mode-btn.active {
-    background: var(--bg-hover, #f5f5f5);
-    border-color: var(--border-default, #e0e0e0);
+    background: var(--interactive-hover);
+    border-color: var(--border-default);
     color: var(--text-primary);
   }
   .mode-label {
     font-size: 8px;
     letter-spacing: .06em;
-    color: var(--text-muted, #888);
+    color: var(--text-muted);
     text-align: center;
     line-height: 1.2;
     margin-bottom: 4px;
@@ -452,38 +496,38 @@
     align-items: center;
     gap: 8px;
     padding: 9px 16px;
-    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
-    background: var(--bg-surface, #fff);
+    border-bottom: 0.5px solid var(--border-subtle);
+    background: var(--bg-surface);
     flex-wrap: wrap;
   }
   .topbar__title { font-size: 11px; font-weight: 500; letter-spacing: .08em; color: var(--text-primary); }
-  .vsep { width: 0.5px; height: 16px; background: var(--border-subtle, #ebebeb); flex-shrink: 0; }
+  .vsep { width: 0.5px; height: 16px; background: var(--border-subtle); flex-shrink: 0; }
   .spacer { flex: 1; }
-  .sep { color: var(--text-muted, #888); font-size: 10px; }
+  .sep { color: var(--text-muted); font-size: 10px; }
 
   .presets { display: flex; gap: 3px; }
   .pbtn {
     padding: 3px 7px;
-    border: 0.5px solid var(--border-default, #e0e0e0);
+    border: 0.5px solid var(--border-default);
     border-radius: 4px;
     background: transparent;
-    color: var(--text-secondary, #555);
+    color: var(--text-secondary);
     font-family: 'DM Mono', monospace;
     font-size: 9px;
     cursor: pointer;
     letter-spacing: .04em;
   }
-  .pbtn.active { background: var(--accent-bg, #e8f0fe); color: var(--accent-text, #1a56db); border-color: transparent; }
+  .pbtn.active { background: var(--accent-bg); color: var(--accent-text); border-color: transparent; }
 
   .live-btn {
     display: flex;
     align-items: center;
     gap: 5px;
     padding: 4px 10px;
-    border: 0.5px solid var(--border-default, #e0e0e0);
+    border: 0.5px solid var(--border-default);
     border-radius: 4px;
     background: transparent;
-    color: var(--text-muted, #888);
+    color: var(--text-muted);
     font-family: 'DM Mono', monospace;
     font-size: 9px;
     letter-spacing: .1em;
@@ -493,9 +537,9 @@
   .live-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
   .reload-btn {
     width: 26px; height: 26px; padding: 0;
-    border: 0.5px solid var(--border-default, #e0e0e0);
+    border: 0.5px solid var(--border-default);
     border-radius: 4px; background: transparent;
-    color: var(--text-muted, #888); font-size: 13px; cursor: pointer;
+    color: var(--text-muted); font-size: 13px; cursor: pointer;
   }
 
   /* Box selector bar */
@@ -504,16 +548,16 @@
     align-items: center;
     gap: 8px;
     padding: 8px 16px;
-    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
-    background: var(--bg-surface, #fff);
+    border-bottom: 0.5px solid var(--border-subtle);
+    background: var(--bg-surface);
     flex-wrap: wrap;
   }
   .controls__search { position: relative; }
-  .search-icon { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: var(--text-muted, #888); font-size: 13px; pointer-events: none; }
+  .search-icon { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 13px; pointer-events: none; }
   .search-input {
     padding: 5px 10px 5px 26px;
-    background: var(--bg-subtle, #f8f8f8);
-    border: 0.5px solid var(--border-default, #e0e0e0);
+    background: var(--bg-elevated);
+    border: 0.5px solid var(--border-default);
     border-radius: 4px;
     color: var(--text-primary);
     font-family: 'DM Mono', monospace;
@@ -525,10 +569,45 @@
   /* Content */
   .content { flex: 1; padding: 14px 16px 48px; background: var(--bg-page, #f4f4f2); }
 
+
+  /* Compact expand */
+  .ct-chevron { font-size: 8px; color: var(--text-muted); transition: transform .15s; display: inline-block; margin-right: 4px; }
+  .ct-chevron.open { transform: rotate(90deg); }
+  .ct-row.expanded { background: var(--interactive-hover); }
+
+  .ct-expand {
+    border-bottom: 0.5px solid var(--border-subtle);
+    background: var(--bg-elevated);
+  }
+  .ct-expand__cols {
+    display: grid;
+    grid-template-columns: 50px 1fr 100px 100px 72px 100px;
+    padding: 5px 14px;
+    gap: 8px;
+    border-bottom: 0.5px solid var(--border-subtle);
+  }
+  .ct-expand__h {
+    font-size: 9px; color: var(--text-muted);
+    letter-spacing: .07em; font-family: 'DM Mono', monospace;
+  }
+  .ct-expand__row {
+    display: grid;
+    grid-template-columns: 50px 1fr 100px 100px 72px 100px;
+    padding: 6px 14px; gap: 8px;
+    border-bottom: 0.5px solid var(--border-subtle);
+    align-items: center;
+  }
+  .ct-expand__row:last-child { border-bottom: none; }
+  .ct-expand__row.row-warn { background: var(--bg-surface)df5; }
+  .ct-expand__row.row-alert { background: var(--bg-surface)5f5; }
+  .ct-expand__cell { font-size: 10px; color: var(--text-primary); }
+  .ct-expand__cell.muted { color: var(--text-muted); }
+  .val-warn { color: #e8a838 !important; font-weight: 500; }
+
   /* Compact table */
   .compact-table {
-    background: var(--bg-surface, #fff);
-    border: 0.5px solid var(--border-default, #e0e0e0);
+    background: var(--bg-surface);
+    border: 0.5px solid var(--border-default);
     border-radius: 10px;
     overflow: hidden;
   }
@@ -536,10 +615,10 @@
     display: grid;
     grid-template-columns: 1fr 60px 100px 120px 80px;
     padding: 6px 14px;
-    background: var(--bg-subtle, #f8f8f8);
-    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
+    background: var(--bg-elevated);
+    border-bottom: 0.5px solid var(--border-subtle);
     font-size: 9px;
-    color: var(--text-muted, #888);
+    color: var(--text-muted);
     letter-spacing: .07em;
     gap: 8px;
   }
@@ -547,7 +626,7 @@
     display: grid;
     grid-template-columns: 1fr 60px 100px 120px 80px;
     padding: 8px 14px;
-    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
+    border-bottom: 0.5px solid var(--border-subtle);
     align-items: center;
     gap: 8px;
     font-size: 11px;
@@ -555,7 +634,7 @@
     transition: background .1s;
   }
   .ct-row:last-child { border-bottom: none; }
-  .ct-row:hover { background: var(--bg-hover, #f5f5f5); }
+  .ct-row:hover { background: var(--interactive-hover); }
   .ct-name { font-weight: 500; color: var(--text-primary); }
   .align-right { text-align: right; }
 
@@ -567,8 +646,8 @@
 
   /* Data table (análisis) */
   .data-table {
-    background: var(--bg-surface, #fff);
-    border: 0.5px solid var(--border-default, #e0e0e0);
+    background: var(--bg-surface);
+    border: 0.5px solid var(--border-default);
     border-radius: 10px;
     overflow: hidden;
   }
@@ -576,10 +655,10 @@
     display: grid;
     grid-template-columns: 80px 50px 90px repeat(5, 1fr);
     padding: 6px 14px;
-    background: var(--bg-subtle, #f8f8f8);
-    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
+    background: var(--bg-elevated);
+    border-bottom: 0.5px solid var(--border-subtle);
     font-size: 9px;
-    color: var(--text-muted, #888);
+    color: var(--text-muted);
     letter-spacing: .07em;
     gap: 6px;
   }
@@ -587,40 +666,42 @@
     display: grid;
     grid-template-columns: 80px 50px 90px repeat(5, 1fr);
     padding: 6px 14px;
-    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
+    border-bottom: 0.5px solid var(--border-subtle);
     font-size: 10px;
-    color: var(--text-secondary, #555);
+    color: var(--text-secondary);
     align-items: center;
     gap: 6px;
   }
   .dt-row:last-child { border-bottom: none; }
-  .dt-row.dt-warn { background: #fffdf5; }
+  .dt-row.dt-warn { background: var(--bg-surface)df5; }
 
   /* Badges */
   .badge { font-size: 9px; padding: 2px 6px; border-radius: 4px; letter-spacing: .04em; font-weight: 500; }
-  .badge-muted  { background: var(--bg-subtle, #f0f0f0); color: var(--text-muted, #888); }
+  .badge-muted  { background: var(--bg-elevated); color: var(--text-muted); }
   .badge-ok     { background: #EAF3DE; color: #3B6D11; }
   .badge-warn   { background: #FAEEDA; color: #854F0B; }
   .badge-alert  { background: #FCEBEB; color: #A32D2D; }
 
   /* Tiempo relativo */
   .ago        { font-size: 9px; }
-  .ago.fresh  { color: #3B6D11; }
-  .ago.recent { color: var(--text-muted, #888); }
-  .ago.stale  { color: #854F0B; }
-  .ago.dead   { color: #A32D2D; }
+  .ago.fresh  { color: var(--live-color); }
+  .ago.recent { color: var(--text-muted); }
+  .ago.stale  { color: #e8a838; }
+  .ago.dead   { color: var(--error-color); }
 
   /* Skeleton */
   .skeleton {
     height: 120px;
     border-radius: 10px;
-    border: 0.5px solid var(--border-subtle, #ebebeb);
-    background: var(--bg-subtle, #f8f8f8);
+    border: 0.5px solid var(--border-subtle);
+    background: var(--bg-elevated);
     margin-bottom: 10px;
     animation: shimmer 1.5s infinite;
   }
   @keyframes shimmer { 0%,100%{opacity:.6}50%{opacity:1} }
 
   .error-msg { font-size: 11px; color: #A32D2D; padding: 24px; text-align: center; }
-  .empty { font-size: 11px; color: var(--text-muted, #888); padding: 48px; text-align: center; }
+  .empty { font-size: 11px; color: var(--text-muted); padding: 48px; text-align: center; }
+
+
 </style>
