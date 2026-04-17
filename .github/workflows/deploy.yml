@@ -19,5 +19,4 @@ jobs:
             -t agrodash-web:latest .
 
       - name: Restart containers
-        run: |
-          docker compose -f /home/embebidos/.server-lab/docker-compose.api-rust-agrodash.yml up -d --force-recreate
+        run: docker restart server-lab-api-rust-agrodash-1
