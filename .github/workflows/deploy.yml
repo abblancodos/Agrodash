@@ -19,10 +19,11 @@ jobs:
       - name: Deploy frontend
         run: |
           docker rm -f agrodash-web-tmp 2>/dev/null || true
-          docker run --rm \
+          docker run -d --name agrodash-web-tmp \
             -v /home/embebidos/.server-lab/agrodash/web:/output \
-            -v $(pwd)/build:/build:ro \
-            alpine sh -c "cp -r /build/. /output/"
+            alpine sleep 30
+          docker cp build/. agrodash-web-tmp:/output/
+          docker rm -f agrodash-web-tmp
 
       - name: Build API image
         run: docker build -f Dockerfile.api -t agrodash-api:latest .
