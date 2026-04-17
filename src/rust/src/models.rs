@@ -1,9 +1,6 @@
 // src/models.rs
-// Structs que mapean directo a las tablas de PostgreSQL.
-// sqlx::FromRow permite hacer query_as! sin boilerplate.
-// serde::Serialize convierte a JSON para las responses de Axum.
 
-use chrono::NaiveDateTime;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -32,9 +29,8 @@ pub struct Reading {
     pub created_at: NaiveDateTime,
 }
 
-// ── Response shapes (lo que se serializa a JSON) ──────────────────────────────
+// ── Response shapes ───────────────────────────────────────────────────────────
 
-/// Un sensor dentro de la respuesta de /api/v1/boxes
 #[derive(Debug, Serialize)]
 pub struct SensorResponse {
     pub id:            Uuid,
@@ -43,7 +39,6 @@ pub struct SensorResponse {
     pub sensor_type:   String,
 }
 
-/// Una caja con sus sensores — respuesta de GET /api/v1/boxes
 #[derive(Debug, Serialize)]
 pub struct BoxResponse {
     pub id:      Uuid,
@@ -51,42 +46,83 @@ pub struct BoxResponse {
     pub sensors: Vec<SensorResponse>,
 }
 
-/// Un punto de lectura submuestreado — respuesta de GET /api/v1/readings
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct ReadingBucket {
-    /// Timestamp del bucket (ya formateado en SQL con date_trunc)
     pub bucket: NaiveDateTime,
-    /// Promedio de las lecturas en ese bucket
     pub value:  f64,
 }
 
-/// Rango temporal de los datos — respuesta de GET /api/v1/readings/time-range
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct TimeRange {
     pub first: NaiveDateTime,
     pub last:  NaiveDateTime,
 }
 
-/// Temperatura ambiente — respuesta de GET /api/v1/environment/temperature
 #[derive(Debug, Serialize)]
 pub struct TemperatureResponse {
     pub temperature_c: f64,
 }
 
-/// Query params de GET /api/v1/readings
+// ── Stats ─────────────────────────────────────────────────────────────────────
+
+/// Lo que devuelve GET /api/v1/stats — una entrada por sensor,
+/// ordenada por anomaly_score DESC (los más raros primero).
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct SensorStat {
+    pub sensor_id:      Uuid,
+    pub box_id:         Uuid,
+    pub box_name:       String,
+    pub sensor_number:  i32,
+    pub sensor_type:    String,
+
+    pub last_value:     Option<f64>,
+    /// UTC timestamp del último dato — el frontend calcula el tiempo relativo
+    pub last_seen_at:   Option<DateTime<Utc>>,
+
+    pub mean_24h:       Option<f64>,
+    pub stddev_24h:     Option<f64>,
+    pub min_24h:        Option<f64>,
+    pub max_24h:        Option<f64>,
+    pub count_24h:      Option<i32>,
+
+    /// |last_value - mean_24h| / stddev_24h. NULL si no hay suficientes datos.
+    pub anomaly_score:  Option<f64>,
+    /// Cambio por hora. NULL si no hay dato previo.
+    pub rate_of_change: Option<f64>,
+}
+
+/// Correlaciones entre sensores de la misma caja para la misma variable.
+/// Solo se devuelven pares con |r| >= umbral (0.85 por defecto).
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct SensorCorrelation {
+    pub box_id:       Uuid,
+    pub sensor_type:  String,
+    pub sensor_id_a:  Uuid,
+    pub sensor_id_b:  Uuid,
+    pub pearson_r:    f64,
+}
+
+/// Respuesta completa de GET /api/v1/stats
+#[derive(Debug, Serialize)]
+pub struct StatsResponse {
+    pub computed_at:   DateTime<Utc>,
+    pub sensors:       Vec<SensorStat>,
+    pub correlations:  Vec<SensorCorrelation>,
+}
+
+// ── Query params ──────────────────────────────────────────────────────────────
+
 #[derive(Debug, Deserialize)]
 pub struct ReadingsQuery {
     pub sensor_id: Uuid,
-    pub from:      chrono::DateTime<chrono::Utc>,
-    pub to:        chrono::DateTime<chrono::Utc>,
-    /// Número de puntos deseados — el servidor decide el bucket size
+    pub from:      DateTime<Utc>,
+    pub to:        DateTime<Utc>,
     #[serde(default = "default_points")]
     pub points:    i64,
 }
 
 fn default_points() -> i64 { 300 }
 
-/// Query params de GET /api/v1/readings/last
 #[derive(Debug, Deserialize)]
 pub struct LastReadingQuery {
     pub sensor_id: Uuid,

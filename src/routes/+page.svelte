@@ -1,44 +1,70 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { fetchBoxes, fetchTimeRange, type Box } from '$lib/api';
+  import { fetchBoxes, fetchTimeRange, fetchStats, type Box, type StatsResponse } from '$lib/api';
   import BoxCard from '$lib/components/BoxCard.svelte';
   import BoxSelector from '$lib/components/BoxSelector.svelte';
   import TypeSelector from '$lib/components/TypeSelector.svelte';
   import DateTimePicker from '$lib/components/DateTimePicker.svelte';
+  import MultiSensorChart from '$lib/components/MultiSensorChart.svelte';
 
-  let boxes = $state<Box[]>([]);
-  let loading = $state(true);
-  let error = $state('');
+  // ── Estado global ─────────────────────────────────────────────────────────
 
-  let minDate = $state<Date | undefined>(undefined);
-  let maxDate = $state<Date | undefined>(undefined);
-  let fromDate = $state(new Date(Date.now() - 24 * 60 * 60 * 1000));
-  let toDate   = $state(new Date());
+  let boxes        = $state<Box[]>([]);
+  let loading      = $state(true);
+  let error        = $state('');
+
+  let minDate      = $state<Date | undefined>(undefined);
+  let maxDate      = $state<Date | undefined>(undefined);
+  let fromDate     = $state(new Date(Date.now() - 24 * 60 * 60 * 1000));
+  let toDate       = $state(new Date());
 
   let rangeLoading = $state(false);
   let rangeError   = $state(false);
 
-  // Box selection — starts empty, filled after boxes load
   let selectedBoxIds = $state<Set<string>>(new Set());
+  let activeTypes    = $state<Set<string>>(new Set());
+  let search         = $state('');
+  let live           = $state(false);
 
-  // Type selection — all types active by default
-  let activeTypes = $state<Set<string>>(new Set());
+  // ── Stats ─────────────────────────────────────────────────────────────────
 
-  async function loadTimeRange() {
-    rangeLoading = true; rangeError = false;
+  let stats        = $state<StatsResponse | null>(null);
+  let statsLoading = $state(false);
+  let statsError   = $state('');
+
+  // Polling de stats cada 60s (el worker actualiza cada 5 min, no tiene
+  // sentido pedir más seguido)
+  let statsInterval: ReturnType<typeof setInterval> | null = null;
+
+  async function loadStats() {
+    statsLoading = true; statsError = '';
     try {
-      const { first, last } = await fetchTimeRange();
-      minDate = first; maxDate = last;
-      toDate = last;
-      fromDate = new Date(last.getTime() - 24 * 60 * 60 * 1000);
-    } catch { rangeError = true; }
-    finally { rangeLoading = false; }
+      stats = await fetchStats();
+    } catch (e: any) {
+      statsError = e.message;
+    } finally {
+      statsLoading = false;
+    }
   }
 
+  // ── Modo de visualización ─────────────────────────────────────────────────
+
+  type Mode = 'compacto' | 'cards' | 'graficas' | 'analisis';
+  let mode = $state<Mode>('cards');
+
+  const MODES: { id: Mode; label: string }[] = [
+    { id: 'compacto', label: 'compacto' },
+    { id: 'cards',    label: 'cards'    },
+    { id: 'graficas', label: 'gráficas' },
+    { id: 'analisis', label: 'análisis' },
+  ];
+
+  // ── Presets globales ──────────────────────────────────────────────────────
+
   const PRESETS = [
-    { label: '1h',  hours: 1 },
-    { label: '6h',  hours: 6 },
-    { label: '24h', hours: 24 },
+    { label: '1h',  hours: 1   },
+    { label: '6h',  hours: 6   },
+    { label: '24h', hours: 24  },
     { label: '7d',  hours: 168 },
     { label: '30d', hours: 720 },
   ];
@@ -46,12 +72,22 @@
 
   function applyPreset(p: { label: string; hours: number }) {
     activePreset = p.label;
-    toDate   = maxDate ?? new Date();
-    fromDate = new Date(toDate.getTime() - p.hours * 3_600_000);
+    toDate       = maxDate ?? new Date();
+    fromDate     = new Date(toDate.getTime() - p.hours * 3_600_000);
   }
 
-  let live = $state(false);
-  let search = $state('');
+  async function loadTimeRange() {
+    rangeLoading = true; rangeError = false;
+    try {
+      const { first, last } = await fetchTimeRange();
+      minDate  = first; maxDate = last;
+      toDate   = last;
+      fromDate = new Date(last.getTime() - 24 * 60 * 60 * 1000);
+    } catch { rangeError = true; }
+    finally { rangeLoading = false; }
+  }
+
+  // ── Derived ───────────────────────────────────────────────────────────────
 
   const filteredBoxes = $derived(
     boxes.filter(b =>
@@ -60,145 +96,531 @@
     )
   );
 
+  /** Cajas ordenadas por anomaly_score más alto de sus sensores */
+  const sortedBoxes = $derived(() => {
+    if (!stats) return filteredBoxes;
+    return [...filteredBoxes].sort((a, b) => {
+      const scoreA = Math.max(...stats!.sensors
+        .filter(s => s.box_id === a.id)
+        .map(s => s.anomaly_score ?? 0));
+      const scoreB = Math.max(...stats!.sensors
+        .filter(s => s.box_id === b.id)
+        .map(s => s.anomaly_score ?? 0));
+      return scoreB - scoreA;
+    });
+  });
+
+  const totalAnomalies = $derived(() =>
+    stats?.sensors.filter(s => (s.anomaly_score ?? 0) >= 1.5).length ?? 0
+  );
+
+  // ── Mount ─────────────────────────────────────────────────────────────────
+
   onMount(async () => {
     await Promise.all([
       fetchBoxes().then(b => {
         boxes = b;
-        selectedBoxIds = new Set(b.length ? [b[0].id] : []);
-        // Collect all unique types across all boxes
+        selectedBoxIds = new Set(b.map(box => box.id));
         activeTypes = new Set(b.flatMap(box => box.sensors.map(s => s.type.toLowerCase())));
       }).catch(e => error = e.message),
       loadTimeRange(),
+      loadStats(),
     ]);
     loading = false;
+
+    // Polling de stats cada 60s
+    statsInterval = setInterval(loadStats, 60_000);
+
+    return () => { if (statsInterval) clearInterval(statsInterval); };
   });
 </script>
 
 <svelte:head><title>AgroDash</title></svelte:head>
 
-<main class="dashboard">
-  <div class="controls">
-    <div class="controls__search">
-      <span class="controls__icon">⌕</span>
-      <input class="controls__input" type="text"
-        placeholder="Filtrar cajas..." bind:value={search} />
-    </div>
+<div class="layout">
 
-    <div class="controls__presets">
-      {#each PRESETS as p}
-        <button class="preset-btn" class:active={activePreset === p.label}
-          onclick={() => applyPreset(p)}>{p.label}</button>
-      {/each}
-    </div>
+  <!-- Sidebar de modos ──────────────────────────────────────────────────── -->
+  <nav class="sidebar">
+    <span class="sidebar__brand">A</span>
+    <div class="sidebar__sep"></div>
 
-    <div class="controls__range">
-      <DateTimePicker bind:value={fromDate} min={minDate} max={toDate}
-        label="DESDE" onchange={() => activePreset = ''} />
-      <span class="sep">→</span>
-      <div class="to-wrap">
+    {#each MODES as m}
+      <button
+        class="mode-btn"
+        class:active={mode === m.id}
+        onclick={() => mode = m.id}
+        title={m.label}
+      >
+        {#if m.id === 'compacto'}
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <rect x="2" y="3" width="12" height="2"/><rect x="2" y="7" width="12" height="2"/><rect x="2" y="11" width="12" height="2"/>
+          </svg>
+        {:else if m.id === 'cards'}
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/>
+            <rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/>
+          </svg>
+        {:else if m.id === 'graficas'}
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="2,12 5,7 8,9 11,4 14,6"/><line x1="2" y1="14" x2="14" y2="14"/>
+          </svg>
+        {:else}
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="5" cy="5" r="1.5"/><circle cx="11" cy="4" r="1.5"/>
+            <circle cx="8" cy="9" r="1.5"/><circle cx="4" cy="12" r="1.5"/><circle cx="12" cy="11" r="1.5"/>
+          </svg>
+        {/if}
+      </button>
+      <span class="mode-label">{m.label}</span>
+    {/each}
+  </nav>
+
+  <!-- Main ───────────────────────────────────────────────────────────────── -->
+  <div class="main">
+
+    <!-- Topbar -->
+    <div class="topbar">
+      <span class="topbar__title">{mode}</span>
+      <div class="vsep"></div>
+
+      {#if mode !== 'cards'}
+        <!-- Controles globales de tiempo (en cards cada caja tiene los suyos) -->
+        <div class="presets">
+          {#each PRESETS as p}
+            <button class="pbtn" class:active={activePreset === p.label}
+              onclick={() => applyPreset(p)}>{p.label}</button>
+          {/each}
+        </div>
+        <DateTimePicker bind:value={fromDate} min={minDate} max={toDate}
+          label="DESDE" onchange={() => activePreset = ''} />
+        <span class="sep">→</span>
         <DateTimePicker bind:value={toDate} min={fromDate} max={maxDate}
           label="HASTA" onchange={() => activePreset = ''} />
-        <button class="reload-btn"
-          class:loading={rangeLoading} class:err={rangeError}
-          onclick={loadTimeRange} title="Actualizar última lectura"
-          disabled={rangeLoading}>
-          {#if rangeLoading}<span class="spinner"></span>
-          {:else if rangeError}!
-          {:else}↺{/if}
-        </button>
-      </div>
+        <button class="reload-btn" onclick={loadTimeRange} disabled={rangeLoading}>↺</button>
+        <div class="vsep"></div>
+      {/if}
+
+      <button class="live-btn" class:active={live} onclick={() => live = !live}>
+        <span class="live-dot"></span>
+        {live ? 'LIVE ON' : 'LIVE OFF'}
+      </button>
+
+      <div class="spacer"></div>
+
+      {#if totalAnomalies() > 0}
+        <span class="badge badge-warn">{totalAnomalies()} anomalía{totalAnomalies() > 1 ? 's' : ''}</span>
+      {/if}
+
+      {#if !loading}
+        <span class="badge badge-muted">
+          {filteredBoxes.length} cajas · {filteredBoxes.reduce((a, b) => a + b.sensors.length, 0)} sensores
+        </span>
+      {/if}
+
+      {#if !loading && boxes.length}
+        <TypeSelector {boxes} selected={activeTypes} onchange={(s) => activeTypes = s} />
+      {/if}
     </div>
 
-    <button class="live-btn" class:active={live} onclick={() => live = !live}>
-      <span class="live-btn__dot"></span>
-      {live ? 'LIVE ON' : 'LIVE OFF'}
-    </button>
-
+    <!-- Box selector -->
     {#if !loading && boxes.length}
-      <TypeSelector
-        {boxes}
-        selected={activeTypes}
-        onchange={(s) => activeTypes = s}
-      />
+      <div class="box-sel-bar">
+        <div class="controls__search">
+          <span class="search-icon">⌕</span>
+          <input class="search-input" type="text"
+            placeholder="Filtrar cajas..." bind:value={search} />
+        </div>
+        <BoxSelector {boxes} selected={selectedBoxIds} onchange={(s) => selectedBoxIds = s} />
+      </div>
     {/if}
-  </div>
 
-  {#if !loading}
-    <div class="summary">
-      <span>{filteredBoxes.length} cajas</span>
-      <span class="dot">·</span>
-      <span>{filteredBoxes.reduce((a, b) => a + b.sensors.length, 0)} sensores</span>
-      {#if minDate}<span class="dot">·</span><span>datos desde {minDate.toLocaleDateString('es-CR')}</span>{/if}
-      {#if live}<span class="dot">·</span><span class="live-label">actualizando cada 15s</span>{/if}
+    <!-- Contenido por modo -->
+    <div class="content">
+
+      {#if loading}
+        {#each Array(3) as _}<div class="skeleton"></div>{/each}
+
+      {:else if error}
+        <div class="error-msg">Error: {error}</div>
+
+      {:else if filteredBoxes.length === 0}
+        <div class="empty">Seleccioná una o más cajas para ver los datos.</div>
+
+      {:else if mode === 'compacto'}
+        <!-- Vista compacta: tabla con una fila por caja -->
+        <div class="compact-table">
+          <div class="ct-head">
+            <span>caja</span>
+            <span>sensores</span>
+            <span class="align-right">peor score</span>
+            <span class="align-right">último dato</span>
+            <span class="align-right">estado</span>
+          </div>
+          {#each sortedBoxes() as box (box.id)}
+            {@const boxStats = stats?.sensors.filter(s => s.box_id === box.id) ?? []}
+            {@const score = Math.max(...boxStats.map(s => s.anomaly_score ?? 0))}
+            {@const lastSeen = boxStats.map(s => s.last_seen_at).filter(Boolean).reduce((a, b) => (a! > b! ? a : b), null as string | null)}
+            <div class="ct-row" onclick={() => { mode = 'cards'; selectedBoxIds = new Set([box.id]); }}>
+              <span class="ct-name">{box.name}</span>
+              <span>{box.sensors.length}</span>
+              <span class="align-right">
+                {#if score >= 1.5}
+                  <span class="badge badge-warn">{score.toFixed(1)}σ</span>
+                {:else}
+                  <span class="badge badge-muted">—</span>
+                {/if}
+              </span>
+              <span class="align-right ago
+                {!lastSeen ? 'dead' : (Date.now() - new Date(lastSeen).getTime()) < 300_000 ? 'fresh' :
+                 (Date.now() - new Date(lastSeen).getTime()) < 1_800_000 ? 'recent' :
+                 (Date.now() - new Date(lastSeen).getTime()) < 86_400_000 ? 'stale' : 'dead'}">
+                {#if lastSeen}
+                  {#if (Date.now() - new Date(lastSeen).getTime()) < 60_000}hace {Math.floor((Date.now() - new Date(lastSeen).getTime()) / 1000)}s
+                  {:else if (Date.now() - new Date(lastSeen).getTime()) < 3_600_000}hace {Math.round((Date.now() - new Date(lastSeen).getTime()) / 60_000)} min
+                  {:else if (Date.now() - new Date(lastSeen).getTime()) < 86_400_000}hace {Math.round((Date.now() - new Date(lastSeen).getTime()) / 3_600_000)} h
+                  {:else if (Date.now() - new Date(lastSeen).getTime()) < 2_592_000_000}hace {Math.round((Date.now() - new Date(lastSeen).getTime()) / 86_400_000)} días
+                  {:else}hace {Math.round((Date.now() - new Date(lastSeen).getTime()) / 2_592_000_000)} meses{/if}
+                {:else}sin datos{/if}
+              </span>
+              <span class="align-right">
+                {#if score >= 3}
+                  <span class="badge badge-alert">alerta</span>
+                {:else if score >= 1.5}
+                  <span class="badge badge-warn">anomalía</span>
+                {:else}
+                  <span class="badge badge-ok">normal</span>
+                {/if}
+              </span>
+            </div>
+          {/each}
+        </div>
+
+      {:else if mode === 'cards'}
+        <!-- Vista cards: una BoxCard por caja -->
+        <div class="cards-grid">
+          {#each sortedBoxes() as box (box.id)}
+            <BoxCard
+              {box}
+              stats={stats?.sensors.filter(s => s.box_id === box.id) ?? []}
+              correlations={stats?.correlations.filter(c => c.box_id === box.id) ?? []}
+              from={fromDate}
+              to={toDate}
+              {live}
+            />
+          {/each}
+        </div>
+
+      {:else if mode === 'graficas'}
+        <!-- Vista gráficas: MultiSensorChart por tipo de variable -->
+        <div class="charts-grid">
+          {#each filteredBoxes as box (box.id)}
+            {#each [...new Set(box.sensors.map(s => s.type))] as type}
+              {#if activeTypes.has(type.toLowerCase())}
+                <MultiSensorChart
+                  sensors={box.sensors.filter(s => s.type === type)}
+                  sensorType={type}
+                  boxName={box.name}
+                  from={fromDate}
+                  to={toDate}
+                  {live}
+                />
+              {/if}
+            {/each}
+          {/each}
+        </div>
+
+      {:else if mode === 'analisis'}
+        <!-- Vista análisis: tabla de stats raw con pruning -->
+        <div class="analysis">
+          <p style="font-size:11px;color:var(--text-muted);margin-bottom:12px">
+            Estadísticas pre-calculadas · última actualización del worker:
+            {stats ? new Date(stats.computed_at).toLocaleTimeString('es-CR') : '—'}
+          </p>
+          <div class="data-table">
+            <div class="dt-head">
+              <span>caja</span><span>sensor</span><span>variable</span>
+              <span class="align-right">último valor</span>
+              <span class="align-right">media 24h</span>
+              <span class="align-right">σ 24h</span>
+              <span class="align-right">score</span>
+              <span class="align-right">último dato</span>
+            </div>
+            {#each (stats?.sensors ?? []).filter(s => filteredBoxes.some(b => b.id === s.box_id)) as s (s.sensor_id)}
+              <div class="dt-row" class:dt-warn={(s.anomaly_score ?? 0) >= 1.5}>
+                <span>{s.box_name}</span>
+                <span>#{s.sensor_number}</span>
+                <span>{s.sensor_type}</span>
+                <span class="align-right" style="font-weight:500">{s.last_value?.toFixed(4) ?? '—'}</span>
+                <span class="align-right">{s.mean_24h?.toFixed(4) ?? '—'}</span>
+                <span class="align-right">{s.stddev_24h?.toFixed(4) ?? '—'}</span>
+                <span class="align-right">
+                  {#if s.anomaly_score !== null}
+                    <span class="badge badge-{s.anomaly_score >= 3 ? 'alert' : s.anomaly_score >= 1.5 ? 'warn' : 'muted'}">
+                      {s.anomaly_score.toFixed(2)}σ
+                    </span>
+                  {:else}—{/if}
+                </span>
+                <span class="align-right ago
+                  {!s.last_seen_at ? 'dead' :
+                    (Date.now()-new Date(s.last_seen_at).getTime())<300000?'fresh':
+                    (Date.now()-new Date(s.last_seen_at).getTime())<1800000?'recent':
+                    (Date.now()-new Date(s.last_seen_at).getTime())<86400000?'stale':'dead'}">
+                  {#if s.last_seen_at}
+                    {#if (Date.now()-new Date(s.last_seen_at).getTime())<60000}hace {Math.floor((Date.now()-new Date(s.last_seen_at).getTime())/1000)}s
+                    {:else if (Date.now()-new Date(s.last_seen_at).getTime())<3600000}hace {Math.round((Date.now()-new Date(s.last_seen_at).getTime())/60000)} min
+                    {:else if (Date.now()-new Date(s.last_seen_at).getTime())<86400000}hace {Math.round((Date.now()-new Date(s.last_seen_at).getTime())/3600000)} h
+                    {:else if (Date.now()-new Date(s.last_seen_at).getTime())<2592000000}hace {Math.round((Date.now()-new Date(s.last_seen_at).getTime())/86400000)} días
+                    {:else}hace {Math.round((Date.now()-new Date(s.last_seen_at).getTime())/2592000000)} meses{/if}
+                  {:else}sin datos{/if}
+                </span>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
     </div>
-  {/if}
-
-  {#if !loading && boxes.length}
-    <div class="box-selector-bar">
-      <BoxSelector
-        {boxes}
-        selected={selectedBoxIds}
-        onchange={(s) => selectedBoxIds = s}
-      />
-    </div>
-  {/if}
-
-  <div class="box-grid">
-    {#if loading}
-      {#each Array(4) as _}<div class="skeleton"></div>{/each}
-    {:else if error}
-      <div class="error-msg">Error: {error}</div>
-    {:else if filteredBoxes.length === 0 && boxes.length > 0}
-      <div class="no-selection">Seleccioná una o más cajas para ver los datos.</div>
-    {:else}
-      {#each filteredBoxes as box (box.id)}<BoxCard {box} from={fromDate} to={toDate} {live} {activeTypes} />{/each}
-    {/if}
   </div>
-</main>
+</div>
 
 <style>
-  .dashboard { max-width: 1600px; margin: 0 auto; padding: 20px 24px 48px; }
+  .layout { display: flex; min-height: 100vh; }
 
-  .controls { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  /* Sidebar */
+  .sidebar {
+    width: 52px;
+    flex-shrink: 0;
+    border-right: 0.5px solid var(--border-subtle, #ebebeb);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 12px 0;
+    gap: 2px;
+    background: var(--bg-surface, #fff);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .sidebar__brand {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted, #888);
+    letter-spacing: .1em;
+    margin-bottom: 4px;
+  }
+  .sidebar__sep {
+    width: 24px;
+    height: 0.5px;
+    background: var(--border-subtle, #ebebeb);
+    margin: 6px 0;
+  }
+  .mode-btn {
+    width: 36px;
+    height: 36px;
+    border: 0.5px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted, #888);
+    transition: all .12s;
+  }
+  .mode-btn svg { width: 15px; height: 15px; }
+  .mode-btn:hover { background: var(--bg-hover, #f5f5f5); color: var(--text-secondary, #555); }
+  .mode-btn.active {
+    background: var(--bg-hover, #f5f5f5);
+    border-color: var(--border-default, #e0e0e0);
+    color: var(--text-primary);
+  }
+  .mode-label {
+    font-size: 8px;
+    letter-spacing: .06em;
+    color: var(--text-muted, #888);
+    text-align: center;
+    line-height: 1.2;
+    margin-bottom: 4px;
+  }
 
-  .controls__search { position:relative; flex:1; min-width:160px; max-width:240px; }
-  .controls__icon { position:absolute; left:9px; top:50%; transform:translateY(-50%); color:var(--text-muted); font-size:14px; pointer-events:none; }
-  .controls__input { width:100%; box-sizing:border-box; padding:6px 10px 6px 28px; background:var(--bg-surface); border:1px solid var(--border-default); border-radius:4px; color:var(--text-primary); font-family:'DM Mono',monospace; font-size:11px; outline:none; transition:border-color .15s; }
-  .controls__input:focus { border-color:var(--interactive-focus); }
-  .controls__input::placeholder { color:var(--text-faint); }
+  /* Main */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
-  .controls__presets { display:flex; gap:3px; }
-  .preset-btn { padding:5px 9px; background:var(--interactive-bg); border:1px solid var(--border-default); border-radius:3px; color:var(--text-muted); font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.06em; cursor:pointer; transition:all .12s; }
-  .preset-btn:hover { background:var(--interactive-hover); color:var(--text-secondary); }
-  .preset-btn.active { background:var(--accent-bg); border-color:var(--accent-border); color:var(--accent-text); }
+  /* Topbar */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 16px;
+    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
+    background: var(--bg-surface, #fff);
+    flex-wrap: wrap;
+  }
+  .topbar__title { font-size: 11px; font-weight: 500; letter-spacing: .08em; color: var(--text-primary); }
+  .vsep { width: 0.5px; height: 16px; background: var(--border-subtle, #ebebeb); flex-shrink: 0; }
+  .spacer { flex: 1; }
+  .sep { color: var(--text-muted, #888); font-size: 10px; }
 
-  .controls__range { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-  .sep { color:var(--text-faint); font-size:11px; }
-  .to-wrap { display:flex; align-items:center; gap:4px; }
+  .presets { display: flex; gap: 3px; }
+  .pbtn {
+    padding: 3px 7px;
+    border: 0.5px solid var(--border-default, #e0e0e0);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary, #555);
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    cursor: pointer;
+    letter-spacing: .04em;
+  }
+  .pbtn.active { background: var(--accent-bg, #e8f0fe); color: var(--accent-text, #1a56db); border-color: transparent; }
 
-  .reload-btn { width:26px; height:26px; padding:0; background:var(--interactive-bg); border:1px solid var(--border-default); border-radius:3px; color:var(--text-muted); font-size:13px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .12s; }
-  .reload-btn:hover:not(:disabled) { background:var(--interactive-hover); color:var(--text-secondary); }
-  .reload-btn.err { border-color:var(--error-border); color:var(--error-color); }
-  .reload-btn.loading { opacity:.5; cursor:default; }
-  .spinner { width:10px; height:10px; border:1.5px solid var(--border-strong); border-top-color:var(--text-secondary); border-radius:50%; animation:spin .7s linear infinite; display:inline-block; }
-  @keyframes spin { to{transform:rotate(360deg)} }
+  .live-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border: 0.5px solid var(--border-default, #e0e0e0);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted, #888);
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: .1em;
+    cursor: pointer;
+  }
+  .live-btn.active { background: var(--live-bg, #eafaf1); border-color: var(--live-border, #82e0aa); color: var(--live-color, #1e8449); }
+  .live-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .reload-btn {
+    width: 26px; height: 26px; padding: 0;
+    border: 0.5px solid var(--border-default, #e0e0e0);
+    border-radius: 4px; background: transparent;
+    color: var(--text-muted, #888); font-size: 13px; cursor: pointer;
+  }
 
-  .live-btn { display:flex; align-items:center; gap:6px; padding:5px 11px; background:var(--interactive-bg); border:1px solid var(--border-default); border-radius:3px; color:var(--text-muted); font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.1em; cursor:pointer; transition:all .15s; }
-  .live-btn.active { background:var(--live-bg); border-color:var(--live-border); color:var(--live-color); }
-  .live-btn__dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
-  .live-btn.active .live-btn__dot { animation:pulse 1.5s infinite; }
-  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)} }
+  /* Box selector bar */
+  .box-sel-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
+    background: var(--bg-surface, #fff);
+    flex-wrap: wrap;
+  }
+  .controls__search { position: relative; }
+  .search-icon { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: var(--text-muted, #888); font-size: 13px; pointer-events: none; }
+  .search-input {
+    padding: 5px 10px 5px 26px;
+    background: var(--bg-subtle, #f8f8f8);
+    border: 0.5px solid var(--border-default, #e0e0e0);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    outline: none;
+    width: 180px;
+  }
 
-  .summary { display:flex; align-items:center; gap:8px; margin-bottom:16px; font-size:10px; color:var(--text-muted); letter-spacing:.06em; }
-  .dot { color:var(--border-default); }
-  .live-label { color:var(--live-color); }
+  /* Content */
+  .content { flex: 1; padding: 14px 16px 48px; background: var(--bg-page, #f4f4f2); }
 
-  .box-grid { display:flex; flex-direction:column; gap:12px; }
+  /* Compact table */
+  .compact-table {
+    background: var(--bg-surface, #fff);
+    border: 0.5px solid var(--border-default, #e0e0e0);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .ct-head {
+    display: grid;
+    grid-template-columns: 1fr 60px 100px 120px 80px;
+    padding: 6px 14px;
+    background: var(--bg-subtle, #f8f8f8);
+    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
+    font-size: 9px;
+    color: var(--text-muted, #888);
+    letter-spacing: .07em;
+    gap: 8px;
+  }
+  .ct-row {
+    display: grid;
+    grid-template-columns: 1fr 60px 100px 120px 80px;
+    padding: 8px 14px;
+    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background .1s;
+  }
+  .ct-row:last-child { border-bottom: none; }
+  .ct-row:hover { background: var(--bg-hover, #f5f5f5); }
+  .ct-name { font-weight: 500; color: var(--text-primary); }
+  .align-right { text-align: right; }
 
-  .skeleton { height:160px; border-radius:6px; border:1px solid var(--border-subtle); background:linear-gradient(90deg,var(--skeleton-from) 25%,var(--skeleton-to) 50%,var(--skeleton-from) 75%); background-size:200% 100%; animation:shimmer 1.5s infinite; }
-  @keyframes shimmer { 0%{background-position:200% center}100%{background-position:-200% center} }
+  /* Cards grid */
+  .cards-grid { display: flex; flex-direction: column; gap: 10px; }
 
-  .error-msg { font-size:11px; color:var(--error-color); padding:24px; text-align:center; border:1px solid var(--error-border); border-radius:6px; background:var(--error-bg); }
-  .box-selector-bar { margin-bottom: 12px; }
-  .no-selection { font-size:11px; color:var(--text-faint); padding:48px; text-align:center; font-family:'DM Mono',monospace; letter-spacing:.06em; }
+  /* Charts grid */
+  .charts-grid { display: flex; flex-direction: column; gap: 10px; }
+
+  /* Data table (análisis) */
+  .data-table {
+    background: var(--bg-surface, #fff);
+    border: 0.5px solid var(--border-default, #e0e0e0);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .dt-head {
+    display: grid;
+    grid-template-columns: 80px 50px 90px repeat(5, 1fr);
+    padding: 6px 14px;
+    background: var(--bg-subtle, #f8f8f8);
+    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
+    font-size: 9px;
+    color: var(--text-muted, #888);
+    letter-spacing: .07em;
+    gap: 6px;
+  }
+  .dt-row {
+    display: grid;
+    grid-template-columns: 80px 50px 90px repeat(5, 1fr);
+    padding: 6px 14px;
+    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
+    font-size: 10px;
+    color: var(--text-secondary, #555);
+    align-items: center;
+    gap: 6px;
+  }
+  .dt-row:last-child { border-bottom: none; }
+  .dt-row.dt-warn { background: #fffdf5; }
+
+  /* Badges */
+  .badge { font-size: 9px; padding: 2px 6px; border-radius: 4px; letter-spacing: .04em; font-weight: 500; }
+  .badge-muted  { background: var(--bg-subtle, #f0f0f0); color: var(--text-muted, #888); }
+  .badge-ok     { background: #EAF3DE; color: #3B6D11; }
+  .badge-warn   { background: #FAEEDA; color: #854F0B; }
+  .badge-alert  { background: #FCEBEB; color: #A32D2D; }
+
+  /* Tiempo relativo */
+  .ago        { font-size: 9px; }
+  .ago.fresh  { color: #3B6D11; }
+  .ago.recent { color: var(--text-muted, #888); }
+  .ago.stale  { color: #854F0B; }
+  .ago.dead   { color: #A32D2D; }
+
+  /* Skeleton */
+  .skeleton {
+    height: 120px;
+    border-radius: 10px;
+    border: 0.5px solid var(--border-subtle, #ebebeb);
+    background: var(--bg-subtle, #f8f8f8);
+    margin-bottom: 10px;
+    animation: shimmer 1.5s infinite;
+  }
+  @keyframes shimmer { 0%,100%{opacity:.6}50%{opacity:1} }
+
+  .error-msg { font-size: 11px; color: #A32D2D; padding: 24px; text-align: center; }
+  .empty { font-size: 11px; color: var(--text-muted, #888); padding: 48px; text-align: center; }
 </style>

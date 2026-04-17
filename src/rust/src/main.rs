@@ -2,6 +2,7 @@
 
 mod models;
 mod routes;
+mod tasks;
 
 use axum::{routing::get, Router};
 use sqlx::postgres::PgPoolOptions;
@@ -15,10 +16,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() {
-    // Cargar .env (si existe — en producción se usan variables del sistema)
     dotenvy::dotenv().ok();
 
-    // Logging
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
             std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
@@ -26,7 +25,6 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // DB pool
     let database_url = std::env::var("DATABASE_URL")
         .expect("DATABASE_URL no está definida en .env");
 
@@ -38,28 +36,30 @@ async fn main() {
 
     info!("Conectado a PostgreSQL");
 
-    // CORS — permite requests desde SvelteKit dev (localhost:5173) y producción
+    // ── Tarea de estadísticas en background ───────────────────────────────────
+    // Se lanza antes del servidor para que el primer cálculo corra
+    // inmediatamente al arrancar. El pool se clona (Arc interno, barato).
+    tokio::spawn(tasks::stats_worker::run(pool.clone()));
+
+    // ── CORS ──────────────────────────────────────────────────────────────────
     let cors = CorsLayer::new()
-        .allow_origin(Any)  // en producción: reemplazar con tu dominio
+        .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
-    // Router
+    // ── Router ────────────────────────────────────────────────────────────────
     let app = Router::new()
-        // Boxes
-        .route("/api/v1/boxes", get(routes::boxes::get_boxes))
-        // Readings — el orden importa: /time-range debe ir antes de /
-        .route("/api/v1/readings/time-range",      get(routes::readings::get_time_range))
-        .route("/api/v1/readings/last",             get(routes::readings::get_last_reading))
-        .route("/api/v1/readings",                 get(routes::readings::get_readings))
-        .route("/api/v1/environment/temperature",  get(routes::readings::get_temperature))
-        // Middlewares
+        .route("/api/v1/boxes",                       get(routes::boxes::get_boxes))
+        .route("/api/v1/readings/time-range",         get(routes::readings::get_time_range))
+        .route("/api/v1/readings/last",               get(routes::readings::get_last_reading))
+        .route("/api/v1/readings",                    get(routes::readings::get_readings))
+        .route("/api/v1/environment/temperature",     get(routes::readings::get_temperature))
+        // Nuevo: stats pre-calculadas — no toca readings en producción
+        .route("/api/v1/stats",                       get(routes::stats::get_stats))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
-        // State compartido: el pool se clona (barato) por cada handler
         .with_state(pool);
 
-    // Puerto
     let port: u16 = std::env::var("PORT")
         .ok()
         .and_then(|p| p.parse().ok())

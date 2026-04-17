@@ -1,205 +1,441 @@
 <script lang="ts">
-  import { type Box, normaliseSensorLabel } from '$lib/api';
+  import { onMount, onDestroy } from 'svelte';
+  import type { Box } from '$lib/api';
+  import type { SensorStat, SensorCorrelation } from '$lib/api';
+  import { fetchReadings, normaliseSensorLabel, sensorColor } from '$lib/api';
+  import { relTime, relTimeClass, anomalyClass, formatValue } from '$lib/utils';
   import SensorChart from './SensorChart.svelte';
-  import MultiSensorChart from './MultiSensorChart.svelte';
-  import SensorSelect from './SensorSelect.svelte';
+  import CsvDownloadMenu from './CsvDownloadMenu.svelte';
+
+  // ── Props ──────────────────────────────────────────────────────────────────
 
   interface Props {
     box: Box;
-    from: Date; to: Date; live?: boolean;
-    activeTypes: Set<string>;
+    /** Stats pre-calculadas del worker — ya filtradas para esta caja */
+    stats: SensorStat[];
+    /** Correlaciones de esta caja (|r| >= threshold) */
+    correlations: SensorCorrelation[];
+    /** Rango global de tiempo (default inicial) */
+    from: Date;
+    to: Date;
+    live: boolean;
   }
-  let { box, from, to, live = false, activeTypes }: Props = $props();
 
-  type Tab = 'individual' | 'combinado';
-  let activeTab = $state<Tab>('individual');
-  let expanded = $state(true);
+  let { box, stats, correlations, from, to, live }: Props = $props();
 
-  // Group sensors by sensor_number
-  const sensorRows = $derived.by(() => {
-    const map = new Map<number, { id: string; type: string }[]>();
-    for (const s of box.sensors) {
-      if (!map.has(s.sensor_number)) map.set(s.sensor_number, []);
-      map.get(s.sensor_number)!.push({ id: s.id, type: s.type });
+  // ── Estado local de tiempo por caja ───────────────────────────────────────
+
+  const PRESETS = [
+    { label: '1h',  hours: 1  },
+    { label: '6h',  hours: 6  },
+    { label: '24h', hours: 24 },
+    { label: '7d',  hours: 168 },
+    { label: '30d', hours: 720 },
+  ];
+
+  let activePreset = $state('24h');
+  let localFrom    = $state(from);
+  let localTo      = $state(to);
+
+  function applyPreset(p: { label: string; hours: number }) {
+    activePreset = p.label;
+    localTo      = new Date();
+    localFrom    = new Date(localTo.getTime() - p.hours * 3_600_000);
+  }
+
+  // ── Lógica de sensores ─────────────────────────────────────────────────────
+
+  /**
+   * IDs de sensores que están correlacionados con OTRO sensor de la misma caja
+   * en la misma variable. Estos se agrupan al final.
+   */
+  const correlatedSensorIds = $derived<Set<string>>(() => {
+    const ids = new Set<string>();
+    for (const c of correlations) {
+      if (c.box_id === box.id) {
+        ids.add(c.sensor_id_a);
+        ids.add(c.sensor_id_b);
+      }
     }
-    return [...map.entries()]
-      .sort((a, b) => a[0] - b[0])
-      .map(([number, types]) => ({ number, types }));
+    return ids;
   });
 
-  // active: sensor_number → Set<type_lowercase> — all on by default
-  let active = $state<Map<number, Set<string>>>(
-    new Map(sensorRows.map(r => [
-      r.number,
-      new Set(r.types.map(t => t.type.toLowerCase()))
-    ]))
+  /**
+   * Sensores de esta caja con sus stats, ordenados por anomaly_score DESC.
+   * Se divide en dos grupos: los que tienen comportamiento único (primero)
+   * y los que están correlacionados entre sí (al final, colapsados).
+   */
+  const sensorStats = $derived(() =>
+    stats
+      .filter(s => s.box_id === box.id)
+      .sort((a, b) => (b.anomaly_score ?? -1) - (a.anomaly_score ?? -1))
   );
 
-  // Check if a sensor+type combo is active or not
-  function isActive(num: number, type: string) {
-    return active.get(num)?.has(type.toLowerCase()) ?? true;
+  const uniqueSensors = $derived(() =>
+    sensorStats().filter(s => !correlatedSensorIds().has(s.sensor_id))
+  );
+
+  const corrSensors = $derived(() =>
+    sensorStats().filter(s => correlatedSensorIds().has(s.sensor_id))
+  );
+
+  /**
+   * Para la sección correlacionada, agrupa por (sensor_type) y toma rango.
+   * Muestra una fila por tipo, con min–max de los valores actuales.
+   */
+  const corrGroups = $derived(() => {
+    const groups = new Map<string, { type: string; sensors: SensorStat[]; pearsonR: number }>();
+    for (const c of correlations) {
+      if (c.box_id !== box.id) continue;
+      const key = c.sensor_type;
+      if (!groups.has(key)) {
+        const sensorList = corrSensors().filter(
+          s => s.sensor_type.toLowerCase() === key
+        );
+        if (sensorList.length) {
+          groups.set(key, { type: key, sensors: sensorList, pearsonR: c.pearson_r });
+        }
+      }
+    }
+    return Array.from(groups.values());
+  });
+
+  // ── Anomaly score de la caja (peor sensor) ────────────────────────────────
+  const boxScore = $derived(() =>
+    Math.max(...sensorStats().map(s => s.anomaly_score ?? 0))
+  );
+  const boxAnomalyClass = $derived(() => anomalyClass(boxScore()));
+
+  // ── Último dato de la caja (más reciente entre todos los sensores) ─────────
+  const boxLastSeen = $derived(() => {
+    const dates = sensorStats()
+      .map(s => s.last_seen_at)
+      .filter((d): d is string => d !== null);
+    if (!dates.length) return null;
+    return dates.reduce((a, b) => (a > b ? a : b));
+  });
+
+  // ── Live polling ──────────────────────────────────────────────────────────
+  let liveInterval: ReturnType<typeof setInterval> | null = null;
+
+  $effect(() => {
+    if (live) {
+      liveInterval = setInterval(() => { localTo = new Date(); }, 15_000);
+    } else {
+      if (liveInterval) clearInterval(liveInterval);
+      liveInterval = null;
+    }
+    return () => { if (liveInterval) clearInterval(liveInterval); };
+  });
+
+  // ── Chart expand ─────────────────────────────────────────────────────────
+  let expandedSensorId = $state<string | null>(null);
+  let csvOpen = $state(false);
+
+  function toggleExpand(sensorId: string) {
+    expandedSensorId = expandedSensorId === sensorId ? null : sensorId;
   }
-
-  // Sensors for individual view — all sensor rows, filtered by active types
-  const individualRows = $derived(
-    sensorRows.map(r => ({
-      number: r.number,
-      sensors: box.sensors.filter(s =>
-        s.sensor_number === r.number &&
-        activeTypes.has(s.type.toLowerCase()) &&
-        isActive(r.number, s.type)
-      )
-    })).filter(r => r.sensors.length > 0)
-  );
-
-  // Sensors for combinado
-  const combinadoSensors = $derived(
-    box.sensors.filter(s =>
-      activeTypes.has(s.type.toLowerCase()) &&
-      isActive(s.sensor_number, s.type)
-    )
-  );
 </script>
 
-<article class="box-card">
-  <div class="box-card__header">
-    <div class="title-row" role="button" tabindex="0"
-      onclick={() => expanded = !expanded}
-      onkeydown={(e) => e.key === 'Enter' && (expanded = !expanded)}>
-      <span class="chevron" class:open={expanded}>▸</span>
-      <h2 class="name">{box.name}</h2>
-      <span class="count">{box.sensors.length} sensores</span>
+<article class="box-card" class:has-warn={boxAnomalyClass() === 'warn'}
+                          class:has-alert={boxAnomalyClass() === 'alert'}>
+
+  <!-- Header ────────────────────────────────────────────────────────────── -->
+  <header class="card-head">
+    <div class="card-head__info">
+      <div class="card-head__title">
+        {box.name}
+        {#if boxAnomalyClass() !== 'normal'}
+          <span class="badge badge-{boxAnomalyClass()}">
+            {boxScore().toFixed(1)}σ
+          </span>
+        {/if}
+      </div>
+      <div class="card-head__sub">
+        {box.sensors.length} sensores
+        · <span class="ago {relTimeClass(boxLastSeen())}">{relTime(boxLastSeen())}</span>
+      </div>
     </div>
+
+    <button class="csv-btn" onclick={() => csvOpen = true} title="Descargar CSV">
+        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><path d="M2 10v2h10v-2M7 2v7M4 6l3 3 3-3"/></svg>
+        CSV
+      </button>
+    <!-- Controles de tiempo propios de esta caja -->
+    <div class="card-head__presets">
+      {#each PRESETS as p}
+        <button class="pbtn" class:active={activePreset === p.label}
+          onclick={() => applyPreset(p)}>
+          {p.label}
+        </button>
+      {/each}
+    </div>
+  </header>
+
+  <!-- Cabecera de columnas -->
+  <div class="sensor-cols-head">
+    <span>sensor</span>
+    <span>variable</span>
+    <span>tendencia</span>
+    <span class="align-right">valor</span>
+    <span class="align-right">score</span>
+    <span class="align-right">último dato</span>
   </div>
 
-  {#if expanded}
-    <div class="box-card__body">
+  <!-- Sensores únicos (ordenados por anomaly score) ──────────────────────── -->
+  {#each uniqueSensors() as stat (stat.sensor_id)}
+    {@const ac = anomalyClass(stat.anomaly_score)}
+    {@const color = sensorColor(stat.sensor_type)}
 
-      <!-- Sensor selector -->
-      <div class="selector-bar">
-        <SensorSelect
-          rows={sensorRows}
-          {active}
-          onchange={(a) => active = a}
+    <div class="sensor-row" class:is-warn={ac === 'warn'} class:is-alert={ac === 'alert'}
+         onclick={() => toggleExpand(stat.sensor_id)}>
+      <span class="s-num">#{stat.sensor_number}</span>
+      <span class="s-type">{normaliseSensorLabel(stat.sensor_type)}</span>
+      <div class="s-spark">
+        <!-- Sparkline mini: SensorChart en modo spark -->
+        <SensorChart
+          sensorId={stat.sensor_id}
+          sensorType={stat.sensor_type}
+          from={localFrom}
+          to={localTo}
+          points={50}
+          spark={true}
+          {color}
         />
       </div>
-
-      <!-- Tabs -->
-      <div class="tabs">
-        <button class="tab" class:active={activeTab === 'individual'}
-          onclick={() => activeTab = 'individual'}>Gráficas individuales</button>
-        <button class="tab" class:active={activeTab === 'combinado'}
-          onclick={() => activeTab = 'combinado'}>Gráfica combinada</button>
-      </div>
-
-      <!-- Individual -->
-      <div class:hidden={activeTab !== 'individual'}>
-        {#if individualRows.length === 0}
-          <div class="empty">Sin sensores o tipos seleccionados.</div>
+      <span class="s-val align-right" class:warn={ac !== 'normal'}>
+        {formatValue(stat.last_value, stat.sensor_type)}
+      </span>
+      <span class="align-right">
+        {#if stat.anomaly_score !== null}
+          <span class="badge badge-{ac}">{stat.anomaly_score.toFixed(1)}σ</span>
         {:else}
-          {#each individualRows as row (row.number)}
-            <div class="sensor-row">
-              <div class="sensor-row__label">#{row.number}</div>
-              <div class="sensor-row__charts">
-                {#each row.sensors as sensor (sensor.id)}
-                  <div class="chart-wrap">
-                    <SensorChart
-                      sensorId={sensor.id}
-                      sensorType={sensor.type}
-                      label={normaliseSensorLabel(sensor.type)}
-                      {from} {to} {live}
-                    />
-                  </div>
-                {/each}
-              </div>
-            </div>
-          {/each}
+          <span class="badge badge-muted">—</span>
         {/if}
-      </div>
-
-      <!-- Combinado -->
-      <div class="combined" class:hidden={activeTab !== 'combinado'}>
-        {#if combinadoSensors.length === 0}
-          <div class="empty">Sin sensores o tipos seleccionados.</div>
-        {:else}
-          <MultiSensorChart sensors={combinadoSensors} {from} {to} {live} />
-        {/if}
-      </div>
+      </span>
+      <span class="align-right ago {relTimeClass(stat.last_seen_at)}">
+        {relTime(stat.last_seen_at)}
+      </span>
     </div>
+
+    <!-- Gráfica expandida al hacer click -->
+    {#if expandedSensorId === stat.sensor_id}
+      <div class="sensor-expanded">
+        <SensorChart
+          sensorId={stat.sensor_id}
+          sensorType={stat.sensor_type}
+          from={localFrom}
+          to={localTo}
+          points={300}
+          spark={false}
+          {color}
+        />
+      </div>
+    {/if}
+  {/each}
+
+  <!-- Sección correlacionada ──────────────────────────────────────────────── -->
+  {#if corrGroups().length > 0}
+    <div class="corr-label">
+      variables correlacionadas entre sensores de esta caja (r ≥ 0.85)
+    </div>
+
+    {#each corrGroups() as group}
+      {@const vals = group.sensors.map(s => s.last_value).filter((v): v is number => v !== null)}
+      {@const minVal = vals.length ? Math.min(...vals) : null}
+      {@const maxVal = vals.length ? Math.max(...vals) : null}
+      {@const lastSeen = group.sensors
+        .map(s => s.last_seen_at)
+        .filter((d): d is string => d !== null)
+        .reduce((a, b) => (a > b ? a : b), '')}
+      {@const color = sensorColor(group.type)}
+
+      <div class="sensor-row corr-group">
+        <span class="s-num" style="color: var(--text-muted, #888)">todos</span>
+        <span class="s-type">{normaliseSensorLabel(group.type)}</span>
+        <div class="s-spark">
+          <!-- Sparkline del primer sensor del grupo como referencia -->
+          <SensorChart
+            sensorId={group.sensors[0].sensor_id}
+            sensorType={group.type}
+            from={localFrom}
+            to={localTo}
+            points={50}
+            spark={true}
+            {color}
+          />
+        </div>
+        <span class="s-val align-right">
+          {#if minVal !== null && maxVal !== null && minVal !== maxVal}
+            {formatValue(minVal, group.type)}–{formatValue(maxVal, group.type)}
+          {:else if minVal !== null}
+            {formatValue(minVal, group.type)}
+          {:else}—{/if}
+        </span>
+        <span class="align-right">
+          <span class="badge badge-info">r={group.pearsonR.toFixed(2)}</span>
+        </span>
+        <span class="align-right ago {relTimeClass(lastSeen || null)}">
+          {relTime(lastSeen || null)}
+        </span>
+      </div>
+    {/each}
   {/if}
+
+{#if csvOpen}
+    <CsvDownloadMenu {box} onclose={() => csvOpen = false} />
+  {/if}
+
 </article>
 
 <style>
   .box-card {
-    background: var(--bg-surface);
-    border: 1px solid var(--border-subtle);
-    border-radius: 6px; overflow: hidden;
-    transition: border-color 0.15s, background 0.2s;
+    background: var(--bg-surface, #fff);
+    border: 0.5px solid var(--border-default, #e0e0e0);
+    border-radius: 10px;
+    overflow: hidden;
   }
-  .box-card:hover { border-color: var(--border-default); }
+  .box-card.has-warn  { border-color: #FAC775; }
+  .box-card.has-alert { border-color: #F09595; }
 
-  .box-card__header { padding: 0.75rem 1rem 0.625rem; }
-
-  .title-row {
-    display: flex; align-items: center; gap: 0.5rem;
-    cursor: pointer; user-select: none;
+  /* Header */
+  .card-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
+    flex-wrap: wrap;
   }
-  .chevron { font-size: 0.625rem; color: var(--text-muted); transition: transform .2s; }
-  .chevron.open { transform: rotate(90deg); }
-  .name {
-    font-family: 'DM Mono', monospace; font-size: 0.75rem; font-weight: 600;
-    letter-spacing: .08em; color: var(--text-primary);
-    text-transform: uppercase; margin: 0; flex: 1;
+  .card-head__info { flex: 1; min-width: 0; }
+  .card-head__title {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
-  .count { font-family: 'DM Mono', monospace; font-size: 0.5625rem; color: var(--text-faint); letter-spacing: .06em; }
-
-  .box-card__body { border-top: 1px solid var(--border-subtle); padding: 0 1rem 1rem; }
-
-  .selector-bar { padding: 0.625rem 0; }
-
-  /* Tabs */
-  .tabs { display: flex; margin: 0 -1rem 0.75rem; border-bottom: 1px solid var(--border-subtle); }
-  .tab {
-    padding: 0.5rem 1.125rem; background: none; border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--text-muted); font-family: 'DM Mono', monospace;
-    font-size: 0.625rem; letter-spacing: .1em; text-transform: uppercase;
-    cursor: pointer; transition: all .12s; margin-bottom: -1px;
+  .card-head__sub {
+    font-size: 10px;
+    color: var(--text-muted, #888);
+    margin-top: 2px;
   }
-  .tab:hover { color: var(--text-secondary); }
-  .tab.active { color: var(--text-primary); border-bottom-color: var(--border-strong); }
+  .card-head__presets { display: flex; gap: 3px; }
 
-  /* Sensor rows */
+  /* Preset buttons */
+  .pbtn {
+    padding: 3px 7px;
+    border: 0.5px solid var(--border-default, #e0e0e0);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary, #555);
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    cursor: pointer;
+    letter-spacing: .04em;
+    transition: all .12s;
+  }
+  .pbtn:hover  { background: var(--bg-hover, #f5f5f5); }
+  .pbtn.active { background: var(--accent-bg, #e8f0fe); color: var(--accent-text, #1a56db); border-color: transparent; }
+
+  /* Columnas */
+  .sensor-cols-head,
   .sensor-row {
-    display: flex; gap: 0.625rem; align-items: flex-start;
-    padding: 0.625rem 0; border-bottom: 1px solid var(--border-subtle);
+    display: grid;
+    grid-template-columns: 48px 90px 1fr 80px 70px 90px;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 14px;
+    font-size: 10px;
+  }
+  .sensor-cols-head {
+    background: var(--bg-subtle, #f8f8f8);
+    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
+    color: var(--text-muted, #888);
+    font-size: 9px;
+    letter-spacing: .07em;
+  }
+  .sensor-row {
+    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
+    cursor: pointer;
+    transition: background .1s;
   }
   .sensor-row:last-child { border-bottom: none; }
-  .sensor-row__label {
-    font-family: 'DM Mono', monospace; font-size: 0.625rem;
-    color: var(--text-faint); letter-spacing: .08em;
-    min-width: 1.75rem; padding-top: 0.375rem; flex-shrink: 0; text-align: right;
+  .sensor-row:hover      { background: var(--bg-hover, #f5f5f5); }
+  .sensor-row.is-warn    { background: #fffdf5; }
+  .sensor-row.is-alert   { background: #fff5f5; }
+  .sensor-row.corr-group {
+    background: var(--bg-subtle, #f8f8f8);
+    cursor: default;
   }
-  .sensor-row__charts {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr));
-    gap: 0.625rem; flex: 1;
-  }
-  .chart-wrap {
-    background: var(--bg-inset); border: 1px solid var(--border-subtle);
-    border-radius: 4px; padding: 0.625rem 0.75rem;
+  .sensor-row.corr-group:hover { background: var(--bg-subtle, #f8f8f8); }
+
+  .s-num  { font-size: 10px; color: var(--text-muted, #888); }
+  .s-type { font-size: 10px; color: var(--text-secondary, #555); }
+  .s-spark { height: 28px; }
+  .s-val  { font-size: 11px; font-weight: 500; color: var(--text-primary); }
+  .s-val.warn { color: #BA7517; }
+  .align-right { text-align: right; }
+
+  /* Tiempo relativo */
+  .ago        { font-size: 9px; }
+  .ago.fresh  { color: #3B6D11; }
+  .ago.recent { color: var(--text-muted, #888); }
+  .ago.stale  { color: #854F0B; }
+  .ago.dead   { color: #A32D2D; }
+
+  /* Correlación label */
+  .corr-label {
+    font-size: 9px;
+    color: var(--text-muted, #888);
+    letter-spacing: .06em;
+    padding: 5px 14px 3px;
+    background: var(--bg-subtle, #f8f8f8);
+    border-top: 0.5px solid var(--border-subtle, #ebebeb);
+    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
   }
 
-  .combined {
-    margin-top: 0.25rem; background: var(--bg-inset);
-    border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0.75rem 0.875rem;
+  /* Gráfica expandida */
+  .sensor-expanded {
+    padding: 10px 14px;
+    border-bottom: 0.5px solid var(--border-subtle, #ebebeb);
+    background: var(--bg-surface, #fff);
   }
 
-  .empty {
-    padding: 1.5rem; text-align: center;
-    font-family: 'DM Mono', monospace; font-size: 0.625rem;
-    color: var(--text-faint); letter-spacing: .06em;
+  .csv-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border: 0.5px solid var(--border-default, #e0e0e0);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted, #888);
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: .06em;
+    cursor: pointer;
+    transition: all .12s;
+  }
+  .csv-btn:hover {
+    background: var(--bg-hover, #f5f5f5);
+    color: var(--text-secondary, #555);
   }
 
-  .hidden { display: none; }
+  /* Badges */
+  .badge {
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: .04em;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .badge-normal { background: var(--bg-subtle, #f0f0f0); color: var(--text-muted, #888); }
+  .badge-muted  { background: var(--bg-subtle, #f0f0f0); color: var(--text-muted, #888); }
+  .badge-warn   { background: #FAEEDA; color: #854F0B; }
+  .badge-alert  { background: #FCEBEB; color: #A32D2D; }
+  .badge-ok     { background: #EAF3DE; color: #3B6D11; }
+  .badge-info   { background: #E6F1FB; color: #185FA5; }
 </style>
