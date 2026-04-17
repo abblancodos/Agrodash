@@ -11,16 +11,6 @@ jobs:
         with:
           token: ${{ secrets.GITEA_TOKEN }}
 
-      - name: Debug DATABASE_URL
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          if [ -z "$DATABASE_URL" ]; then
-            echo "DATABASE_URL is EMPTY"
-          else
-            echo "DATABASE_URL is set, length=${#DATABASE_URL}"
-          fi
-
       - name: cargo sqlx prepare
         working-directory: src/rust
         env:
@@ -53,24 +43,20 @@ jobs:
           VITE_API_BASE: ${{ secrets.VITE_API_BASE }}
         run: npm run build
 
-      - name: Copiar frontend a nginx
+      - name: Copiar frontend
         run: |
-          sudo mkdir -p /opt/agrodash-web
-          sudo rsync -a --delete build/ /opt/agrodash-web/
+          rsync -a --delete build/ /home/embebidos/.server-lab/agrodash/web/
 
       - name: Build API
         working-directory: src/rust
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          source ~/.cargo/env
-          cargo build --release
+        run: cargo build --release
 
       - name: Copiar binario
         run: |
-          sudo mkdir -p /opt/agrodash-api
-          sudo cp src/rust/target/release/agrodash-api /opt/agrodash-api/agrodash-api
-          sudo chmod +x /opt/agrodash-api/agrodash-api
+          cp src/rust/target/release/agrodash-api /home/embebidos/.server-lab/agrodash/api/agrodash-api
+          chmod +x /home/embebidos/.server-lab/agrodash/api/agrodash-api
 
       - name: Restart API container
-        run: docker compose -f /opt/iot-server/docker-compose.yml restart agrodash-api
+        run: docker restart server-lab-api-rust-agrodash-1
