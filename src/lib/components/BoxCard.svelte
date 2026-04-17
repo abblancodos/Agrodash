@@ -35,7 +35,7 @@
     ]))
   );
 
-  // Check if a sensor+type combo is active
+  // Check if a sensor+type combo is active or not
   function isActive(num: number, type: string) {
     return active.get(num)?.has(type.toLowerCase()) ?? true;
   }
