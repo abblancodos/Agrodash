@@ -308,6 +308,23 @@
         <span class="align-right ago {relTimeClass(lastSeen || null)}">
           {relTime(lastSeen || null)}
         </span>
+        <!-- Mobile layout para correlacionadas -->
+        <div class="s-mobile">
+          <span class="s-mobile__name">
+            <span class="ct-chevron" class:open={corrExpanded}>▶</span>
+            {normaliseSensorLabel(group.type)}
+            <span class="s-mobile__num">todos</span>
+          </span>
+          <span class="s-mobile__meta">
+            <span class="badge badge-info">r={group.pearsonR.toFixed(2)}</span>
+            {#if minVal !== null && maxVal !== null && minVal !== maxVal}
+              <span>{formatValue(minVal, group.type)}–{formatValue(maxVal, group.type)}</span>
+            {:else if minVal !== null}
+              <span>{formatValue(minVal, group.type)}</span>
+            {/if}
+            <span class="ago {relTimeClass(lastSeen || null)}">{relTime(lastSeen || null)}</span>
+          </span>
+        </div>
       </div>
 
       {#if corrExpanded}
@@ -338,6 +355,17 @@
               <span class="s-val align-right">{formatValue(s.last_value, group.type)}</span>
               <span class="align-right"></span>
               <span class="align-right ago {relTimeClass(s.last_seen_at)}">{relTime(s.last_seen_at)}</span>
+              <!-- Mobile -->
+              <div class="s-mobile">
+                <span class="s-mobile__name">
+                  {normaliseSensorLabel(group.type)}
+                  <span class="s-mobile__num">{i === 0 ? 'mín' : 'máx'} · #{s.sensor_number}</span>
+                </span>
+                <span class="s-mobile__meta">
+                  <span class="s-mobile__val">{formatValue(s.last_value, group.type)}</span>
+                  <span class="ago {relTimeClass(s.last_seen_at)}">{relTime(s.last_seen_at)}</span>
+                </span>
+              </div>
             </div>
             <div class="sensor-expanded">
               <SensorChart sensorId={s.sensor_id} sensorType={group.type}
