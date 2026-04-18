@@ -407,4 +407,13 @@
     letter-spacing: .04em; transition: all .12s;
   }
   .reset-btn:hover { background: var(--interactive-hover); color: var(--text-secondary); }
+
+  @media (max-width: 640px) {
+    /* FAB sube para no quedar detrás del bottom nav */
+    .fab { bottom: 68px; right: 16px; }
+
+    /* Modal ocupa más pantalla */
+    .modal { width: calc(100vw - 24px); max-height: 80vh; }
+  }
+
 </style>

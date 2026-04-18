@@ -436,4 +436,12 @@
     cursor: pointer; letter-spacing: .06em; transition: all .12s;
   }
   .cancel-btn:hover { background: var(--interactive-hover); color: var(--text-secondary); }
+
+  @media (max-width: 640px) {
+    .panel { width: calc(100vw - 20px); max-height: 85vh; }
+    .date-row { flex-direction: column; }
+    .date-sep { display: none; }
+    .date-field { min-width: 0; width: 100%; }
+  }
+
 </style>

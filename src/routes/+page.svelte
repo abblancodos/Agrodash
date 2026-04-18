@@ -429,6 +429,37 @@
     </div>
   </div>
 
+  <!-- Bottom nav — solo visible en mobile via CSS -->
+  <nav class="bottom-nav" aria-label="Navegación principal">
+    {#each MODES as m}
+      <button class="bnav-btn" class:active={mode === m.id}
+        onclick={() => mode = m.id} title={m.label}>
+        <div class="bnav-icon" class:has-anomaly={m.id === 'compacto' && totalAnomalies() > 0}>
+          {#if m.id === 'compacto'}
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+              <rect x="2" y="3" width="12" height="2"/><rect x="2" y="7" width="12" height="2"/><rect x="2" y="11" width="12" height="2"/>
+            </svg>
+          {:else if m.id === 'cards'}
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+              <rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/>
+              <rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/>
+            </svg>
+          {:else if m.id === 'graficas'}
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="2,12 5,7 8,9 11,4 14,6"/><line x1="2" y1="14" x2="14" y2="14"/>
+            </svg>
+          {:else}
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="5" cy="5" r="1.5"/><circle cx="11" cy="4" r="1.5"/>
+              <circle cx="8" cy="9" r="1.5"/><circle cx="4" cy="12" r="1.5"/><circle cx="12" cy="11" r="1.5"/>
+            </svg>
+          {/if}
+        </div>
+        <span class="bnav-label">{m.label}</span>
+      </button>
+    {/each}
+  </nav>
+
   <HelpPanel />
 </div>
 
@@ -708,5 +739,91 @@
   .error-msg { font-size: calc(14px * var(--font-scale)); color: #A32D2D; padding: calc(24px * var(--font-scale)); text-align: center; }
   .empty { font-size: calc(14px * var(--font-scale)); color: var(--text-muted); padding: calc(48px * var(--font-scale)); text-align: center; }
 
+
+
+  /* ═══════════════════════════════════════════════════════
+     MOBILE  (≤ 640px)
+     ═══════════════════════════════════════════════════════ */
+
+  /* Bottom nav — hidden on desktop */
+  .bottom-nav {
+    display: none;
+  }
+
+  @media (max-width: 640px) {
+
+    /* Layout — sidebar oculto, main ocupa todo */
+    .layout { flex-direction: column; }
+    .sidebar { display: none; }
+    .main { width: 100%; padding-bottom: 56px; }
+
+    /* Topbar — más compacto, sin separadores ni fecha */
+    .topbar { gap: 6px; padding: 8px 12px; flex-wrap: nowrap; overflow-x: auto; }
+    .vsep { display: none; }
+    .presets { display: none; }
+    .reload-btn { display: none; }
+    .topbar__title { font-size: 12px; min-width: max-content; }
+
+    /* Box selector bar */
+    .box-sel-bar { padding: 6px 12px; gap: 6px; }
+    .search-input { width: 120px; font-size: 11px; }
+
+    /* Content */
+    .content { padding: 10px 10px 16px; }
+
+    /* Compact table — quitar columna de peor score en mobile */
+    .ct-head { grid-template-columns: 1fr 80px 100px !important; gap: 8px !important; padding: 6px 10px !important; }
+    .ct-head span:nth-child(2) { display: none; }
+    .ct-head span:nth-child(3) { display: none; }
+    .ct-row { grid-template-columns: 1fr 80px 100px !important; gap: 8px !important; padding: 8px 10px !important; }
+    .ct-row > span:nth-child(2) { display: none; }
+    .ct-row > span:nth-child(3) { display: none; }
+
+    /* Compact expand sub-table */
+    .ct-expand__cols { grid-template-columns: 36px 1fr 68px 60px !important; gap: 6px !important; padding: 5px 10px !important; }
+    .ct-expand__cols span:nth-child(4) { display: none; }
+    .ct-expand__row { grid-template-columns: 36px 1fr 68px 60px !important; gap: 6px !important; padding: 6px 10px !important; }
+    .ct-expand__row > span:nth-child(4) { display: none; }
+
+    /* Data table análisis — scroll horizontal */
+    .data-table { overflow-x: auto; }
+    .dt-head { grid-template-columns: 64px 44px 80px repeat(4, 1fr) !important; gap: 4px !important; }
+    .dt-row  { grid-template-columns: 64px 44px 80px repeat(4, 1fr) !important; gap: 4px !important; }
+
+    /* Cards grid — sin sparklines en filas (BoxCard las oculta via su propio @media) */
+    .cards-grid { gap: 8px; }
+
+    /* Bottom nav — visible en mobile */
+    .bottom-nav {
+      display: flex;
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: var(--bg-surface);
+      border-top: 0.5px solid var(--border-subtle);
+      z-index: 80;
+      height: 56px;
+    }
+    .bnav-btn {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 2px; border: none; background: transparent;
+      color: var(--text-muted); cursor: pointer;
+      padding: 6px 0 10px; transition: color .12s;
+    }
+    .bnav-btn.active { color: var(--text-primary); }
+    .bnav-btn svg { width: 20px; height: 20px; }
+    .bnav-label { font-size: 9px; font-family: 'DM Mono', monospace; letter-spacing: .04em; }
+    .bnav-icon { position: relative; }
+    .bnav-icon.has-anomaly::after {
+      content: '';
+      position: absolute; top: -2px; right: -6px;
+      width: 6px; height: 6px;
+      border-radius: 50%; background: #e8a838;
+    }
+
+    /* Anomaly banner — más compacto */
+    .anomaly-bar { font-size: 11px; padding: 6px 10px; }
+
+  }
 
 </style>

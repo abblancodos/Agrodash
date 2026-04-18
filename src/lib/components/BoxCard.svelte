@@ -251,12 +251,18 @@
         .filter((d): d is string => d !== null)
         .reduce((a, b) => (a > b ? a : b), '')}
       {@const color = sensorColor(group.type)}
+      {@const isPerfect = group.pearsonR >= 0.999}
+      {@const corrExpanded = expandedCorrType === group.type}
 
-      <div class="sensor-row corr-group">
-        <span class="s-num" style="color: var(--text-muted)">todos</span>
+      <div class="sensor-row corr-group"
+           role="button" tabindex="0"
+           onclick={() => expandedCorrType = corrExpanded ? null : group.type}
+           onkeydown={(e) => e.key === 'Enter' && (expandedCorrType = corrExpanded ? null : group.type)}>
+        <span class="s-num" style="color: var(--text-muted)">
+          <span class="ct-chevron" class:open={corrExpanded}>▶</span>
+        </span>
         <span class="s-type">{normaliseSensorLabel(group.type)}</span>
         <div class="s-spark">
-          <!-- Sparkline del primer sensor del grupo como referencia -->
           <SensorChart
             sensorId={group.sensors[0].sensor_id}
             sensorType={group.type}
@@ -281,6 +287,67 @@
           {relTime(lastSeen || null)}
         </span>
       </div>
+
+      {#if corrExpanded}
+        <div class="corr-expanded">
+          {#if isPerfect}
+            <!-- r≈1: una sola gráfica representativa -->
+            <div class="corr-chart-label">
+              {normaliseSensorLabel(group.type)} — todos los sensores idénticos
+            </div>
+            <div class="corr-chart-wrap">
+              <SensorChart
+                sensorId={group.sensors[0].sensor_id}
+                sensorType={group.type}
+                from={localFrom}
+                to={localTo}
+                points={300}
+                spark={false}
+                {color}
+              />
+            </div>
+          {:else}
+            <!-- r 0.85–0.99: gráfica del mínimo y del máximo -->
+            {@const sorted = [...group.sensors].sort((a, b) =>
+              (a.last_value ?? 0) - (b.last_value ?? 0))}
+            {@const sMin = sorted[0]}
+            {@const sMax = sorted[sorted.length - 1]}
+            <div class="corr-chart-label">
+              {normaliseSensorLabel(group.type)} — rango entre sensores
+            </div>
+            <div class="corr-two-charts">
+              <div>
+                <div class="corr-chart-sublabel">mín · #{sMin.sensor_number} · {formatValue(sMin.last_value, group.type)}</div>
+                <div class="corr-chart-wrap">
+                  <SensorChart
+                    sensorId={sMin.sensor_id}
+                    sensorType={group.type}
+                    from={localFrom}
+                    to={localTo}
+                    points={300}
+                    spark={false}
+                    {color}
+                  />
+                </div>
+              </div>
+              <div>
+                <div class="corr-chart-sublabel">máx · #{sMax.sensor_number} · {formatValue(sMax.last_value, group.type)}</div>
+                <div class="corr-chart-wrap">
+                  <SensorChart
+                    sensorId={sMax.sensor_id}
+                    sensorType={group.type}
+                    from={localFrom}
+                    to={localTo}
+                    points={300}
+                    spark={false}
+                    {color}
+                  />
+                </div>
+              </div>
+            </div>
+          {/if}
+        </div>
+      {/if}
     {/each}
   {/if}
 
@@ -425,6 +492,38 @@
     color: var(--text-secondary);
   }
 
+
+  .ct-chevron { font-size: calc(8px * var(--font-scale)); color: var(--text-muted); transition: transform .15s; display: inline-block; }
+  .ct-chevron.open { transform: rotate(90deg); }
+
+  .corr-expanded {
+    background: var(--bg-inset);
+    border-bottom: 0.5px solid var(--border-subtle);
+    padding: calc(12px * var(--font-scale)) calc(14px * var(--font-scale));
+  }
+  .corr-chart-label {
+    font-size: calc(10px * var(--font-scale));
+    color: var(--text-muted);
+    font-family: 'DM Mono', monospace;
+    letter-spacing: .06em;
+    margin-bottom: calc(8px * var(--font-scale));
+  }
+  .corr-chart-sublabel {
+    font-size: calc(10px * var(--font-scale));
+    color: var(--text-secondary);
+    font-family: 'DM Mono', monospace;
+    margin-bottom: calc(4px * var(--font-scale));
+  }
+  .corr-chart-wrap {
+    height: calc(90px * var(--font-scale));
+    position: relative;
+  }
+  .corr-two-charts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: calc(16px * var(--font-scale));
+  }
+
   /* Badges */
   .badge {
     font-size: calc(14px * var(--font-scale));
@@ -440,4 +539,41 @@
   .badge-alert  { background: var(--error-bg); color: var(--error-color); }
   .badge-ok     { background: var(--live-bg); color: var(--live-color); }
   .badge-info   { background: rgba(74,154,98,0.12); color: var(--tb-accent); }
+
+  /* ── Mobile ──────────────────────────────────────────────────────────── */
+  @media (max-width: 640px) {
+
+    /* Card header: presets en segunda línea */
+    .card-head { flex-wrap: wrap; gap: 6px; padding: calc(8px * var(--font-scale)) calc(12px * var(--font-scale)); }
+    .card-head__presets { margin-left: 0; }
+
+    /* Ocultar sparkline en filas — solo texto */
+    .s-spark { display: none; }
+
+    /* Ajustar grid sin sparkline */
+    .sensor-cols-head,
+    .sensor-row {
+      grid-template-columns: 48px 1fr 72px 56px 80px !important;
+      gap: calc(6px * var(--font-scale)) !important;
+      padding: calc(7px * var(--font-scale)) calc(12px * var(--font-scale)) !important;
+    }
+
+    /* Gráfica expandida ocupa ancho completo, altura mayor */
+    .sensor-expanded {
+      padding: calc(10px * var(--font-scale)) calc(12px * var(--font-scale));
+    }
+    .sensor-expanded :global(.sc__body) {
+      height: calc(120px * var(--font-scale)) !important;
+    }
+
+    /* Correlacionadas: ocultar sparkline */
+    .corr-group .s-spark { display: none; }
+
+    /* Dos gráficas correlacionadas: una sola columna en mobile */
+    .corr-two-charts { grid-template-columns: 1fr !important; }
+
+    /* CSV button — texto más corto */
+    .csv-btn span { display: none; }
+  }
+
 </style>
