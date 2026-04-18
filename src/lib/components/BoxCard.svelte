@@ -129,7 +129,8 @@
   });
 
   // ── Chart expand ─────────────────────────────────────────────────────────
-  let expandedSensorId = $state<string | null>(null);
+  let expandedSensorId  = $state<string | null>(null);
+  let expandedCorrType  = $state<string | null>(null);
   let csvOpen = $state(false);
 
   function toggleExpand(sensorId: string) {
