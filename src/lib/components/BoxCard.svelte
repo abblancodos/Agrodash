@@ -197,7 +197,6 @@
       <span class="s-num">#{stat.sensor_number}</span>
       <span class="s-type">{normaliseSensorLabel(stat.sensor_type)}</span>
       <div class="s-spark">
-        <!-- Sparkline mini: SensorChart en modo spark -->
         <SensorChart
           sensorId={stat.sensor_id}
           sensorType={stat.sensor_type}
@@ -221,6 +220,26 @@
       <span class="align-right ago {relTimeClass(stat.last_seen_at)}">
         {relTime(stat.last_seen_at)}
       </span>
+      <!-- Fila compacta solo visible en mobile -->
+      <div class="s-mobile">
+        <span class="s-mobile__name" class:warn={ac !== 'normal'}>
+          {normaliseSensorLabel(stat.sensor_type)}
+          <span class="s-mobile__num">#{stat.sensor_number}</span>
+        </span>
+        <span class="s-mobile__meta">
+          <span class="s-mobile__val" class:warn={ac !== 'normal'}>
+            {formatValue(stat.last_value, stat.sensor_type)}
+          </span>
+          {#if stat.anomaly_score !== null}
+            <span class="badge badge-{ac}">{stat.anomaly_score.toFixed(1)}σ</span>
+          {:else}
+            <span class="s-mobile__dash">—</span>
+          {/if}
+          <span class="ago {relTimeClass(stat.last_seen_at)}">
+            {relTime(stat.last_seen_at)}
+          </span>
+        </span>
+      </div>
     </div>
 
     <!-- Gráfica expandida al hacer click -->
@@ -482,6 +501,9 @@
   .ct-chevron.open { transform: rotate(90deg); }
 
 
+  /* Mobile row — hidden on desktop */
+  .s-mobile { display: none; }
+
   /* Badges */
   .badge {
     font-size: calc(14px * var(--font-scale));
@@ -501,37 +523,78 @@
   /* ── Mobile ──────────────────────────────────────────────────────────── */
   @media (max-width: 640px) {
 
-    /* Card header: presets en segunda línea */
-    .card-head { flex-wrap: wrap; gap: 6px; padding: calc(8px * var(--font-scale)) calc(12px * var(--font-scale)); }
-    .card-head__presets { margin-left: 0; }
-
-    /* Ocultar sparkline en filas — solo texto */
-    .s-spark { display: none; }
-
-    /* Ajustar grid sin sparkline */
-    .sensor-cols-head,
-    .sensor-row {
-      grid-template-columns: 48px 1fr 72px 56px 80px !important;
-      gap: calc(6px * var(--font-scale)) !important;
-      padding: calc(7px * var(--font-scale)) calc(12px * var(--font-scale)) !important;
-    }
-
-    /* Gráfica expandida ocupa ancho completo, altura mayor */
-    .sensor-expanded {
+    /* ── Card header: título en primera línea, controles en segunda ── */
+    .card-head {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: calc(6px * var(--font-scale));
       padding: calc(10px * var(--font-scale)) calc(12px * var(--font-scale));
     }
+    .card-head__info { width: 100%; }
+    .card-head__controls { width: 100%; }
+    .card-head__title { font-size: calc(13px * var(--font-scale)); }
+    .card-head__sub { font-size: calc(11px * var(--font-scale)); }
+
+    /* ── Ocultar cabecera de columnas — en mobile son autoevidentes ── */
+    .sensor-cols-head { display: none; }
+
+    /* ── Sparklines ocultas ── */
+    .s-spark { display: none !important; }
+
+    /* ── Filas de sensor: ocultar columnas desktop, mostrar mobile div ── */
+    .sensor-row {
+      display: block !important;
+      padding: calc(10px * var(--font-scale)) calc(12px * var(--font-scale)) !important;
+      position: relative;
+    }
+    /* Ocultar todos los elementos del grid desktop */
+    .sensor-row .s-num,
+    .sensor-row .s-type,
+    .sensor-row .s-val,
+    .sensor-row .align-right,
+    .sensor-row .s-spark { display: none !important; }
+
+    /* Mostrar solo el div mobile */
+    .s-mobile { display: flex; flex-direction: column; gap: calc(3px * var(--font-scale)); }
+    .s-mobile__name {
+      font-size: calc(13px * var(--font-scale));
+      font-weight: 500;
+      color: var(--text-primary);
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+    .s-mobile__name.warn { color: #e8a838; }
+    .s-mobile__num {
+      font-size: calc(10px * var(--font-scale));
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+    .s-mobile__meta {
+      display: flex;
+      align-items: center;
+      gap: calc(8px * var(--font-scale));
+      font-size: calc(12px * var(--font-scale));
+      color: var(--text-secondary);
+    }
+    .s-mobile__val {
+      font-size: calc(13px * var(--font-scale));
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+    .s-mobile__val.warn { color: #e8a838; }
+    .s-mobile__dash { color: var(--text-muted); }
+
+    /* ── Gráfica expandida ── */
+    .sensor-expanded {
+      padding: calc(8px * var(--font-scale)) calc(12px * var(--font-scale));
+    }
     .sensor-expanded :global(.sc__body) {
-      height: calc(120px * var(--font-scale)) !important;
+      height: 140px !important;
     }
 
-    /* Correlacionadas: ocultar sparkline */
-    .corr-group .s-spark { display: none; }
-
-    /* Dos gráficas correlacionadas: una sola columna en mobile */
-    .corr-two-charts { grid-template-columns: 1fr !important; }
-
-    /* CSV button — texto más corto */
-    .csv-btn span { display: none; }
+    /* ── Etiqueta de correlación ── */
+    .corr-label { font-size: calc(10px * var(--font-scale)); }
   }
 
 </style>
