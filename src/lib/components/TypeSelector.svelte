@@ -24,6 +24,24 @@
     }
   }
 
+  function toggle() {
+    open = !open;
+    if (open) requestAnimationFrame(() => reposition());
+  }
+
+  function reposition() {
+    if (!panelEl || !btnEl) return;
+    const btn   = btnEl.getBoundingClientRect();
+    const panel = panelEl.getBoundingClientRect();
+    const vw    = window.innerWidth;
+    const margin = 8;
+    let left = btn.left + btn.width / 2 - panel.width / 2;
+    left = Math.max(margin, Math.min(left, vw - panel.width - margin));
+    const parentLeft = (btnEl.closest('.tsel') as HTMLElement)?.getBoundingClientRect().left ?? 0;
+    panelEl.style.left = (left - parentLeft) + 'px';
+    panelEl.style.transform = 'none';
+  }
+
   function toggleType(type: string) {
     const next = new Set(selected);
     if (next.has(type)) {
@@ -47,7 +65,7 @@
     bind:this={btnEl}
     class="tsel__btn"
     class:tsel__btn--active={open}
-    onclick={() => open = !open}
+    bind:this={btnEl} onclick={toggle}
     title="Filtrar tipos de sensor"
   >
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -104,7 +122,7 @@
   .tsel__count { font-variant-numeric: tabular-nums; }
 
   .tsel__panel {
-    position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 300;
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 300;
     width: 220px; max-height: 380px;
     background: var(--bg-overlay); border: 1px solid var(--border-default);
     border-radius: 6px; box-shadow: 0 8px 32px rgba(0,0,0,.15);

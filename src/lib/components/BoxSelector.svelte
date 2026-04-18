@@ -17,6 +17,23 @@
   function toggle() {
     open = !open;
     pulse = false;
+    if (open) requestAnimationFrame(() => reposition());
+  }
+
+  function reposition() {
+    if (!panelEl || !btnEl) return;
+    const btn  = btnEl.getBoundingClientRect();
+    const panel = panelEl.getBoundingClientRect();
+    const vw   = window.innerWidth;
+    const margin = 8;
+    // Default: centered under button
+    let left = btn.left + btn.width / 2 - panel.width / 2;
+    // Clamp to viewport
+    left = Math.max(margin, Math.min(left, vw - panel.width - margin));
+    // Convert to position relative to the positioned parent
+    const parentLeft = btnEl.closest('.bsel')?.getBoundingClientRect().left ?? 0;
+    panelEl.style.left = (left - parentLeft) + 'px';
+    panelEl.style.transform = 'none';
   }
 
   function handleOutside(e: MouseEvent) {
@@ -119,7 +136,7 @@
 
   /* Panel */
   .bsel__panel {
-    position:absolute; top:calc(100% + 6px); left:50%; transform:translateX(-50%); z-index:300;
+    position:absolute; top:calc(100% + 6px); left:0; z-index:300;
     width:240px; max-height:400px;
     background:var(--bg-overlay); border:1px solid var(--border-default);
     border-radius:6px; box-shadow:0 8px 32px rgba(0,0,0,.15);

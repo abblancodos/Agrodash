@@ -158,18 +158,20 @@
       </div>
     </div>
 
-    <button class="csv-btn" onclick={() => csvOpen = true} title="Descargar CSV">
+    <!-- Controles agrupados: CSV + presets de tiempo -->
+    <div class="card-head__controls">
+      <button class="csv-btn" onclick={() => csvOpen = true} title="Descargar CSV">
         <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><path d="M2 10v2h10v-2M7 2v7M4 6l3 3 3-3"/></svg>
         CSV
       </button>
-    <!-- Controles de tiempo propios de esta caja -->
-    <div class="card-head__presets">
-      {#each PRESETS as p}
-        <button class="pbtn" class:active={activePreset === p.label}
-          onclick={() => applyPreset(p)}>
-          {p.label}
-        </button>
-      {/each}
+      <div class="card-head__presets">
+        {#each PRESETS as p}
+          <button class="pbtn" class:active={activePreset === p.label}
+            onclick={() => applyPreset(p)}>
+            {p.label}
+          </button>
+        {/each}
+      </div>
     </div>
   </header>
 
@@ -348,12 +350,17 @@
   .card-head {
     display: flex;
     align-items: center;
-    gap: calc(12px * var(--font-scale));
+    gap: calc(8px * var(--font-scale));
     padding: calc(10px * var(--font-scale)) calc(14px * var(--font-scale));
     border-bottom: 0.5px solid var(--border-subtle);
-    flex-wrap: wrap;
   }
   .card-head__info { flex: 1; min-width: 0; }
+  .card-head__controls {
+    display: flex;
+    align-items: center;
+    gap: calc(6px * var(--font-scale));
+    flex-shrink: 0;
+  }
   .card-head__title {
     font-size: calc(14px * var(--font-scale));
     font-weight: 500;
