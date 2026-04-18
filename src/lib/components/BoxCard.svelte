@@ -290,64 +290,40 @@
       </div>
 
       {#if corrExpanded}
-        <div class="corr-expanded">
-          {#if isPerfect}
-            <!-- r≈1: una sola gráfica representativa -->
-            <div class="corr-chart-label">
-              {normaliseSensorLabel(group.type)} — todos los sensores idénticos
-            </div>
-            <div class="corr-chart-wrap">
-              <SensorChart
-                sensorId={group.sensors[0].sensor_id}
-                sensorType={group.type}
-                from={localFrom}
-                to={localTo}
-                points={300}
-                spark={false}
-                {color}
-              />
-            </div>
-          {:else}
-            <!-- r 0.85–0.99: gráfica del mínimo y del máximo -->
-            {@const sorted = [...group.sensors].sort((a, b) =>
-              (a.last_value ?? 0) - (b.last_value ?? 0))}
-            {@const sMin = sorted[0]}
-            {@const sMax = sorted[sorted.length - 1]}
-            <div class="corr-chart-label">
-              {normaliseSensorLabel(group.type)} — rango entre sensores
-            </div>
-            <div class="corr-two-charts">
-              <div>
-                <div class="corr-chart-sublabel">mín · #{sMin.sensor_number} · {formatValue(sMin.last_value, group.type)}</div>
-                <div class="corr-chart-wrap">
-                  <SensorChart
-                    sensorId={sMin.sensor_id}
-                    sensorType={group.type}
-                    from={localFrom}
-                    to={localTo}
-                    points={300}
-                    spark={false}
-                    {color}
-                  />
-                </div>
+        {#if isPerfect}
+          <!-- r≈1: una sola gráfica -->
+          <div class="sensor-expanded">
+            <SensorChart
+              sensorId={group.sensors[0].sensor_id}
+              sensorType={group.type}
+              from={localFrom}
+              to={localTo}
+              points={300}
+              spark={false}
+              {color}
+            />
+          </div>
+        {:else}
+          <!-- r 0.85–0.99: mínimo y máximo como filas separadas -->
+          {@const sorted = [...group.sensors].sort((a, b) => (a.last_value ?? 0) - (b.last_value ?? 0))}
+          {#each [sorted[0], sorted[sorted.length - 1]] as s, i}
+            <div class="sensor-row corr-sub-row">
+              <span class="s-num" style="color:var(--text-muted)">#{s.sensor_number}</span>
+              <span class="s-type">{i === 0 ? 'mín' : 'máx'}</span>
+              <div class="s-spark">
+                <SensorChart sensorId={s.sensor_id} sensorType={group.type}
+                  from={localFrom} to={localTo} points={50} spark={true} {color} />
               </div>
-              <div>
-                <div class="corr-chart-sublabel">máx · #{sMax.sensor_number} · {formatValue(sMax.last_value, group.type)}</div>
-                <div class="corr-chart-wrap">
-                  <SensorChart
-                    sensorId={sMax.sensor_id}
-                    sensorType={group.type}
-                    from={localFrom}
-                    to={localTo}
-                    points={300}
-                    spark={false}
-                    {color}
-                  />
-                </div>
-              </div>
+              <span class="s-val align-right">{formatValue(s.last_value, group.type)}</span>
+              <span class="align-right"></span>
+              <span class="align-right ago {relTimeClass(s.last_seen_at)}">{relTime(s.last_seen_at)}</span>
             </div>
-          {/if}
-        </div>
+            <div class="sensor-expanded">
+              <SensorChart sensorId={s.sensor_id} sensorType={group.type}
+                from={localFrom} to={localTo} points={300} spark={false} {color} />
+            </div>
+          {/each}
+        {/if}
       {/if}
     {/each}
   {/if}
@@ -435,6 +411,7 @@
   .sensor-row:hover      { background: var(--interactive-hover); }
   .sensor-row.is-warn    { background: rgba(186,117,23,0.07); }
   .sensor-row.is-alert   { background: rgba(176,48,48,0.07); }
+  .sensor-row.corr-sub-row { background: var(--bg-inset); }
   .sensor-row.corr-group {
     background: var(--bg-elevated);
     cursor: default;
@@ -497,33 +474,6 @@
   .ct-chevron { font-size: calc(8px * var(--font-scale)); color: var(--text-muted); transition: transform .15s; display: inline-block; }
   .ct-chevron.open { transform: rotate(90deg); }
 
-  .corr-expanded {
-    background: var(--bg-inset);
-    border-bottom: 0.5px solid var(--border-subtle);
-    padding: calc(12px * var(--font-scale)) calc(14px * var(--font-scale));
-  }
-  .corr-chart-label {
-    font-size: calc(10px * var(--font-scale));
-    color: var(--text-muted);
-    font-family: 'DM Mono', monospace;
-    letter-spacing: .06em;
-    margin-bottom: calc(8px * var(--font-scale));
-  }
-  .corr-chart-sublabel {
-    font-size: calc(10px * var(--font-scale));
-    color: var(--text-secondary);
-    font-family: 'DM Mono', monospace;
-    margin-bottom: calc(4px * var(--font-scale));
-  }
-  .corr-chart-wrap {
-    height: calc(90px * var(--font-scale));
-    position: relative;
-  }
-  .corr-two-charts {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: calc(16px * var(--font-scale));
-  }
 
   /* Badges */
   .badge {

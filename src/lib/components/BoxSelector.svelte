@@ -119,7 +119,7 @@
 
   /* Panel */
   .bsel__panel {
-    position:absolute; top:calc(100% + 6px); left:0; z-index:300;
+    position:absolute; top:calc(100% + 6px); left:50%; transform:translateX(-50%); z-index:300;
     width:240px; max-height:400px;
     background:var(--bg-overlay); border:1px solid var(--border-default);
     border-radius:6px; box-shadow:0 8px 32px rgba(0,0,0,.15);

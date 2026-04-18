@@ -757,12 +757,21 @@
     .sidebar { display: none; }
     .main { width: 100%; padding-bottom: 56px; }
 
-    /* Topbar — más compacto, sin separadores ni fecha */
-    .topbar { gap: 6px; padding: 8px 12px; flex-wrap: nowrap; overflow-x: auto; }
+    /* Topbar — compacto, single line con scroll */
+    .topbar {
+      gap: 6px;
+      padding: 8px 12px;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .topbar::-webkit-scrollbar { display: none; }
     .vsep { display: none; }
     .presets { display: none; }
     .reload-btn { display: none; }
-    .topbar__title { font-size: 12px; min-width: max-content; }
+    .topbar__title { font-size: 12px; min-width: max-content; flex-shrink: 0; }
+    .live-btn { flex-shrink: 0; font-size: 10px; padding: 4px 8px; }
+    .badge { flex-shrink: 0; white-space: nowrap; }
 
     /* Box selector bar */
     .box-sel-bar { padding: 6px 12px; gap: 6px; }

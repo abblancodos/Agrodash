@@ -11,9 +11,7 @@
     from:       Date;
     to:         Date;
     live?:      boolean;
-    /** Modo sparkline: sin ejes, sin labels, sin tooltip, altura fija 28px */
     spark?:     boolean;
-    /** Color override (usado por BoxCard para consistencia) */
     color?:     string;
     points?:    number;
   }
@@ -26,69 +24,62 @@
   let canvas = $state<HTMLCanvasElement | null>(null);
   let chart: any = null;
   let loading = $state(true);
-  let error = $state('');
-  let lastValue = $state<number | null>(null);
+  let error   = $state('');
+  let lastValue     = $state<number | null>(null);
   let lastTimestamp = $state<string | null>(null);
-  let empty = $state(false);
+  let empty   = $state(false);
 
   const displayLabel = label ?? normaliseSensorLabel(sensorType);
-  const color = colorProp ?? sensorColor(sensorType);
+  const color        = colorProp ?? sensorColor(sensorType);
 
   function cssVar(name: string) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }
 
-  function renderChart(readings: Reading[]) {
+  /** Formatea un timestamp según el rango total para el eje X */
+  function formatLabel(isoStr: string, fromDate: Date, toDate: Date): string {
+    const d = new Date(isoStr.endsWith('Z') ? isoStr : isoStr + 'Z');
+    const hours = (toDate.getTime() - fromDate.getTime()) / 3_600_000;
+    if (hours <= 24) {
+      return d.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+    if (hours <= 168) {
+      return d.toLocaleDateString('es-CR', { day: '2-digit', month: 'short' }) + ' ' +
+             d.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+    return d.toLocaleDateString('es-CR', { day: '2-digit', month: 'short' });
+  }
+
+  function renderChart(readings: Reading[], fromDate: Date, toDate: Date) {
     if (!canvas) return;
-    const data = readings.map(r => r.value);
+
+    const labels = readings.map(r => formatLabel(r.bucket, fromDate, toDate));
+    const data   = readings.map(r => r.value);
+    const tick   = cssVar('--chart-tick');
+    const grid   = cssVar('--chart-grid');
 
     if (spark) {
-      // ── Modo sparkline — solo la línea, sin nada más ──────────────────────
-      if (chart) {
-        chart.data.datasets[0].data = data;
-        chart.update('none');
-        return;
-      }
+      if (chart) { chart.data.datasets[0].data = data; chart.update('none'); return; }
       chart = new Chart(canvas, {
         type: 'line',
-        data: {
-          labels: data.map((_, i) => i),
-          datasets: [{
-            data,
-            borderColor: color,
-            backgroundColor: 'transparent',
-            borderWidth: 1.5,
-            pointRadius: 0,
-            pointHoverRadius: 0,
-            fill: false,
-            tension: 0.3,
-          }],
-        },
+        data: { labels, datasets: [{ data, borderColor: color, backgroundColor: 'transparent',
+          borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 0, fill: false, tension: 0.3 }] },
         options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          animation: false,
-          interaction: { mode: 'nearest', intersect: false },
+          responsive: true, maintainAspectRatio: false, animation: false,
           plugins: { legend: { display: false }, tooltip: { enabled: false } },
-          scales: {
-            x: { display: false },
-            y: { display: false },
-          },
+          scales: { x: { display: false }, y: { display: false } },
         },
       });
       return;
     }
 
-    // ── Modo normal — gráfica completa ────────────────────────────────────
-    const labels = readings.map(r =>
-      new Date(r.bucket + 'Z').toLocaleTimeString('es-CR', {
-        hour: '2-digit', minute: '2-digit', hour12: false,
-      })
-    );
+    const hours = (toDate.getTime() - fromDate.getTime()) / 3_600_000;
+    const maxTicks = hours <= 24 ? 6 : hours <= 168 ? 7 : 8;
 
     if (chart) {
       chart.data.labels = labels;
       chart.data.datasets[0].data = data;
+      chart.options.scales.x.ticks.maxTicksLimit = maxTicks;
       chart.update('none');
       return;
     }
@@ -99,8 +90,7 @@
         labels,
         datasets: [{
           label: displayLabel, data,
-          borderColor: color,
-          backgroundColor: color + '18',
+          borderColor: color, backgroundColor: color + '18',
           borderWidth: 1.5,
           pointRadius: readings.length > 80 ? 0 : 2,
           pointHoverRadius: 4,
@@ -115,23 +105,23 @@
           legend: { display: false },
           tooltip: {
             backgroundColor: cssVar('--chart-tooltip-bg'),
-            titleColor:       cssVar('--chart-tooltip-title'),
-            bodyColor:        cssVar('--chart-tooltip-body'),
-            borderColor:      cssVar('--chart-tooltip-border'),
+            titleColor: cssVar('--chart-tooltip-title'),
+            bodyColor: cssVar('--chart-tooltip-body'),
+            borderColor: cssVar('--chart-tooltip-border'),
             borderWidth: 1, padding: 8,
-            callbacks: { label: (ctx: any) => ` ${ctx.parsed.y.toFixed(3)}` },
+            callbacks: {
+              label: (ctx: any) => ` ${ctx.parsed.y.toFixed(3)}`,
+            },
           },
         },
         scales: {
           x: {
-            ticks: { color: cssVar('--chart-tick'), font: { size: 9, family: "'DM Mono',monospace" }, maxTicksLimit: 6, maxRotation: 0 },
-            grid:  { color: cssVar('--chart-grid') },
-            border:{ color: cssVar('--chart-grid') },
+            ticks: { color: tick, font: { size: 9, family: "'DM Mono',monospace" }, maxTicksLimit: maxTicks, maxRotation: 0 },
+            grid: { color: grid }, border: { color: grid },
           },
           y: {
-            ticks: { color: cssVar('--chart-tick'), font: { size: 9, family: "'DM Mono',monospace" }, maxTicksLimit: 4 },
-            grid:  { color: cssVar('--chart-grid') },
-            border:{ color: cssVar('--chart-grid') },
+            ticks: { color: tick, font: { size: 9, family: "'DM Mono',monospace" }, maxTicksLimit: 4 },
+            grid: { color: grid }, border: { color: grid },
           },
         },
       },
@@ -142,19 +132,13 @@
   let rafId: number | null = null;
   let isDownloading = false;
 
-  // Suscripción al store — pausa el live polling durante descarga
-  const unsubDownloading = downloading.subscribe(state => {
-    isDownloading = state.active;
-    if (state.active && liveInterval) {
-      clearInterval(liveInterval);
-      liveInterval = null;
-    }
+  const unsubDownloading = downloading.subscribe(s => {
+    isDownloading = s.active;
+    if (s.active && liveInterval) { clearInterval(liveInterval); liveInterval = null; }
   });
 
   async function loadData() {
-    // No lanzar fetch si hay una descarga CSV en curso
     if (isDownloading) return;
-
     loading = true; error = ''; empty = false;
     try {
       const readings: Reading[] = await fetchReadings(sensorId, sensorType, from, to, points);
@@ -174,20 +158,16 @@
         return;
       }
       lastValue = readings[readings.length - 1].value;
-      lastTimestamp = null;
-      empty = false;
+      lastTimestamp = null; empty = false;
       if (rafId) cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
-        rafId = requestAnimationFrame(() => { renderChart(readings); });
+        rafId = requestAnimationFrame(() => { renderChart(readings, from, to); });
       });
     } catch (e: any) {
       if (!isDownloading) error = e.message ?? 'Error';
-    } finally {
-      loading = false;
-    }
+    } finally { loading = false; }
   }
 
-  // Actualiza colores del chart cuando cambia el tema
   $effect(() => {
     if (spark) return;
     const obs = new MutationObserver(() => {
@@ -207,9 +187,7 @@
     if (isDownloading) return;
     loadData();
     if (live && !liveInterval) {
-      liveInterval = setInterval(() => {
-        if (!isDownloading) loadData();
-      }, 15_000);
+      liveInterval = setInterval(() => { if (!isDownloading) loadData(); }, 15_000);
     }
     return () => {
       if (liveInterval) clearInterval(liveInterval);
@@ -226,13 +204,9 @@
 </script>
 
 {#if spark}
-  <!-- Modo sparkline: solo el canvas, sin wrapper con header -->
   <div class="spark-wrap">
-    {#if loading && !chart}
-      <div class="spark-skeleton"></div>
-    {:else}
-      <canvas bind:this={canvas}></canvas>
-    {/if}
+    {#if loading && !chart}<div class="spark-skeleton"></div>
+    {:else}<canvas bind:this={canvas}></canvas>{/if}
   </div>
 {:else}
   <div class="sc">
@@ -248,9 +222,7 @@
       {:else if empty}
         <div class="sc__empty">
           <span class="sc__empty-main">Sin datos en el rango seleccionado</span>
-          {#if lastTimestamp}
-            <span class="sc__empty-last">Último dato: {lastTimestamp} · {lastValue?.toFixed(2)}</span>
-          {/if}
+          {#if lastTimestamp}<span class="sc__empty-last">Último dato: {lastTimestamp} · {lastValue?.toFixed(2)}</span>{/if}
         </div>
       {:else}
         <canvas bind:this={canvas}></canvas>
@@ -260,17 +232,10 @@
 {/if}
 
 <style>
-  /* Spark mode */
-  .spark-wrap { width: 100%; height: 28px; position: relative; }
+  .spark-wrap { width: 100%; height: calc(28px * var(--font-scale)); position: relative; }
   .spark-wrap canvas { width: 100% !important; height: 100% !important; display: block; }
-  .spark-skeleton {
-    width: 100%; height: 100%; border-radius: 2px;
-    background: linear-gradient(90deg, var(--skeleton-from, #eee) 25%, var(--skeleton-to, #f8f8f8) 50%, var(--skeleton-from, #eee) 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.4s infinite;
-  }
+  .spark-skeleton { width: 100%; height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--skeleton-from) 25%, var(--skeleton-to) 50%, var(--skeleton-from) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
 
-  /* Normal mode */
   .sc { display: flex; flex-direction: column; gap: calc(6px * var(--font-scale)); }
   .sc__header { display: flex; align-items: center; gap: calc(6px * var(--font-scale)); }
   .sc__dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
@@ -278,15 +243,12 @@
   .sc__value { font-size: calc(11px * var(--font-scale)); font-family: 'DM Mono', monospace; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
   .sc__live { font-size: calc(8px * var(--font-scale)); font-family: 'DM Mono', monospace; letter-spacing: .12em; color: var(--live-color); background: var(--live-bg); border: 1px solid var(--live-border); padding: calc(1px * var(--font-scale)) calc(5px * var(--font-scale)); border-radius: 2px; animation: pulse 2s infinite; }
   @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.5} }
-
-  .sc__body { height: 90px; position: relative; }
+  .sc__body { height: calc(90px * var(--font-scale)); position: relative; }
   canvas { width: 100% !important; height: 100% !important; }
-
-  .sc__skeleton { width: 100%; height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--skeleton-from, #eee) 25%, var(--skeleton-to, #f8f8f8) 50%, var(--skeleton-from, #eee) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+  .sc__skeleton { width: 100%; height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--skeleton-from) 25%, var(--skeleton-to) 50%, var(--skeleton-from) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
   @keyframes shimmer { 0%{background-position:200% center}100%{background-position:-200% center} }
-
-  .sc__error { display: flex; align-items: center; justify-content: center; height: 100%; font-size: calc(10px * var(--font-scale)); font-family: 'DM Mono', monospace; color: var(--error-color, #c0392b); }
+  .sc__error { display: flex; align-items: center; justify-content: center; height: 100%; font-size: calc(10px * var(--font-scale)); font-family: 'DM Mono', monospace; color: var(--error-color); }
   .sc__empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: calc(4px * var(--font-scale)); }
-  .sc__empty-main { font-size: calc(9.5px * var(--font-scale)); font-family: 'DM Mono', monospace; letter-spacing: .05em; color: var(--text-secondary); }
-  .sc__empty-last  { font-size: calc(8.5px * var(--font-scale)); font-family: 'DM Mono', monospace; letter-spacing: .04em; color: var(--text-secondary); opacity: .8; }
+  .sc__empty-main { font-size: calc(9px * var(--font-scale)); font-family: 'DM Mono', monospace; letter-spacing: .05em; color: var(--text-secondary); }
+  .sc__empty-last  { font-size: calc(8px * var(--font-scale)); font-family: 'DM Mono', monospace; letter-spacing: .04em; color: var(--text-secondary); opacity: .8; }
 </style>
