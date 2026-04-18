@@ -303,6 +303,28 @@
                   <span class="badge badge-ok">normal</span>
                 {/if}
               </span>
+              <!-- Mobile layout — oculto en desktop -->
+              <div class="ct-mobile">
+                <span class="ct-mobile__name">
+                  <span class="ct-chevron" class:open={isExpanded}>▶</span>
+                  {box.name}
+                </span>
+                <span class="ct-mobile__meta">
+                  {#if score >= 1.5}
+                    <span class="badge badge-warn">{score.toFixed(1)}σ</span>
+                  {/if}
+                  <span class="ago {!lastSeen ? 'dead' : (Date.now()-new Date(lastSeen).getTime())<300000?'fresh':(Date.now()-new Date(lastSeen).getTime())<1800000?'recent':(Date.now()-new Date(lastSeen).getTime())<86400000?'stale':'dead'}">
+                    {#if lastSeen}{#if (Date.now()-new Date(lastSeen).getTime())<60000}hace {Math.floor((Date.now()-new Date(lastSeen).getTime())/1000)}s{:else if (Date.now()-new Date(lastSeen).getTime())<3600000}hace {Math.round((Date.now()-new Date(lastSeen).getTime())/60000)} min{:else if (Date.now()-new Date(lastSeen).getTime())<86400000}hace {Math.round((Date.now()-new Date(lastSeen).getTime())/3600000)} h{:else if (Date.now()-new Date(lastSeen).getTime())<2592000000}hace {Math.round((Date.now()-new Date(lastSeen).getTime())/86400000)} días{:else}hace {Math.round((Date.now()-new Date(lastSeen).getTime())/2592000000)} meses{/if}{:else}sin datos{/if}
+                  </span>
+                  {#if score >= 3}
+                    <span class="badge badge-alert">alerta</span>
+                  {:else if score >= 1.5}
+                    <span class="badge badge-warn">anomalía</span>
+                  {:else}
+                    <span class="badge badge-ok">normal</span>
+                  {/if}
+                </span>
+              </div>
             </div>
 
             {#if isExpanded}
@@ -335,6 +357,15 @@
                       {:else}—{/if}
                     </span>
                     <span class="ct-expand__cell align-right ago {agoClass}">{agoText}</span>
+                    <!-- Mobile -->
+                    <div class="ct-exp-mobile">
+                      <span class="ct-exp-mobile__name" class:warn={ac !== 'ok'}>{s.sensor_type} <span class="muted">#{s.sensor_number}</span></span>
+                      <span class="ct-exp-mobile__meta">
+                        <span class:val-warn={ac !== 'ok'}>{s.last_value !== null ? s.last_value.toFixed(4) : '—'}</span>
+                        {#if s.anomaly_score !== null}<span class="badge badge-{ac === 'ok' ? 'muted' : ac}">{s.anomaly_score.toFixed(1)}σ</span>{/if}
+                        <span class="ago {agoClass}">{agoText}</span>
+                      </span>
+                    </div>
                   </div>
                 {/each}
               </div>
@@ -606,6 +637,10 @@
   .content { flex: 1; padding: calc(14px * var(--font-scale)) calc(16px * var(--font-scale)) calc(48px * var(--font-scale)); background: var(--bg-base); }
 
 
+  /* Mobile compact rows — hidden on desktop */
+  .ct-mobile { display: none; }
+  .ct-exp-mobile { display: none; }
+
   /* Compact expand */
   .ct-chevron { font-size: calc(14px * var(--font-scale)); color: var(--text-muted); transition: transform .15s; display: inline-block; margin-right: 4px; }
   .ct-chevron.open { transform: rotate(90deg); }
@@ -780,19 +815,62 @@
     /* Content */
     .content { padding: 10px 10px 16px; }
 
-    /* Compact table — quitar columna de peor score en mobile */
-    .ct-head { grid-template-columns: 1fr 80px 100px !important; gap: 8px !important; padding: 6px 10px !important; }
-    .ct-head span:nth-child(2) { display: none; }
-    .ct-head span:nth-child(3) { display: none; }
-    .ct-row { grid-template-columns: 1fr 80px 100px !important; gap: 8px !important; padding: 8px 10px !important; }
-    .ct-row > span:nth-child(2) { display: none; }
-    .ct-row > span:nth-child(3) { display: none; }
+    /* Compact table — ocultar cabecera y columnas, usar mobile divs */
+    .ct-head { display: none; }
+    .ct-row {
+      display: block !important;
+      padding: calc(12px * var(--font-scale)) calc(12px * var(--font-scale)) !important;
+    }
+    .ct-row > span { display: none !important; }
+    .ct-mobile {
+      display: flex;
+      flex-direction: column;
+      gap: calc(4px * var(--font-scale));
+    }
+    .ct-mobile__name {
+      font-size: calc(14px * var(--font-scale));
+      font-weight: 500;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .ct-mobile__meta {
+      display: flex;
+      align-items: center;
+      gap: calc(8px * var(--font-scale));
+      font-size: calc(12px * var(--font-scale));
+    }
 
-    /* Compact expand sub-table */
-    .ct-expand__cols { grid-template-columns: 36px 1fr 68px 60px !important; gap: 6px !important; padding: 5px 10px !important; }
-    .ct-expand__cols span:nth-child(4) { display: none; }
-    .ct-expand__row { grid-template-columns: 36px 1fr 68px 60px !important; gap: 6px !important; padding: 6px 10px !important; }
-    .ct-expand__row > span:nth-child(4) { display: none; }
+    /* Compact expand — ocultar grid, usar mobile divs */
+    .ct-expand__cols { display: none; }
+    .ct-expand__row {
+      display: block !important;
+      padding: calc(10px * var(--font-scale)) calc(14px * var(--font-scale)) !important;
+      border-bottom: 0.5px solid var(--border-subtle);
+    }
+    .ct-expand__row > span { display: none !important; }
+    .ct-exp-mobile {
+      display: flex;
+      flex-direction: column;
+      gap: calc(3px * var(--font-scale));
+    }
+    .ct-exp-mobile__name {
+      font-size: calc(13px * var(--font-scale));
+      font-weight: 500;
+      color: var(--text-primary);
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+    .ct-exp-mobile__name.warn { color: #e8a838; }
+    .ct-exp-mobile__meta {
+      display: flex;
+      align-items: center;
+      gap: calc(8px * var(--font-scale));
+      font-size: calc(12px * var(--font-scale));
+      color: var(--text-secondary);
+    }
 
     /* Data table análisis — scroll horizontal */
     .data-table { overflow-x: auto; }
