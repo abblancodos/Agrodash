@@ -9,8 +9,8 @@
   let { boxes, selected, onchange }: Props = $props();
 
   let open = $state(false);
-  let panelEl: HTMLDivElement;
-  let btnEl: HTMLButtonElement;
+  let panelEl = $state<HTMLDivElement | null>(null);
+  let btnEl = $state<HTMLButtonElement | null>(null);
   let pulse = $state(true);
 
   // Stop pulsing after first open

@@ -22,15 +22,15 @@
   }: Props = $props();
 
   let canvas = $state<HTMLCanvasElement | null>(null);
-  let chart: any = null;
+  let chart = $state<any>(null);
   let loading = $state(true);
   let error   = $state('');
   let lastValue     = $state<number | null>(null);
   let lastTimestamp = $state<string | null>(null);
   let empty   = $state(false);
 
-  const displayLabel = label ?? normaliseSensorLabel(sensorType);
-  const color        = colorProp ?? sensorColor(sensorType);
+  const displayLabel = $derived(label ?? normaliseSensorLabel(sensorType));
+  const color        = $derived(colorProp ?? sensorColor(sensorType));
 
   function cssVar(name: string) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();

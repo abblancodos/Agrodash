@@ -52,6 +52,7 @@
 {#if open}
   <div class="overlay" onclick={() => open = false} role="presentation">
     <div class="modal" onclick={(e) => e.stopPropagation()}
+         onkeydown={(e) => e.stopPropagation()}
          role="dialog" aria-modal="true" tabindex="-1">
 
       <div class="modal-head">

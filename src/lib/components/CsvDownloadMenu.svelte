@@ -51,7 +51,8 @@
 
   // ── Selección de sensores ─────────────────────────────────────────────────
 
-  let selectedIds = $state<Set<string>>(new Set(box.sensors.map(s => s.id)));
+  let selectedIds = $state<Set<string>>(new Set<string>());
+  $effect(() => { selectedIds = new Set(box.sensors.map(s => s.id)); });
 
   function toggleSensor(id: string) {
     const next = new Set(selectedIds);

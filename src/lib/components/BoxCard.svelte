@@ -34,8 +34,8 @@
   ];
 
   let activePreset = $state('24h');
-  let localFrom    = $state(from);
-  let localTo      = $state(to);
+  let localFrom    = $derived(from);
+  let localTo      = $derived(to);
 
   function applyPreset(p: { label: string; hours: number }) {
     activePreset = p.label;
