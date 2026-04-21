@@ -2,23 +2,40 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
   import { auth } from '$lib/stores/auth';
 
   const API = import.meta.env.VITE_API_BASE ?? '';
 
   let status = $state<'loading' | 'ok' | 'error'>('loading');
   let errorMsg = $state('');
+  let debugInfo = $state('');
 
   onMount(async () => {
-    const token = $page.url.searchParams.get('token');
+    // Leer token directamente de window.location — más confiable en SPA
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+
+    debugInfo = `search: ${window.location.search} | hash: ${window.location.hash}`;
 
     if (!token) {
-      status = 'error';
-      errorMsg = 'No se recibió token';
+      // Intentar también desde el hash por si acaso
+      const hashParams = new URLSearchParams(window.location.hash.replace('#', '').replace('/auth/callback?', ''));
+      const hashToken = hashParams.get('token') ?? window.location.hash.split('token=')[1]?.split('&')[0];
+
+      if (!hashToken) {
+        status = 'error';
+        errorMsg = `No se recibió token. Debug: ${debugInfo}`;
+        return;
+      }
+
+      await doLogin(hashToken);
       return;
     }
 
+    await doLogin(token);
+  });
+
+  async function doLogin(token: string) {
     try {
       const res = await fetch(`${API}/api/v1/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -38,7 +55,7 @@
       status = 'error';
       errorMsg = e.message ?? 'Error de red';
     }
-  });
+  }
 </script>
 
 <div class="callback-shell">
@@ -68,6 +85,6 @@
     animation: spin .8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .error { color: var(--error-color); }
+  .error { color: var(--error-color); font-family: monospace; font-size: 12px; max-width: 500px; text-align: center; word-break: break-all; }
   a { color: var(--text-primary); font-size: 13px; }
 </style>
