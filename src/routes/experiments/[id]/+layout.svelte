@@ -14,8 +14,6 @@
     await auth.init();
     await experimentStore.load(id);
 
-    const $s = $derived($experimentStore ?? null);
-
     // Si el experimento no existe → 404
     if (!$experimentStore.experiment && !$experimentStore.loading) {
       goto('/experiments');
