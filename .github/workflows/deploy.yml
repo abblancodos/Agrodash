@@ -25,6 +25,22 @@ jobs:
           docker cp build/. agrodash-web-tmp:/output/
           docker rm -f agrodash-web-tmp
 
+      - name: sqlx prepare
+        working-directory: src/rust
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          cargo install sqlx-cli --no-default-features --features postgres
+          cargo sqlx prepare
+
+      - name: Commit sqlx cache
+        run: |
+          git config user.email "ci@agrodash"
+          git config user.name "CI Bot"
+          git add src/rust/.sqlx
+          git diff --cached --quiet || git commit -m "chore: update sqlx cache [skip ci]"
+          git push --force-with-lease
+
       - name: Build API image
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
