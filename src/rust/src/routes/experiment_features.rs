@@ -711,3 +711,111 @@ pub async fn update_status(
 
     Ok(StatusCode::NO_CONTENT)
 }
+
+
+// ── DELETE /experiments/:id ───────────────────────────────────────────────────
+// Solo admins/owner. Antes de borrar genera y devuelve el CSV completo
+// (incluyendo anuladas) para que el cliente lo descargue.
+// El cliente debe confirmar con un código aleatorio generado por el frontend.
+// El backend no valida el código — la validación es solo en el cliente.
+// Lo que sí valida el backend es que el usuario sea admin del experimento.
+
+pub async fn delete_experiment(
+    State(pool): State<PgPool>,
+    claims: Claims,
+    Path(exp_id): Path<Uuid>,
+) -> Result<([(axum::http::HeaderName, String); 2], String), (StatusCode, Json<Value>)> {
+    require_role(&pool, exp_id, claims.sub, "admin").await?;
+
+    let exp = sqlx::query!(
+        r#"SELECT title, constants FROM experiments WHERE id = $1"#,
+        exp_id,
+    )
+    .fetch_optional(&pool)
+    .await
+    .map_err(err)?
+    .ok_or_else(not_found)?;
+
+    // Obtener TODAS las entries (incluyendo anuladas) para el backup
+    let events = sqlx::query!(
+        r#"
+        SELECT e.step_key, e.event_type, e.soil_id, e.iteration,
+               e.data, e.note, e.recorded_at,
+               e.corrects_event_id AS "corrects_event_id: Uuid",
+               e.correction_reason, e.is_voided,
+               u.display_name AS recorded_by_name
+        FROM experiment_events e
+        LEFT JOIN users u ON u.id = e.recorded_by
+        WHERE e.experiment_id = $1
+        ORDER BY e.recorded_at
+        "#,
+        exp_id,
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(err)?;
+
+    // Generar CSV completo con todo (incluyendo anuladas)
+    let mut csv = String::new();
+    csv.push_str(&format!("# experimento: {}
+", exp.title));
+    csv.push_str(&format!("# BACKUP COMPLETO — incluye entries anuladas
+"));
+    if let Some(consts) = exp.constants.as_object() {
+        for (k, v) in consts {
+            csv.push_str(&format!("# {}: {}
+", k, v));
+        }
+    }
+    csv.push('
+');
+    csv.push_str("timestamp_cr,step_key,event_type,soil_id,iteration,data,note,estado,motivo_correccion,registrado_por
+");
+
+    for ev in &events {
+        let ts = ev.recorded_at
+            .checked_sub_signed(chrono::Duration::hours(6))
+            .unwrap_or(ev.recorded_at)
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+
+        let estado = if ev.is_voided {
+            "anulada"
+        } else if ev.corrects_event_id.is_some() {
+            "correccion"
+        } else {
+            "activa"
+        };
+
+        let data_str = ev.data.to_string().replace(',', ";");
+        let note_str = ev.note.as_deref().unwrap_or("").replace(',', ";");
+        let reason   = ev.correction_reason.as_deref().unwrap_or("").replace(',', ";");
+        let by       = ev.recorded_by_name.as_deref().unwrap_or("").replace(',', ";");
+        let soil     = ev.soil_id.as_deref().unwrap_or("");
+        let iter     = ev.iteration.map(|i| i.to_string()).unwrap_or_default();
+
+        csv.push_str(&format!(
+            "{},{},{},{},{},{},{},{},{},{}
+",
+            ts, ev.step_key, ev.event_type, soil, iter,
+            data_str, note_str, estado, reason, by,
+        ));
+    }
+
+    // Borrar el experimento (CASCADE borra events, definitions, objectives, collaborators)
+    sqlx::query!("DELETE FROM experiments WHERE id = $1", exp_id)
+        .execute(&pool)
+        .await
+        .map_err(err)?;
+
+    let filename = format!("backup-experimento-{}.csv", exp_id);
+    Ok((
+        [
+            (axum::http::header::CONTENT_TYPE,
+             "text/csv; charset=utf-8".to_string()),
+            (axum::http::header::CONTENT_DISPOSITION,
+             format!("attachment; filename="{}"", filename)),
+        ],
+        csv,
+    ))
+}

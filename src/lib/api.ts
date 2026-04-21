@@ -260,3 +260,74 @@ export async function fetchMe(): Promise<AuthUser> {
 export function logout(): void {
   clearToken();
 }
+
+// ── Experiments ───────────────────────────────────────────────────────────────
+
+export async function fetchExperiments(): Promise<any[]> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/api/v1/experiments`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function fetchExperiment(id: string): Promise<any> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/api/v1/experiments/${id}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function createExperiment(body: {
+  title: string; description?: string | null; public?: boolean; constants?: Record<string, unknown>;
+}): Promise<any> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/api/v1/experiments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+  return data;
+}
+
+export async function fetchServerTime(): Promise<{ utc: string; cr: string; unix: number }> {
+  const res = await fetch(`${API_BASE}/api/v1/time`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function exportCsv(id: string): Promise<string> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/api/v1/experiments/${id}/export-csv`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
+}
+
+export async function deleteExperiment(id: string): Promise<string> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/api/v1/experiments/${id}`, {
+    method: 'DELETE',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.error ?? `HTTP ${res.status}`);
+  }
+  return res.text(); // CSV backup
+}
+
+export async function searchUsers(q: string): Promise<any[]> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/api/v1/users/search?q=${encodeURIComponent(q)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}

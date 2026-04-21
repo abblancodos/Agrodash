@@ -184,7 +184,7 @@ pub async fn register(
 
     // 3. Resolver contraseña
     let password = if let Some(enc) = &body.password_encrypted {
-        decrypt_password(enc).map_err(|e| bad(e.as_str()))?
+        decrypt_password(enc).map_err(|e| bad(&e))?
     } else if let Some(plain) = &body.password {
         plain.clone()
     } else {
