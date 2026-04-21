@@ -166,7 +166,7 @@ pub struct ExperimentRow {
 
 #[derive(Deserialize)]
 pub struct CreateExperimentRequest {
-    pub template_id: Uuid,
+    pub template_id: Option<Uuid>,
     pub title:       String,
     pub description: Option<String>,
     pub public:      Option<bool>,
@@ -182,26 +182,50 @@ pub async fn list_experiments(
     State(pool): State<PgPool>,
     OptionalClaims(claims): OptionalClaims,
     Query(q): Query<ListQuery>,
-) -> Result<Json<Vec<ExperimentRow>>, (StatusCode, Json<Value>)> {
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<Value>)> {
     let user_id = claims.map(|c| c.sub);
-    let rows = sqlx::query_as!(
-        ExperimentRow,
+
+    let rows = sqlx::query!(
         r#"
-        SELECT id AS "id: Uuid", template_id AS "template_id: Uuid",
-               owner_id AS "owner_id: Uuid", title, description,
-               public, constants, status, created_at
-        FROM experiments
-        WHERE (public = true OR owner_id = $1)
-          AND ($2::uuid IS NULL OR template_id = $2)
-        ORDER BY created_at DESC
+        SELECT
+            e.id            AS "id: Uuid",
+            e.template_id   AS "template_id: Uuid",
+            e.owner_id      AS "owner_id: Uuid",
+            e.title, e.description, e.public, e.status, e.created_at,
+            -- rol del usuario: owner > collaborator > null (solo lectura pública)
+            CASE
+                WHEN e.owner_id = $1                          THEN 'admin'
+                WHEN c.role IS NOT NULL                       THEN c.role
+                WHEN e.public = true                          THEN 'viewer'
+                ELSE NULL
+            END AS user_role
+        FROM experiments e
+        LEFT JOIN experiment_collaborators c
+            ON c.experiment_id = e.id AND c.user_id = $1
+        WHERE
+            e.public = true
+            OR e.owner_id = $1
+            OR c.user_id  = $1
+        ORDER BY e.created_at DESC
         "#,
         user_id as Option<Uuid>,
-        q.template_id as Option<Uuid>,
     )
     .fetch_all(&pool)
     .await
     .map_err(err)?;
-    Ok(Json(rows))
+
+    let list: Vec<_> = rows.iter().map(|r| serde_json::json!({
+        "id":          r.id,
+        "owner_id":    r.owner_id,
+        "title":       r.title,
+        "description": r.description,
+        "public":      r.public,
+        "status":      r.status,
+        "created_at":  r.created_at,
+        "user_role":   r.user_role,  // null = solo puede ver si es público
+    })).collect();
+
+    Ok(Json(serde_json::json!(list)))
 }
 
 pub async fn create_experiment(
@@ -219,7 +243,7 @@ pub async fn create_experiment(
                   owner_id AS "owner_id: Uuid", title, description,
                   public, constants, status, created_at
         "#,
-        body.template_id as Uuid,
+        body.template_id.unwrap_or(Uuid::nil()) as Uuid,
         claims.sub as Uuid,
         body.title,
         body.description,
