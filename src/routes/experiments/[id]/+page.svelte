@@ -21,10 +21,8 @@
   }
 
   async function downloadCsv() {
-    const token = auth.getToken();
-    const res = await fetch(`${API}/api/v1/experiments/${exp.id}/export-csv`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+        const res = await fetch(`${API}/api/v1/experiments/${exp.id}/export-csv`, {
+          });
     if (!res.ok) return;
     const csv  = await res.text();
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -41,7 +39,11 @@
   <!-- Topbar -->
   <div class="topbar">
     <div class="topbar__left">
-      <a href="/experiments" class="back-link">← experimentos</a>
+      <div class="breadcrumb">
+        <a href="/" class="back-link">dashboard</a>
+        <span class="breadcrumb-sep">/</span>
+        <a href="/experiments" class="back-link">experimentos</a>
+      </div>
       <div class="topbar__info">
         <h1 class="exp-title">{exp.title}</h1>
         <div class="exp-meta">
@@ -101,6 +103,8 @@
   .topbar__left { display: flex; flex-direction: column; gap: calc(4px * var(--font-scale)); }
   .topbar__right { display: flex; align-items: center; gap: calc(8px * var(--font-scale)); flex-shrink: 0; }
 
+  .breadcrumb { display: flex; align-items: center; gap: calc(6px * var(--font-scale)); }
+  .breadcrumb-sep { font-size: calc(12px * var(--font-scale)); color: var(--border-default); }
   .back-link {
     font-size: calc(12px * var(--font-scale)); color: var(--text-muted);
     text-decoration: none; transition: color .12s;

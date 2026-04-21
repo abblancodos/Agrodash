@@ -15,10 +15,8 @@
   async function loadExperiments() {
     loading = true; error = '';
     try {
-      const token = auth.getToken();
-      const res = await fetch(`${API}/api/v1/experiments`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+            const res = await fetch(`${API}/api/v1/experiments`, {
+              });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       experiments = await res.json();
     } catch (e: any) {
@@ -50,6 +48,7 @@
 <div class="page">
   <!-- Header -->
   <div class="page-head">
+    <a href="/" class="back-to-dash">← dashboard</a>
     <div class="page-head__left">
       <h1 class="page-title">experimentos</h1>
       <p class="page-sub">datos de laboratorio y experimentos de campo</p>
@@ -148,6 +147,11 @@
 <style>
   .page { max-width: 960px; margin: 0 auto; padding: calc(24px * var(--font-scale)) calc(20px * var(--font-scale)); }
 
+  .back-to-dash {
+    display: block; font-size: calc(12px * var(--font-scale));
+    color: var(--text-muted); text-decoration: none; margin-bottom: calc(8px * var(--font-scale));
+  }
+  .back-to-dash:hover { color: var(--text-primary); }
   .page-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: calc(28px * var(--font-scale)); gap: 16px; flex-wrap: wrap; }
   .page-head__right { display: flex; align-items: center; gap: calc(10px * var(--font-scale)); flex-shrink: 0; }
   .page-title { font-size: calc(20px * var(--font-scale)); font-weight: 500; color: var(--text-primary); }
@@ -206,6 +210,11 @@
   @media (max-width: 640px) {
     .page { padding: 16px 12px; }
     .exp-grid { grid-template-columns: 1fr; }
-    .page-head { flex-direction: column; }
+    .back-to-dash {
+    display: block; font-size: calc(12px * var(--font-scale));
+    color: var(--text-muted); text-decoration: none; margin-bottom: calc(8px * var(--font-scale));
+  }
+  .back-to-dash:hover { color: var(--text-primary); }
+  .page-head { flex-direction: column; }
   }
 </style>
