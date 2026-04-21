@@ -168,6 +168,6 @@ pub async fn gitea_callback(
 
     // 5. Redirigir al frontend con el token en el hash
     // Nunca en query string para evitar que quede en logs del servidor
-    let redirect_url = format!("{}/#/auth/callback?token={}", app_url(), jwt);
+    let redirect_url = format!("{}/experiments#auth_token={}", app_url(), jwt);
     Ok(Redirect::temporary(&redirect_url))
 }
