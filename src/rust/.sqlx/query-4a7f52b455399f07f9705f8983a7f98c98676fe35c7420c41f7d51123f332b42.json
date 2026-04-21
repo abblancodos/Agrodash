@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    INSERT INTO sensor_correlations\n                        (box_id, sensor_type, sensor_id_a, sensor_id_b, pearson_r, computed_at)\n                    VALUES ($1, $2, $3, $4, $5, NOW())\n                    ON CONFLICT (sensor_id_a, sensor_id_b, sensor_type) DO UPDATE SET\n                        pearson_r   = EXCLUDED.pearson_r,\n                        computed_at = EXCLUDED.computed_at\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4a7f52b455399f07f9705f8983a7f98c98676fe35c7420c41f7d51123f332b42"
+}

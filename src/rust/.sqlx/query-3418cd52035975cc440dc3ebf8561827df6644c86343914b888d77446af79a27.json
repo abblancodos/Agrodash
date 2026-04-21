@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                value::float8 AS \"value!: f64\",\n                created_at    AS \"created_at!: chrono::NaiveDateTime\"\n            FROM readings\n            WHERE sensor_id = $1\n              AND created_at BETWEEN '2020-01-01' AND NOW()\n            ORDER BY created_at DESC\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value!: f64",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at!: chrono::NaiveDateTime",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      false
+    ]
+  },
+  "hash": "3418cd52035975cc440dc3ebf8561827df6644c86343914b888d77446af79a27"
+}

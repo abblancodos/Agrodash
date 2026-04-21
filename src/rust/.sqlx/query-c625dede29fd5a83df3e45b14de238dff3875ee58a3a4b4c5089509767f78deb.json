@@ -1,0 +1,69 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO experiment_templates (owner_id, name, description, public, steps, constants_schema)\n        VALUES ($1, $2, $3, $4, $5, $6)\n        RETURNING id AS \"id: Uuid\", owner_id AS \"owner_id: Uuid\", name,\n                  description, public, steps, constants_schema, created_at\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "owner_id: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "public",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "steps",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "constants_schema",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Bool",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c625dede29fd5a83df3e45b14de238dff3875ee58a3a4b4c5089509767f78deb"
+}
