@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        UPDATE experiments SET constants = $1, updated_at = NOW()\n        WHERE id = $2 AND owner_id = $3\n        RETURNING id AS \"id: Uuid\", template_id AS \"template_id: Uuid\",\n                  owner_id AS \"owner_id: Uuid\", title, description,\n                  public, constants, status, created_at\n        ",
+  "query": "\n        UPDATE experiments SET constants = $1, updated_at = NOW()\n        WHERE id = $2 AND owner_id = $3\n        RETURNING id AS \"id: Uuid\", template_id AS \"template_id?: Uuid\",\n                  owner_id AS \"owner_id: Uuid\", title, description,\n                  public, constants, status, created_at\n        ",
   "describe": {
     "columns": [
       {
@@ -10,7 +10,7 @@
       },
       {
         "ordinal": 1,
-        "name": "template_id: Uuid",
+        "name": "template_id?: Uuid",
         "type_info": "Uuid"
       },
       {
@@ -58,7 +58,7 @@
     },
     "nullable": [
       false,
-      false,
+      true,
       false,
       false,
       true,
@@ -68,5 +68,5 @@
       false
     ]
   },
-  "hash": "9ee08eb00440e50f4200fb54b5f82a2e8462503e755e60841f975ebaa42e29cb"
+  "hash": "09066544ac5fc95b987e95d9254fbb21adfae05ba2ea9fd2f06686a30335f83f"
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT e.public, e.constants, e.owner_id AS \"owner_id: Uuid\",\n               t.steps\n        FROM experiments e\n        JOIN experiment_templates t ON t.id = e.template_id\n        WHERE e.id = $1\n        ",
+  "query": "\n        SELECT e.public, e.constants, e.owner_id AS \"owner_id: Uuid\",\n               t.steps\n        FROM experiments e\n        LEFT JOIN experiment_templates t ON t.id = e.template_id\n        WHERE e.id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -36,5 +36,5 @@
       false
     ]
   },
-  "hash": "bccadb643ce33f891fcfb1f37168b32cb16230a420d046defe72dad15ef252e6"
+  "hash": "360502a17d369a39e41b11c070283e0579ab00dddf271c48e79cd484c21f8095"
 }

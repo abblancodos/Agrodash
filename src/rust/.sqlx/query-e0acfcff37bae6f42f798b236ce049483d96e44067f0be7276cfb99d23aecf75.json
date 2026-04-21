@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO experiment_objectives\n            (experiment_id, name, condition_type, condition, severity, goto_ok, goto_violation, sort_order)\n        SELECT $1, name, condition_type, condition, severity, goto_ok, goto_violation, sort_order\n        FROM experiment_objectives\n        WHERE experiment_id = $2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e0acfcff37bae6f42f798b236ce049483d96e44067f0be7276cfb99d23aecf75"
+}

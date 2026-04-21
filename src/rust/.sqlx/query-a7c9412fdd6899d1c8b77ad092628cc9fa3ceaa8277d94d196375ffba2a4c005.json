@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO experiment_definitions\n            (experiment_id, key, type, label, payload, sort_order, created_by)\n        SELECT $1, key, type, label, payload, sort_order, $2\n        FROM experiment_definitions\n        WHERE experiment_id = $3\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a7c9412fdd6899d1c8b77ad092628cc9fa3ceaa8277d94d196375ffba2a4c005"
+}
