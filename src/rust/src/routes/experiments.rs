@@ -260,26 +260,52 @@ pub async fn get_experiment(
     State(pool): State<PgPool>,
     OptionalClaims(claims): OptionalClaims,
     Path(id): Path<Uuid>,
-) -> Result<Json<ExperimentRow>, (StatusCode, Json<Value>)> {
-    let row = sqlx::query_as!(
-        ExperimentRow,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let user_id = claims.as_ref().map(|c| c.sub);
+
+    let row = sqlx::query!(
         r#"
-        SELECT id AS "id: Uuid", template_id AS "template_id?: Uuid",
-               owner_id AS "owner_id: Uuid", title, description,
-               public, constants, status, created_at
-        FROM experiments WHERE id = $1
+        SELECT
+            e.id            AS "id: Uuid",
+            e.template_id   AS "template_id?: Uuid",
+            e.owner_id      AS "owner_id: Uuid",
+            e.title, e.description, e.public, e.constants, e.status, e.created_at,
+            CASE
+                WHEN e.owner_id = $2                THEN 'admin'
+                WHEN c.role IS NOT NULL             THEN c.role
+                WHEN e.public = true               THEN 'viewer'
+                ELSE NULL
+            END AS user_role
+        FROM experiments e
+        LEFT JOIN experiment_collaborators c
+            ON c.experiment_id = e.id AND c.user_id = $2
+        WHERE e.id = $1
         "#,
         id,
+        user_id as Option<Uuid>,
     )
     .fetch_optional(&pool)
     .await
     .map_err(err)?
     .ok_or_else(not_found)?;
 
-    if !row.public && claims.map(|c| c.sub) != Some(row.owner_id) {
+    // Denegar acceso si no es público y el usuario no tiene rol
+    if !row.public && row.user_role.is_none() {
         return Err(forbidden());
     }
-    Ok(Json(row))
+
+    Ok(Json(serde_json::json!({
+        "id":          row.id,
+        "template_id": row.template_id,
+        "owner_id":    row.owner_id,
+        "title":       row.title,
+        "description": row.description,
+        "public":      row.public,
+        "constants":   row.constants,
+        "status":      row.status,
+        "created_at":  row.created_at,
+        "user_role":   row.user_role,
+    })))
 }
 
 #[derive(Deserialize)]

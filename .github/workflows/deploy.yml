@@ -4,10 +4,41 @@ on:
     branches: [main]
 
 jobs:
-  deploy:
+  # ── Detectar qué cambió ────────────────────────────────────────────────────
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      backend:  ${{ steps.filter.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            frontend:
+              - 'src/**'
+              - '*.json'
+              - '*.js'
+              - '*.ts'
+              - '!src/rust/**'
+            backend:
+              - 'src/rust/**'
+              - 'Dockerfile.api'
+
+  # ── Frontend ───────────────────────────────────────────────────────────────
+  deploy-frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Node cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('package-lock.json') }}
 
       - name: Build frontend
         env:
@@ -25,15 +56,43 @@ jobs:
           docker cp build/. agrodash-web-tmp:/output/
           docker rm -f agrodash-web-tmp
 
+  # ── Backend Rust ───────────────────────────────────────────────────────────
+  deploy-backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/rust/target
+          key: rust-${{ hashFiles('src/rust/Cargo.lock') }}
+          restore-keys: rust-
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install sqlx-cli
+        uses: actions/cache@v4
+        id: sqlx-cache
+        with:
+          path: ~/.cargo/bin/cargo-sqlx
+          key: sqlx-cli-${{ hashFiles('src/rust/Cargo.lock') }}
+
+      - name: Build sqlx-cli if not cached
+        if: steps.sqlx-cache.outputs.cache-hit != 'true'
+        run: cargo install sqlx-cli --no-default-features --features postgres
+
       - name: sqlx prepare
         working-directory: src/rust
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-          source ~/.cargo/env
-          cargo install sqlx-cli --no-default-features --features postgres
-          cargo sqlx prepare
+        run: cargo sqlx prepare
 
       - name: Commit sqlx cache
         run: |
@@ -43,22 +102,19 @@ jobs:
           git diff --cached --quiet || git commit -m "chore: update sqlx cache [skip ci]"
           git push --force-with-lease
 
-      - name: Build API image
+      - name: Build release binary
+        working-directory: src/rust
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: docker build -f Dockerfile.api -t agrodash-api:latest --build-arg DATABASE_URL=$DATABASE_URL .
+        run: cargo build --release
 
-      - name: Deploy API
+      - name: Deploy binary
         run: |
-          docker rm -f agrodash-api-extract 2>/dev/null || true
-          docker run -d --name agrodash-api-extract agrodash-api:latest sleep 30
-          docker cp agrodash-api-extract:/app/agrodash-api ./agrodash-api
-          docker rm -f agrodash-api-extract
           docker rm -f agrodash-api-tmp 2>/dev/null || true
           docker run -d --name agrodash-api-tmp \
             -v /home/embebidos/.server-lab/agrodash/api:/output \
             alpine sleep 30
-          docker cp ./agrodash-api agrodash-api-tmp:/output/
+          docker cp src/rust/target/release/agrodash-api agrodash-api-tmp:/output/
           docker rm -f agrodash-api-tmp
 
       - name: Restart API container
