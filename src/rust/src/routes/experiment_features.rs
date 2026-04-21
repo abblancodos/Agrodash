@@ -659,7 +659,7 @@ pub async fn export_csv(
         let data_str = ev.data.to_string().replace(',', ";");
         let note_str = ev.note.as_deref().unwrap_or("").replace(',', ";");
         let reason   = ev.correction_reason.as_deref().unwrap_or("").replace(',', ";");
-        let by       = ev.recorded_by_name.as_deref().unwrap_or("").replace(',', ";");
+        let by       = ev.recorded_by_name.as_str().replace(',', ";");
         let soil     = ev.soil_id.as_deref().unwrap_or("");
         let iter     = ev.iteration.map(|i| i.to_string()).unwrap_or_default();
 
@@ -767,8 +767,7 @@ pub async fn delete_experiment(
 ", k, v));
         }
     }
-    csv.push('
-');
+    csv.push('\n');
     csv.push_str("timestamp_cr,step_key,event_type,soil_id,iteration,data,note,estado,motivo_correccion,registrado_por
 ");
 
@@ -790,7 +789,7 @@ pub async fn delete_experiment(
         let data_str = ev.data.to_string().replace(',', ";");
         let note_str = ev.note.as_deref().unwrap_or("").replace(',', ";");
         let reason   = ev.correction_reason.as_deref().unwrap_or("").replace(',', ";");
-        let by       = ev.recorded_by_name.as_deref().unwrap_or("").replace(',', ";");
+        let by       = ev.recorded_by_name.as_str().replace(',', ";");
         let soil     = ev.soil_id.as_deref().unwrap_or("");
         let iter     = ev.iteration.map(|i| i.to_string()).unwrap_or_default();
 
@@ -814,7 +813,7 @@ pub async fn delete_experiment(
             (axum::http::header::CONTENT_TYPE,
              "text/csv; charset=utf-8".to_string()),
             (axum::http::header::CONTENT_DISPOSITION,
-             format!("attachment; filename="{}"", filename)),
+             format!("attachment; filename=\"{}\"", filename)),
         ],
         csv,
     ))

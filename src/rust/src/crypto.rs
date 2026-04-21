@@ -12,7 +12,7 @@ use rsa::{
     oaep::Oaep,
     RsaPrivateKey, RsaPublicKey,
 };
-use sha2::Sha256;
+use rsa::sha2::Sha256;
 use std::sync::OnceLock;
 
 static KEY_PAIR: OnceLock<(RsaPrivateKey, RsaPublicKey)> = OnceLock::new();
