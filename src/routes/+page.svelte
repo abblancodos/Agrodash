@@ -173,7 +173,7 @@
         {/if}
       </button>
     {/each}
-    <div class="sidebar__sep" style="margin-top:auto;margin-bottom:8px"></div>
+    <div style="height:16px"></div>
     <a href="/experiments" class="mode-btn mode-btn--link" title="experimentos">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 4h10M3 8h7M3 12h5"/><circle cx="13" cy="11" r="2.5"/><line x1="15" y1="13" x2="16" y2="14"/>
@@ -519,13 +519,17 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: calc(12px * var(--font-scale))0;
+    padding: calc(12px * var(--font-scale)) 0;
     gap: calc(2px * var(--font-scale));
     background: var(--bg-surface);
     position: sticky;
     top: 0;
     height: 100vh;
+    overflow-y: auto;
+    overflow-x: visible;
+    scrollbar-width: none;
   }
+  .sidebar::-webkit-scrollbar { display: none; }
   .sidebar__brand {
     font-size: calc(14px * var(--font-scale));
     font-weight: 500;

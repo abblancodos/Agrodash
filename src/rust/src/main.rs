@@ -58,8 +58,8 @@ async fn main() {
 
         // ── Auth (sin registro público) ─────────────────────────────────────
         // ── OAuth Gitea ─────────────────────────────────────────────────────
-        .route("/api/v1/auth/oauth/gitea",          get(routes::oauth::gitea_login))
-        .route("/api/v1/auth/oauth/gitea/callback", get(routes::oauth::gitea_callback))
+        .route("/api/v1/auth/gitea/login",    get(routes::oauth::gitea_login))
+        .route("/api/v1/auth/gitea/callback", get(routes::oauth::gitea_callback))
         .route("/api/v1/auth/login",           post(routes::auth::login))
         .route("/api/v1/auth/me",              get(routes::auth::me))
         .route("/api/v1/auth/change-password", post(routes::auth::change_password));
