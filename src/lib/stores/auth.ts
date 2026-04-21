@@ -1,74 +1,80 @@
 // src/lib/stores/auth.ts
 //
-// Store global de autenticación.
-// El token JWT se guarda en localStorage y se restaura al cargar la página.
-// El usuario se carga desde /auth/me al iniciar si hay token.
+// Store de auth basado en cookies HttpOnly.
+// El token JWT vive en una cookie que el browser maneja automáticamente.
+// Este store solo guarda el perfil del usuario en memoria para la UI.
 
-import { writable, derived, get } from 'svelte/store';
-import type { AuthUser } from '$lib/api';
+import { writable, derived } from 'svelte/store';
 
-interface AuthState {
-  token:   string | null;
-  user:    AuthUser | null;
-  loading: boolean;
+const API = typeof window !== 'undefined'
+  ? (import.meta.env?.VITE_API_BASE ?? '')
+  : '';
+
+export interface AuthUser {
+  id:           string;
+  email:        string;
+  display_name: string;
+  role:         string;
 }
 
-const TOKEN_KEY = 'agrodash_token';
+interface AuthState {
+  user:    AuthUser | null;
+  loading: boolean;
+  checked: boolean;  // true después del primer check
+}
 
 function createAuthStore() {
   const { subscribe, set, update } = writable<AuthState>({
-    token:   null,
     user:    null,
     loading: false,
+    checked: false,
   });
 
   return {
     subscribe,
 
-    // Inicializar desde localStorage + cargar usuario
+    // Verificar sesión contra el servidor — el browser manda la cookie solo
     async init() {
-      if (typeof localStorage === 'undefined') return;
-      const token = localStorage.getItem(TOKEN_KEY);
-      if (!token) return;
-
-      update(s => ({ ...s, token, loading: true }));
+      update(s => ({ ...s, loading: true }));
       try {
-        const res = await fetch('/api/v1/auth/me', {
-          headers: { Authorization: `Bearer ${token}` },
+        const res = await fetch(`${API}/api/v1/auth/me`, {
+          credentials: 'include',  // incluir cookies
         });
         if (res.ok) {
           const user: AuthUser = await res.json();
-          set({ token, user, loading: false });
+          set({ user, loading: false, checked: true });
         } else {
-          // Token expirado o inválido
-          localStorage.removeItem(TOKEN_KEY);
-          set({ token: null, user: null, loading: false });
+          set({ user: null, loading: false, checked: true });
         }
       } catch {
-        set({ token: null, user: null, loading: false });
+        set({ user: null, loading: false, checked: true });
       }
     },
 
-    // Llamar después del callback de OAuth con el token del hash
-    setToken(token: string, user: AuthUser) {
-      localStorage.setItem(TOKEN_KEY, token);
-      set({ token, user, loading: false });
+    // Llamar después del login por contraseña (no OAuth — OAuth usa redirect)
+    setUser(user: AuthUser) {
+      set({ user, loading: false, checked: true });
     },
 
-    logout() {
-      localStorage.removeItem(TOKEN_KEY);
-      set({ token: null, user: null, loading: false });
+    async logout() {
+      try {
+        await fetch(`${API}/api/v1/auth/logout`, {
+          method: 'POST',
+          credentials: 'include',
+        });
+      } catch { /* silencioso */ }
+      set({ user: null, loading: false, checked: true });
     },
 
-    getToken(): string | null {
-      return get({ subscribe }).token;
+    // Helper para saber si hay token sin llamar init()
+    getToken(): null {
+      return null; // Ya no existe — el browser maneja la cookie
     },
   };
 }
 
 export const auth = createAuthStore();
 
-// Derived helpers
-export const isLoggedIn = derived(auth, $a => !!$a.token && !!$a.user);
+export const isLoggedIn  = derived(auth, $a => !!$a.user);
 export const currentUser = derived(auth, $a => $a.user);
 export const authLoading = derived(auth, $a => $a.loading);

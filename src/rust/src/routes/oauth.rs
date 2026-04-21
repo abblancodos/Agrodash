@@ -22,10 +22,10 @@ use axum::{
     response::Redirect,
     Json,
 };
+use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use sqlx::PgPool;
 
-use crate::auth::{encode_token, Claims};
 
 fn gitea_url() -> String {
     std::env::var("GITEA_URL").expect("GITEA_URL no definida")
@@ -89,10 +89,11 @@ struct GiteaUser {
 pub async fn gitea_callback(
     State(pool): State<PgPool>,
     Query(q): Query<CallbackQuery>,
-) -> Result<Redirect, (StatusCode, Json<serde_json::Value>)> {
-    let err_redirect = |msg: &str| {
-        let url = format!("{}/#/auth/error?reason={}", app_url(), url_encode(msg));
-        Ok(Redirect::temporary(&url))
+    jar: CookieJar,
+) -> Result<(CookieJar, Redirect), (StatusCode, Json<serde_json::Value>)> {
+    let err_redirect = |msg: &str| -> Result<(CookieJar, Redirect), (StatusCode, Json<serde_json::Value>)> {
+        let url = format!("{}/auth/error?reason={}", app_url(), url_encode(msg));
+        Ok((CookieJar::new(), Redirect::temporary(&url)))
     };
 
     if let Some(ref e) = q.error {
@@ -161,13 +162,15 @@ pub async fn gitea_callback(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
 
-    // 4. Generar JWT de AgroDash
-    let claims = Claims::new(user.id, user.email.clone(), user.role.clone());
-    let jwt = encode_token(&claims)
+    // 4. Generar JWT y guardarlo en cookie HttpOnly
+    let claims = crate::auth::Claims::new(user.id, user.email.clone(), user.role.clone());
+    let jwt = crate::auth::encode_token(&claims)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
 
-    // 5. Redirigir al frontend con el token en el hash
-    // Nunca en query string para evitar que quede en logs del servidor
-    let redirect_url = format!("{}/auth/callback?token={}", app_url(), jwt);
-    Ok(Redirect::temporary(&redirect_url))
+    let cookie = crate::auth::session_cookie(jwt);
+    let new_jar = jar.add(cookie);
+
+    // 5. Redirigir al frontend limpio — sin token en la URL
+    let redirect_url = format!("{}/experiments", app_url());
+    Ok((new_jar, Redirect::temporary(&redirect_url)))
 }

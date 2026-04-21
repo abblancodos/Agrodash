@@ -1,6 +1,7 @@
 // src/routes/auth.rs
 
 use axum::{extract::State, http::StatusCode, Json};
+use axum_extra::extract::cookie::CookieJar;
 use bcrypt::{hash, verify, DEFAULT_COST};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -158,8 +159,9 @@ pub async fn admin_list_users(
 
 pub async fn login(
     State(pool): State<PgPool>,
+    jar: CookieJar,
     Json(body): Json<LoginRequest>,
-) -> Result<Json<AuthResponse>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<(CookieJar, Json<AuthResponse>), (StatusCode, Json<serde_json::Value>)> {
     // Resolver contraseña — acepta cifrada (producción) o plaintext (dev)
     let password = if let Some(enc) = &body.password_encrypted {
         decrypt_password(enc).map_err(|e| (
@@ -201,14 +203,15 @@ pub async fn login(
     let token  = encode_token(&claims)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
 
-    Ok(Json(AuthResponse {
+    let cookie = crate::auth::session_cookie(token.clone());
+    Ok((jar.add(cookie), Json(AuthResponse {
         token,
         must_change_pw,
         user: UserInfo {
             id: user.id, email: user.email,
             display_name: user.display_name, role: user.role,
         },
-    }))
+    })))
 }
 
 // ── GET /api/v1/auth/me ───────────────────────────────────────────────────────
@@ -291,4 +294,11 @@ pub async fn change_password(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ── POST /api/v1/auth/logout ──────────────────────────────────────────────────
+
+pub async fn logout(jar: CookieJar) -> (CookieJar, StatusCode) {
+    let new_jar = jar.add(crate::auth::clear_session_cookie());
+    (new_jar, StatusCode::NO_CONTENT)
 }

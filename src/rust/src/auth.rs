@@ -1,115 +1,156 @@
 // src/auth.rs
 //
-// JWT + middleware de autenticación.
-// El token se pasa en el header Authorization: Bearer <token>
+// JWT + cookie HttpOnly.
+// El token se guarda en una cookie HttpOnly/Secure/SameSite=Lax
+// — JavaScript nunca puede leerlo.
 
 use axum::{
+    async_trait,
     extract::FromRequestParts,
     http::{request::Parts, StatusCode},
     Json,
 };
+use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-const JWT_SECRET_ENV: &str = "JWT_SECRET";
+pub const COOKIE_NAME: &str = "agrodash_session";
+const EXPIRY_SECS: u64 = 60 * 60 * 24 * 7; // 7 días
 
-fn secret() -> String {
-    std::env::var(JWT_SECRET_ENV)
-        .expect("JWT_SECRET no está definida en .env")
+fn jwt_secret() -> String {
+    std::env::var("JWT_SECRET").expect("JWT_SECRET no definida")
 }
 
 // ── Claims ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
-    pub sub:   Uuid,    // user id
+    pub sub:  Uuid,
     pub email: String,
     pub role:  String,
-    pub exp:   usize,   // unix timestamp de expiración
+    pub exp:   u64,
 }
 
 impl Claims {
-    pub fn new(id: Uuid, email: String, role: String) -> Self {
-        let exp = chrono::Utc::now()
-            .checked_add_signed(chrono::Duration::days(30))
+    pub fn new(sub: Uuid, email: String, role: String) -> Self {
+        let exp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
             .unwrap()
-            .timestamp() as usize;
-        Self { sub: id, email, role, exp }
+            .as_secs()
+            + EXPIRY_SECS;
+        Self { sub, email, role, exp }
     }
 
-    pub fn is_admin(&self) -> bool {
-        self.role == "admin"
-    }
+    pub fn is_admin(&self) -> bool { self.role == "admin" }
 }
 
-// ── Generar / verificar tokens ────────────────────────────────────────────────
+// ── Encode / decode ───────────────────────────────────────────────────────────
 
 pub fn encode_token(claims: &Claims) -> Result<String, jsonwebtoken::errors::Error> {
     encode(
         &Header::default(),
         claims,
-        &EncodingKey::from_secret(secret().as_bytes()),
+        &EncodingKey::from_secret(jwt_secret().as_bytes()),
     )
 }
 
 pub fn decode_token(token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
     let data = decode::<Claims>(
         token,
-        &DecodingKey::from_secret(secret().as_bytes()),
+        &DecodingKey::from_secret(jwt_secret().as_bytes()),
         &Validation::default(),
     )?;
     Ok(data.claims)
 }
 
-// ── Extractor de Claims desde request ────────────────────────────────────────
-//
-// Uso en handlers:
-//   async fn my_handler(claims: Claims, ...) -> ...
-//
-// Si el token no es válido o falta → 401
+// ── Cookie helpers ────────────────────────────────────────────────────────────
 
-#[axum::async_trait]
-impl<S: Send + Sync> FromRequestParts<S> for Claims {
+/// Crea una cookie de sesión HttpOnly/Secure/SameSite=Lax con el JWT.
+pub fn session_cookie(token: String) -> Cookie<'static> {
+    let secure = std::env::var("COOKIE_SECURE").unwrap_or_else(|_| "true".into()) != "false";
+    Cookie::build((COOKIE_NAME, token))
+        .http_only(true)
+        .secure(secure)
+        .same_site(SameSite::Lax)
+        .path("/")
+        .max_age(time::Duration::seconds(EXPIRY_SECS as i64))
+        .build()
+}
+
+/// Crea una cookie de sesión vacía para hacer logout.
+pub fn clear_session_cookie() -> Cookie<'static> {
+    Cookie::build((COOKIE_NAME, ""))
+        .http_only(true)
+        .secure(true)
+        .same_site(SameSite::Lax)
+        .path("/")
+        .max_age(time::Duration::seconds(0))
+        .build()
+}
+
+// ── Extractor: Claims (requiere sesión) ───────────────────────────────────────
+
+#[async_trait]
+impl<S> FromRequestParts<S> for Claims
+where
+    S: Send + Sync,
+{
     type Rejection = (StatusCode, Json<serde_json::Value>);
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let auth = parts
-            .headers
-            .get("Authorization")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
-            .ok_or_else(|| {
-                (
-                    StatusCode::UNAUTHORIZED,
-                    Json(serde_json::json!({ "error": "Token no proporcionado" })),
-                )
-            })?;
-
-        decode_token(auth).map_err(|_| {
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "Token inválido o expirado" })),
-            )
-        })
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        // Leer de cookie
+        let jar = CookieJar::from_request_parts(parts, state).await.unwrap();
+        if let Some(cookie) = jar.get(COOKIE_NAME) {
+            if let Ok(claims) = decode_token(cookie.value()) {
+                return Ok(claims);
+            }
+        }
+        // Fallback: Authorization header (para herramientas de dev / curl)
+        if let Some(auth) = parts.headers.get("authorization") {
+            if let Ok(val) = auth.to_str() {
+                if let Some(token) = val.strip_prefix("Bearer ") {
+                    if let Ok(claims) = decode_token(token) {
+                        return Ok(claims);
+                    }
+                }
+            }
+        }
+        Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "No autorizado" })),
+        ))
     }
 }
 
-// ── Extractor opcional — no falla si no hay token ────────────────────────────
+// ── Extractor: OptionalClaims ─────────────────────────────────────────────────
 
 pub struct OptionalClaims(pub Option<Claims>);
 
-#[axum::async_trait]
-impl<S: Send + Sync> FromRequestParts<S> for OptionalClaims {
+#[async_trait]
+impl<S> FromRequestParts<S> for OptionalClaims
+where
+    S: Send + Sync,
+{
     type Rejection = std::convert::Infallible;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let claims = parts
-            .headers
-            .get("Authorization")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
-            .and_then(|t| decode_token(t).ok());
-        Ok(OptionalClaims(claims))
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let jar = CookieJar::from_request_parts(parts, state).await.unwrap();
+        if let Some(cookie) = jar.get(COOKIE_NAME) {
+            if let Ok(claims) = decode_token(cookie.value()) {
+                return Ok(OptionalClaims(Some(claims)));
+            }
+        }
+        if let Some(auth) = parts.headers.get("authorization") {
+            if let Ok(val) = auth.to_str() {
+                if let Some(token) = val.strip_prefix("Bearer ") {
+                    if let Ok(claims) = decode_token(token) {
+                        return Ok(OptionalClaims(Some(claims)));
+                    }
+                }
+            }
+        }
+        Ok(OptionalClaims(None))
     }
 }

@@ -10,8 +10,12 @@ mod tasks;
 use axum::{routing::{delete, get, post, put}, Router};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
-use tower_http::{cors::{Any, CorsLayer}, trace::TraceLayer};
-use axum::http::header::{AUTHORIZATION, CONTENT_TYPE, ACCEPT};
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use axum::http::{
+    header::{AUTHORIZATION, CONTENT_TYPE, ACCEPT},
+    Method,
+};
+use std::str::FromStr;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -38,10 +42,17 @@ async fn main() {
 
     tokio::spawn(tasks::stats_worker::run(pool.clone()));
 
+    // CORS — credentials:include requiere origen explícito, no wildcard
+    let app_origin = std::env::var("APP_URL")
+        .unwrap_or_else(|_| "https://agrodash.nm.35-208-114-233.nip.io".into());
+    let origin = axum::http::HeaderValue::from_str(&app_origin)
+        .expect("APP_URL inválida como origin");
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers([AUTHORIZATION, CONTENT_TYPE, ACCEPT]);
+        .allow_origin(origin)
+        .allow_methods([Method::GET, Method::POST, Method::PUT,
+                        Method::PATCH, Method::DELETE, Method::OPTIONS])
+        .allow_headers([AUTHORIZATION, CONTENT_TYPE, ACCEPT])
+        .allow_credentials(true);
 
     // Seed route — solo se registra si SEED_SECRET está definido en .env.
     // Una vez creado el primer admin: borrar SEED_SECRET del .env y reiniciar.
