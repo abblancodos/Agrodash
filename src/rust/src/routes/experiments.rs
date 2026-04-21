@@ -83,7 +83,7 @@ pub async fn list_templates(
     let rows = sqlx::query_as!(
         TemplateRow,
         r#"
-        SELECT id AS "id: Uuid", owner_id AS "owner_id: Uuid", name,
+        SELECT id AS "id: Uuid", owner_id AS "owner_id?: Uuid", name,
                description, public, steps, constants_schema, created_at
         FROM experiment_templates
         WHERE public = true OR owner_id = $1
@@ -108,7 +108,7 @@ pub async fn create_template(
         r#"
         INSERT INTO experiment_templates (owner_id, name, description, public, steps, constants_schema)
         VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id AS "id: Uuid", owner_id AS "owner_id: Uuid", name,
+        RETURNING id AS "id: Uuid", owner_id AS "owner_id?: Uuid", name,
                   description, public, steps, constants_schema, created_at
         "#,
         claims.sub as Uuid,
@@ -132,7 +132,7 @@ pub async fn get_template(
     let row = sqlx::query_as!(
         TemplateRow,
         r#"
-        SELECT id AS "id: Uuid", owner_id AS "owner_id: Uuid", name,
+        SELECT id AS "id: Uuid", owner_id AS "owner_id?: Uuid", name,
                description, public, steps, constants_schema, created_at
         FROM experiment_templates WHERE id = $1
         "#,
@@ -154,8 +154,8 @@ pub async fn get_template(
 #[derive(Serialize, sqlx::FromRow)]
 pub struct ExperimentRow {
     pub id:          Uuid,
-    pub template_id: Uuid,
-    pub owner_id:    Uuid,
+    pub template_id: Option<Uuid>,
+    pub owner_id:    Option<Uuid>,
     pub title:       String,
     pub description: Option<String>,
     pub public:      bool,
@@ -189,8 +189,8 @@ pub async fn list_experiments(
         r#"
         SELECT
             e.id            AS "id: Uuid",
-            e.template_id   AS "template_id: Uuid",
-            e.owner_id      AS "owner_id: Uuid",
+            e.template_id   AS "template_id?: Uuid",
+            e.owner_id      AS "owner_id?: Uuid",
             e.title, e.description, e.public, e.status, e.created_at,
             -- rol del usuario: owner > collaborator > null (solo lectura pública)
             CASE
@@ -239,11 +239,11 @@ pub async fn create_experiment(
         r#"
         INSERT INTO experiments (template_id, owner_id, title, description, public, constants)
         VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id AS "id: Uuid", template_id AS "template_id: Uuid",
-                  owner_id AS "owner_id: Uuid", title, description,
+        RETURNING id AS "id: Uuid", template_id AS "template_id?: Uuid",
+                  owner_id AS "owner_id?: Uuid", title, description,
                   public, constants, status, created_at
         "#,
-        body.template_id.unwrap_or(Uuid::nil()) as Uuid,
+        body.template_id as Option<Uuid>,
         claims.sub as Uuid,
         body.title,
         body.description,
@@ -264,8 +264,8 @@ pub async fn get_experiment(
     let row = sqlx::query_as!(
         ExperimentRow,
         r#"
-        SELECT id AS "id: Uuid", template_id AS "template_id: Uuid",
-               owner_id AS "owner_id: Uuid", title, description,
+        SELECT id AS "id: Uuid", template_id AS "template_id?: Uuid",
+               owner_id AS "owner_id?: Uuid", title, description,
                public, constants, status, created_at
         FROM experiments WHERE id = $1
         "#,
@@ -298,8 +298,8 @@ pub async fn update_constants(
         r#"
         UPDATE experiments SET constants = $1, updated_at = NOW()
         WHERE id = $2 AND owner_id = $3
-        RETURNING id AS "id: Uuid", template_id AS "template_id: Uuid",
-                  owner_id AS "owner_id: Uuid", title, description,
+        RETURNING id AS "id: Uuid", template_id AS "template_id?: Uuid",
+                  owner_id AS "owner_id?: Uuid", title, description,
                   public, constants, status, created_at
         "#,
         body.constants,
@@ -346,7 +346,7 @@ pub async fn list_events(
 ) -> Result<Json<Vec<EventRow>>, (StatusCode, Json<Value>)> {
     // Verificar acceso al experimento
     let exp = sqlx::query!(
-        r#"SELECT public, owner_id AS "owner_id: Uuid" FROM experiments WHERE id = $1"#,
+        r#"SELECT public, owner_id AS "owner_id?: Uuid" FROM experiments WHERE id = $1"#,
         id
     )
     .fetch_optional(&pool)
@@ -383,7 +383,7 @@ pub async fn create_event(
 ) -> Result<Json<EventRow>, (StatusCode, Json<Value>)> {
     // Solo el owner puede registrar eventos
     let exp = sqlx::query!(
-        r#"SELECT owner_id AS "owner_id: Uuid" FROM experiments WHERE id = $1"#,
+        r#"SELECT owner_id AS "owner_id?: Uuid" FROM experiments WHERE id = $1"#,
         id
     )
     .fetch_optional(&pool)
@@ -427,7 +427,7 @@ pub async fn delete_event(
     Path((exp_id, event_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
     let exp = sqlx::query!(
-        r#"SELECT owner_id AS "owner_id: Uuid" FROM experiments WHERE id = $1"#,
+        r#"SELECT owner_id AS "owner_id?: Uuid" FROM experiments WHERE id = $1"#,
         exp_id
     )
     .fetch_optional(&pool)
@@ -480,7 +480,7 @@ pub async fn list_series(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<SeriesPoint>>, (StatusCode, Json<Value>)> {
     let exp = sqlx::query!(
-        r#"SELECT public, owner_id AS "owner_id: Uuid" FROM experiments WHERE id = $1"#,
+        r#"SELECT public, owner_id AS "owner_id?: Uuid" FROM experiments WHERE id = $1"#,
         id
     )
     .fetch_optional(&pool)
@@ -516,7 +516,7 @@ pub async fn create_series_point(
     Json(body): Json<CreateSeriesPointRequest>,
 ) -> Result<Json<SeriesPoint>, (StatusCode, Json<Value>)> {
     let exp = sqlx::query!(
-        r#"SELECT owner_id AS "owner_id: Uuid" FROM experiments WHERE id = $1"#,
+        r#"SELECT owner_id AS "owner_id?: Uuid" FROM experiments WHERE id = $1"#,
         id
     )
     .fetch_optional(&pool)
@@ -571,7 +571,7 @@ pub async fn upload_csv(
 ) -> Result<Json<UploadCsvResponse>, (StatusCode, Json<Value>)> {
     // Verificar acceso
     let exp = sqlx::query!(
-        r#"SELECT owner_id AS "owner_id: Uuid" FROM experiments WHERE id = $1"#,
+        r#"SELECT owner_id AS "owner_id?: Uuid" FROM experiments WHERE id = $1"#,
         id
     )
     .fetch_optional(&pool)
@@ -678,10 +678,10 @@ pub async fn run_step_script(
     // 1. Verificar acceso al experimento
     let exp = sqlx::query!(
         r#"
-        SELECT e.public, e.constants, e.owner_id AS "owner_id: Uuid",
+        SELECT e.public, e.constants, e.owner_id AS "owner_id?: Uuid",
                t.steps
         FROM experiments e
-        JOIN experiment_templates t ON t.id = e.template_id
+        LEFT JOIN experiment_templates t ON t.id = e.template_id
         WHERE e.id = $1
         "#,
         exp_id,
@@ -790,4 +790,80 @@ pub async fn validate_script(
         Ok(_)  => Json(serde_json::json!({ "valid": true })),
         Err(e) => Json(serde_json::json!({ "valid": false, "error": e.to_string() })),
     }
+}
+
+// ── POST /api/v1/experiments/:id/clone ───────────────────────────────────────
+// Crea un nuevo experimento copiando todas las definitions y objetivos
+// del original, pero sin las entries. El dueño del clon es el usuario actual.
+
+pub async fn clone_experiment(
+    State(pool): State<PgPool>,
+    claims: Claims,
+    Path(src_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // Verificar que el experimento fuente existe y es accesible
+    let src = sqlx::query!(
+        r#"SELECT id AS "id: Uuid", title, description, public, constants
+           FROM experiments WHERE id = $1"#,
+        src_id,
+    )
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?
+    .ok_or_else(|| (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Experimento no encontrado" }))))?;
+
+    // Crear el nuevo experimento
+    let new_exp = sqlx::query!(
+        r#"
+        INSERT INTO experiments (owner_id, title, description, public, constants)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id AS "id: Uuid", title
+        "#,
+        claims.sub as Uuid,
+        format!("{} (copia)", src.title),
+        src.description,
+        src.public,
+        src.constants,
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+
+    // Copiar definitions
+    sqlx::query!(
+        r#"
+        INSERT INTO experiment_definitions
+            (experiment_id, key, type, label, payload, sort_order, created_by)
+        SELECT $1, key, type, label, payload, sort_order, $2
+        FROM experiment_definitions
+        WHERE experiment_id = $3
+        "#,
+        new_exp.id as Uuid,
+        claims.sub as Uuid,
+        src_id,
+    )
+    .execute(&pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+
+    // Copiar objetivos
+    sqlx::query!(
+        r#"
+        INSERT INTO experiment_objectives
+            (experiment_id, name, condition_type, condition, severity, goto_ok, goto_violation, sort_order)
+        SELECT $1, name, condition_type, condition, severity, goto_ok, goto_violation, sort_order
+        FROM experiment_objectives
+        WHERE experiment_id = $2
+        "#,
+        new_exp.id as Uuid,
+        src_id,
+    )
+    .execute(&pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+
+    Ok(Json(serde_json::json!({
+        "id":    new_exp.id,
+        "title": new_exp.title,
+    })))
 }

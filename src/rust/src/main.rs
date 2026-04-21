@@ -168,6 +168,8 @@ async fn main() {
         // ── Status ───────────────────────────────────────────────────────────────
         .route("/api/v1/experiments/:id/status",
             axum::routing::patch(routes::experiment_features::update_status))
+        .route("/api/v1/experiments/:id/clone",
+            post(routes::experiments::clone_experiment))
 
         // ── Script execution ────────────────────────────────────────────────
         .route("/api/v1/experiments/:id/steps/:step_key/run",
