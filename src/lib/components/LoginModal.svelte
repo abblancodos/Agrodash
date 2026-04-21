@@ -104,28 +104,28 @@
           {/if}
 
           <div class="field">
-            <label class="field__label">código de invitación</label>
-            <input class="field__input mono" bind:value={inviteCode}
+            <label class="field__label" for="invite-code">código de invitación</label>
+            <input id="invite-code" class="field__input mono" bind:value={inviteCode}
                    placeholder="ej: Xk9mPqR2aT" maxlength="10" />
           </div>
           <div class="field">
-            <label class="field__label">nombre completo</label>
-            <input class="field__input" bind:value={displayName}
+            <label class="field__label" for="display-name">nombre completo</label>
+            <input id="display-name" class="field__input" bind:value={displayName}
                    placeholder="Tu nombre" />
           </div>
           <div class="field">
-            <label class="field__label">email</label>
-            <input class="field__input" type="email" bind:value={email}
+            <label class="field__label" for="email">email</label>
+            <input id="email" class="field__input" type="email" bind:value={email}
                    placeholder="tu@email.com" />
           </div>
           <div class="field">
-            <label class="field__label">contraseña</label>
-            <input class="field__input" type="password" bind:value={password}
+            <label class="field__label" for="password">contraseña</label>
+            <input id="password" class="field__input" type="password" bind:value={password}
                    placeholder="mínimo 8 caracteres" />
           </div>
           <div class="field">
-            <label class="field__label">confirmar contraseña</label>
-            <input class="field__input" type="password" bind:value={password2}
+            <label class="field__label" for="password2">confirmar contraseña</label>
+            <input id="password2" class="field__input" type="password" bind:value={password2}
                    placeholder="repetí la contraseña" />
           </div>
 

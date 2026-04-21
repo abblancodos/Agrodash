@@ -15,13 +15,13 @@
   let { sensors, from, to, live = false, onRangeChange }: Props = $props();
 
   let canvas = $state<HTMLCanvasElement | null>(null);
-  let chart: any = null;
+  let chart = $state<any>(null);
   let loading = $state(true);
   let error = $state('');
 
-  let visible = $state<Record<string, boolean>>(
-    Object.fromEntries(sensors.map(s => [s.id, true]))
-  );
+  let visible = $derived(
+    Object.fromEntries(sensors.map((s: any) => [s.id, true]))
+  ) as Record<string, boolean>;
 
   let menuOpen = $state(false);
   let menuEl: HTMLDivElement;

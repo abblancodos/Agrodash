@@ -1,3 +1,4 @@
+<!-- src/routes/experiments/+layout.svelte -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import { auth } from '$lib/stores/auth';

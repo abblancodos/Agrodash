@@ -1,3 +1,4 @@
+<!-- src/routes/experiments/new/+page.svelte -->
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { auth, isLoggedIn } from '$lib/stores/auth';
@@ -57,14 +58,14 @@
     {/if}
 
     <div class="field">
-      <label class="field-label">título <span class="req">*</span></label>
-      <input class="field-input" bind:value={title}
+      <label class="field-label" for="exp-title">título <span class="req">*</span></label>
+      <input id="exp-title" class="field-input" bind:value={title}
              placeholder="ej: Retención de agua — Maceta FA #1" />
     </div>
 
     <div class="field">
-      <label class="field-label">descripción <span class="muted">(opcional)</span></label>
-      <textarea class="field-input" rows="3" bind:value={description}
+      <label class="field-label" for="exp-desc">descripción <span class="muted">(opcional)</span></label>
+      <textarea id="exp-desc" class="field-input" rows="3" bind:value={description}
                 placeholder="Breve descripción del experimento y sus objetivos"></textarea>
     </div>
 

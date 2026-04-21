@@ -1,3 +1,4 @@
+<!-- src/routes/experiments/[id]/+page.svelte -->
 <script lang="ts">
   import { auth } from '$lib/stores/auth';
   import { experimentStore, canEdit, canAdmin } from '$lib/stores/experiment';

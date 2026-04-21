@@ -70,7 +70,7 @@
   {:else}
     <div class="empty-hint">
       Sin objetivos definidos —
-      <a href="#definitions" onclick|preventDefault={() => {}}>
+      <a href="#definitions" onclick={(e) => e.preventDefault()}>
         agregá uno en definitions
       </a>
     </div>

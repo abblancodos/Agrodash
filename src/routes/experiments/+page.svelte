@@ -1,3 +1,4 @@
+<!-- src/routes/experiments/+page.svelte -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import { auth, isLoggedIn, currentUser } from '$lib/stores/auth';
@@ -188,24 +189,6 @@
 
   .exp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: calc(12px * var(--font-scale)); }
 
-  .exp-card {
-    display: flex; flex-direction: column; gap: calc(8px * var(--font-scale));
-    padding: calc(14px * var(--font-scale)) calc(16px * var(--font-scale));
-    background: var(--bg-surface); border: 0.5px solid var(--border-subtle);
-    border-radius: 10px; text-decoration: none; transition: all .12s;
-  }
-  .exp-card:hover { border-color: var(--border-default); background: var(--interactive-hover); }
-  .exp-card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
-  .exp-card__title { font-size: calc(14px * var(--font-scale)); font-weight: 500; color: var(--text-primary); line-height: 1.3; }
-  .exp-card__status { font-size: calc(11px * var(--font-scale)); flex-shrink: 0; margin-top: 2px; }
-  .exp-card__desc { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); line-height: 1.4; }
-  .exp-card__foot { display: flex; align-items: center; justify-content: space-between; margin-top: auto; }
-  .exp-card__date { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); }
-  .exp-card__role { font-size: calc(11px * var(--font-scale)); padding: 2px 8px; border-radius: 20px; }
-  .role-admin  { background: rgba(29,158,117,0.12); color: var(--live-color); }
-  .role-editor { background: rgba(56,138,221,0.12); color: #185FA5; }
-  .role-viewer { background: var(--bg-elevated); color: var(--text-muted); }
-  .exp-badge { font-size: calc(10px * var(--font-scale)); padding: 2px 7px; border-radius: 20px; background: var(--bg-elevated); color: var(--text-muted); flex-shrink: 0; }
 
   .empty-state { display: flex; flex-direction: column; align-items: center; gap: calc(12px * var(--font-scale)); padding: calc(60px * var(--font-scale)) 0; text-align: center; }
   .empty-state__icon { color: var(--text-muted); opacity: 0.5; }
