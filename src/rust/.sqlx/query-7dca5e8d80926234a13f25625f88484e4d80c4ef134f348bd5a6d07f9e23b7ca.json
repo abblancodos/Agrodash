@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO users (email, display_name, password_hash, role, must_change_pw)\n        VALUES ($1, $2, '', $3, false)\n        ON CONFLICT (email) DO UPDATE\n            SET display_name = EXCLUDED.display_name\n        RETURNING id AS \"id: uuid::Uuid\", email, display_name, role\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: uuid::Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "role",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7dca5e8d80926234a13f25625f88484e4d80c4ef134f348bd5a6d07f9e23b7ca"
+}
