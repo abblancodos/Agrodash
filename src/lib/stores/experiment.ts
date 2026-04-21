@@ -106,12 +106,11 @@ function createExperimentStore() {
   });
 
   function headers(): Record<string, string> {
-    const token = auth.getToken();
-    return token ? { Authorization: `Bearer ${token}` } : {};
+        return {};
   }
 
   async function fetchJson(path: string) {
-    const res = await fetch(`${API}${path}`, { headers: headers() });
+    const res = await fetch(`${API}${path}`, fetchOpts());
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   }
@@ -133,8 +132,7 @@ function createExperimentStore() {
           ]);
 
         // Calcular user_role si no viene del experimento
-        const token = auth.getToken();
-        let user_role = experiment.user_role ?? null;
+                let user_role = experiment.user_role ?? null;
 
         update(s => ({
           ...s,

@@ -21,13 +21,10 @@
     if (!title.trim()) { error = 'El título es requerido'; return; }
     loading = true; error = '';
     try {
-      const token = auth.getToken();
       const res = await fetch(`${API}/api/v1/experiments`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: title.trim(),
           description: description.trim() || null,

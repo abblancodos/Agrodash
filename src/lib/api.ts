@@ -242,10 +242,10 @@ export async function fetchExperiment(id: string): Promise<any> {
 export async function createExperiment(body: {
   title: string; description?: string | null; public?: boolean; constants?: Record<string, unknown>;
 }): Promise<any> {
-  const token = getToken();
   const res = await fetch(`${API_BASE}/api/v1/experiments`, {
+    credentials: 'include',
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   const data = await res.json();
