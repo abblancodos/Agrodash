@@ -173,6 +173,12 @@
         {/if}
       </button>
     {/each}
+    <div class="sidebar__sep" style="margin-top:auto;margin-bottom:8px"></div>
+    <a href="/experiments" class="mode-btn mode-btn--link" title="experimentos">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 4h10M3 8h7M3 12h5"/><circle cx="13" cy="11" r="2.5"/><line x1="15" y1="13" x2="16" y2="14"/>
+      </svg>
+    </a>
   </nav>
 
   <!-- Main ───────────────────────────────────────────────────────────────── -->
@@ -489,6 +495,14 @@
         <span class="bnav-label">{m.label}</span>
       </button>
     {/each}
+    <a href="/experiments" class="bnav-btn" title="experimentos">
+      <div class="bnav-icon">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 4h10M3 8h7M3 12h5"/><circle cx="13" cy="11" r="2.5"/>
+        </svg>
+      </div>
+      <span class="bnav-label">experimentos</span>
+    </a>
   </nav>
 
   <HelpPanel />
@@ -913,4 +927,9 @@
 
   }
 
+  .mode-btn--link {
+    text-decoration: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .mode-btn--link:hover { background: var(--interactive-hover); color: var(--text-primary); }
 </style>
