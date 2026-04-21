@@ -3,6 +3,7 @@
   import { experimentContext, canEdit } from '$lib/stores/experiment';
   import { auth } from '$lib/stores/auth';
   import CorrectionForm from './CorrectionForm.svelte';
+  import EntryRowSelf from './EntryRow.svelte';
 
   let { event, correction = null }:
     { event: ExperimentEvent; correction: ExperimentEvent | null } = $props();
@@ -59,7 +60,7 @@
   {#if correction}
     <div class="correction-connector">
       <div class="connector-line"></div>
-      <svelte:self event={correction} correction={null} />
+      <EntryRowSelf event={correction} correction={null} />
     </div>
   {/if}
 

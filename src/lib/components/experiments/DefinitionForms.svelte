@@ -108,70 +108,70 @@
   {#if type === 'expression'}
     <h3 class="form-title">nueva expresión</h3>
     <div class="form-hint">Cálculo automático a partir de constantes, otras expresiones o variables de entries. Ej: <code>(masa - M_solidos) / V_suelo</code></div>
-    <div class="field"><label>key</label><input class="mono" bind:value={key} placeholder="theta_grav" /></div>
-    <div class="field"><label>label</label><input bind:value={label} placeholder="θ gravimétrico" /></div>
-    <div class="field"><label>fórmula</label><input class="mono" bind:value={formula} placeholder="(masa_pesaje - M_solidos) / V_suelo" /></div>
+    <div class="field"><label for="df-key">key</label><input id="df-key" class="mono" bind:value={key} placeholder="theta_grav" /></div>
+    <div class="field"><label for="df-label">label</label><input id="df-label" bind:value={label} placeholder="θ gravimétrico" /></div>
+    <div class="field"><label for="df-formula">fórmula</label><input id="df-formula" class="mono" bind:value={formula} placeholder="(masa_pesaje - M_solidos) / V_suelo" /></div>
     <div class="field row">
-      <div class="field-grow"><label>unidad</label><input bind:value={unit} placeholder="m³/m³" /></div>
+      <div class="field-grow"><label for="df-unit">unidad</label><input id="df-unit" bind:value={unit} placeholder="m³/m³" /></div>
     </div>
-    <div class="field"><label>comentario</label><textarea rows="2" bind:value={comment}></textarea></div>
+    <div class="field"><label for="df-comment">comentario</label><textarea id="df-comment" rows="2" bind:value={comment}></textarea></div>
 
   {:else if type === 'objective'}
     <h3 class="form-title">nuevo objetivo</h3>
-    <div class="field"><label>nombre</label><input bind:value={label} placeholder="θ dentro del rango" /></div>
+    <div class="field"><label for="df-nombre">nombre</label><input id="df-nombre" bind:value={label} placeholder="θ dentro del rango" /></div>
     <div class="field">
-      <label>tipo de condición</label>
-      <select bind:value={condType}>
+      <label for="df-condtype">tipo de condición</label>
+      <select id="df-condtype" bind:value={condType}>
         <option value="range">rango numérico</option>
         <option value="expression">expresión</option>
       </select>
     </div>
     {#if condType === 'range'}
-      <div class="field"><label>variable</label><input class="mono" bind:value={variable} placeholder="theta_grav" /></div>
+      <div class="field"><label for="df-variable">variable</label><input id="df-variable" class="mono" bind:value={variable} placeholder="theta_grav" /></div>
       <div class="field row">
-        <div class="field-grow"><label>mínimo (opcional)</label><input class="mono" bind:value={minVal} placeholder="0.28" inputmode="decimal" /></div>
-        <div class="field-grow"><label>máximo (opcional)</label><input class="mono" bind:value={maxVal} placeholder="0.32" inputmode="decimal" /></div>
-        <div class="field-unit"><label>unidad</label><input bind:value={unit} placeholder="m³/m³" /></div>
+        <div class="field-grow"><label for="df-min">mínimo (opcional)</label><input id="df-min" class="mono" bind:value={minVal} placeholder="0.28" inputmode="decimal" /></div>
+        <div class="field-grow"><label for="df-max">máximo (opcional)</label><input id="df-max" class="mono" bind:value={maxVal} placeholder="0.32" inputmode="decimal" /></div>
+        <div class="field-unit"><label for="df-unit">unidad</label><input id="df-unit" bind:value={unit} placeholder="m³/m³" /></div>
       </div>
     {:else}
-      <div class="field"><label>expresión (resultado > 0 = ok)</label><input class="mono" bind:value={expr} placeholder="theta_grav - 0.25" /></div>
+      <div class="field"><label for="df-expr">expresión (resultado > 0 = ok)</label><input id="df-expr" class="mono" bind:value={expr} placeholder="theta_grav - 0.25" /></div>
     {/if}
     <div class="field">
-      <label>severidad</label>
-      <select bind:value={severity}>
+      <label for="df-severity">severidad</label>
+      <select id="df-severity" bind:value={severity}>
         <option value="info">info</option>
         <option value="warning">advertencia</option>
         <option value="critical">crítica</option>
       </select>
     </div>
     <div class="field row">
-      <div class="field-grow"><label>ir a (si OK)</label><input class="mono" bind:value={gotoOk} placeholder="monitoreo_continuo" /></div>
-      <div class="field-grow"><label>ir a (si viola)</label><input class="mono" bind:value={gotoViol} placeholder="irrigar" /></div>
+      <div class="field-grow"><label for="df-goto-ok">ir a (si OK)</label><input id="df-goto-ok" class="mono" bind:value={gotoOk} placeholder="monitoreo_continuo" /></div>
+      <div class="field-grow"><label for="df-goto-viol">ir a (si viola)</label><input id="df-goto-viol" class="mono" bind:value={gotoViol} placeholder="irrigar" /></div>
     </div>
 
   {:else if type === 'step'}
     <h3 class="form-title">nuevo paso</h3>
     <div class="form-hint">Define qué datos se registran en este paso y qué script se ejecuta al guardarlo.</div>
-    <div class="field"><label>key</label><input class="mono" bind:value={key} placeholder="pesaje" /></div>
-    <div class="field"><label>label</label><input bind:value={label} placeholder="Pesaje de la maceta" /></div>
+    <div class="field"><label for="df-key">key</label><input id="df-key" class="mono" bind:value={key} placeholder="pesaje" /></div>
+    <div class="field"><label for="df-label">label</label><input id="df-label" bind:value={label} placeholder="Pesaje de la maceta" /></div>
     <div class="fields-title">campos</div>
     {#each fields as f, i}
       <div class="field row">
-        <div class="field-grow"><label>key</label><input class="mono" bind:value={f.key} placeholder="masa" /></div>
-        <div class="field-grow"><label>label</label><input bind:value={f.label} placeholder="Masa" /></div>
-        <div class="field-unit"><label>unidad</label><input bind:value={f.unit} placeholder="g" /></div>
+        <div class="field-grow"><label>key</label><input aria-label="key" class="mono" bind:value={f.key} placeholder="masa" /></div>
+        <div class="field-grow"><label>label</label><input aria-label="label" bind:value={f.label} placeholder="Masa" /></div>
+        <div class="field-unit"><label>unidad</label><input aria-label="unidad" bind:value={f.unit} placeholder="g" /></div>
         <button class="btn-remove-field" onclick={() => fields = fields.filter((_, j) => j !== i)}>✕</button>
       </div>
     {/each}
     <button class="btn-add-field" onclick={() => fields = [...fields, { key: '', label: '', unit: '' }]}>+ campo</button>
-    <div class="field"><label>script (opcional)</label><ScriptEditor bind:value={script} /></div>
+    <div class="field"><label for="df-script">script (opcional)</label><ScriptEditor bind:value={script} /></div>
 
   {:else if type === 'collaborator'}
     <h3 class="form-title">agregar colaborador</h3>
     <div class="field">
-      <label>buscar usuario</label>
+      <label for="df-search">buscar usuario</label>
       <div class="search-row">
-        <input bind:value={searchQ} oninput={searchUsers} placeholder="nombre o email" />
+        <input id="df-search" bind:value={searchQ} oninput={searchUsers} placeholder="nombre o email" />
         <button class="btn-search" onclick={searchUsers}>buscar</button>
       </div>
     </div>
@@ -188,8 +188,8 @@
     {/if}
     {#if selectedUser}
       <div class="field">
-        <label>rol</label>
-        <select bind:value={role}>
+        <label for="df-role">rol</label>
+        <select id="df-role" bind:value={role}>
           <option value="viewer">viewer — solo lectura</option>
           <option value="editor">editor — puede agregar entries</option>
           <option value="admin">admin — acceso completo</option>
@@ -200,14 +200,14 @@
   {:else if type === 'csv_schema'}
     <h3 class="form-title">schema de CSV</h3>
     <div class="form-hint">Define las columnas esperadas cuando se sube un archivo CSV en este paso.</div>
-    <div class="field"><label>key del paso</label><input class="mono" bind:value={key} placeholder="upload_rigol" /></div>
-    <div class="field"><label>label</label><input bind:value={label} placeholder="Upload Rigol CSV" /></div>
+    <div class="field"><label for="df-csv-key">key del paso</label><input id="df-csv-key" class="mono" bind:value={key} placeholder="upload_rigol" /></div>
+    <div class="field"><label for="df-label">label</label><input id="df-label" bind:value={label} placeholder="Upload Rigol CSV" /></div>
     <div class="fields-title">columnas esperadas</div>
     {#each columns as c, i}
       <div class="field row">
-        <div class="field-grow"><label>key</label><input class="mono" bind:value={c.key} placeholder="freq_hz" /></div>
-        <div class="field-grow"><label>label</label><input bind:value={c.label} placeholder="Frecuencia" /></div>
-        <div class="field-unit"><label>unidad</label><input bind:value={c.unit} placeholder="Hz" /></div>
+        <div class="field-grow"><label>key</label><input aria-label="key" class="mono" bind:value={c.key} placeholder="freq_hz" /></div>
+        <div class="field-grow"><label>label</label><input aria-label="label col" bind:value={c.label} placeholder="Frecuencia" /></div>
+        <div class="field-unit"><label>unidad</label><input aria-label="unidad col" bind:value={c.unit} placeholder="Hz" /></div>
         <button class="btn-remove-field" onclick={() => columns = columns.filter((_, j) => j !== i)}>✕</button>
       </div>
     {/each}

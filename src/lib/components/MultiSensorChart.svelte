@@ -418,8 +418,8 @@
   .menu__sep { color:var(--text-faint); font-size:11px; }
   .menu__check { display:flex; align-items:center; gap:7px; font-family:'DM Mono',monospace; font-size:10px; color:var(--text-muted); cursor:pointer; }
   .menu__check input[type=checkbox] { accent-color:var(--text-secondary); cursor:pointer; }
-  .menu__reset { background:var(--interactive-bg); border:1px solid var(--border-default); border-radius:3px; color:var(--text-muted); font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.06em; padding:7px; cursor:pointer; width:100%; transition:all .12s; }
-  .menu__reset:hover { background:var(--interactive-hover); color:var(--text-secondary); }
+  :global(.menu__reset) { background:var(--interactive-bg); border:1px solid var(--border-default); border-radius:3px; color:var(--text-muted); font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.06em; padding:7px; cursor:pointer; width:100%; transition:all .12s; }
+  :global(.menu__reset):hover { background:var(--interactive-hover); color:var(--text-secondary); }
 
   .msc__chart { height:260px; position:relative; }
   canvas { width:100% !important; height:100% !important; }

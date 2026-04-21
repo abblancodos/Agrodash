@@ -1,7 +1,7 @@
 <script lang="ts">
   import { experimentStore, canAdmin } from '$lib/stores/experiment';
   import { auth } from '$lib/stores/auth';
-  import CollaboratorForm from './CollaboratorForm.svelte';
+  import AddDefinitionMenu from './AddDefinitionMenu.svelte';
 
   let addOpen = $state(false);
 
@@ -72,7 +72,7 @@
 </div>
 
 {#if addOpen}
-  <CollaboratorForm onClose={() => addOpen = false} />
+  <AddDefinitionMenu onClose={() => addOpen = false} />
 {/if}
 
 <style>

@@ -13,7 +13,8 @@
     $experimentStore.definitions.filter(d => d.type === 'step' || d.type === 'csv_schema')
   );
 
-  let selectedStep = $state<string>(steps[0]?.key ?? '');
+  let selectedStep = $state<string>('');
+  $effect(() => { if (!selectedStep && steps.length > 0) selectedStep = steps[0].key; });
   let fieldValues  = $state<Record<string, string>>({});
   let note         = $state('');
   let soilId       = $state('');
@@ -116,8 +117,8 @@
       <!-- Selector de paso -->
       {#if steps.length > 1}
         <div class="field">
-          <label class="field-label">tipo de evento</label>
-          <select class="field-input" bind:value={selectedStep}>
+          <label class="field-label" for="step-select">tipo de evento</label>
+          <select id="step-select" class="field-input" bind:value={selectedStep}>
             {#each steps as s}
               <option value={s.key}>{s.label}</option>
             {/each}
@@ -136,11 +137,11 @@
         <!-- Campos del paso -->
         {#each fields() as f}
           <div class="field">
-            <label class="field-label">
+            <label class="field-label" for="field-{f.key}">
               {f.label}
               {#if f.unit}<span class="field-unit">({f.unit})</span>{/if}
             </label>
-            <input class="field-input mono" bind:value={fieldValues[f.key]}
+            <input id="field-{f.key}" class="field-input mono" bind:value={fieldValues[f.key]}
                    placeholder="0.000" inputmode="decimal" />
           </div>
         {/each}
@@ -164,8 +165,8 @@
       {/if}
 
       <div class="field">
-        <label class="field-label">nota (opcional)</label>
-        <input class="field-input" bind:value={note} placeholder="observaciones..." />
+        <label class="field-label" for="entry-note">nota (opcional)</label>
+        <input id="entry-note" class="field-input" bind:value={note} placeholder="observaciones..." />
       </div>
 
       {#if error}<div class="error-box">{error}</div>{/if}

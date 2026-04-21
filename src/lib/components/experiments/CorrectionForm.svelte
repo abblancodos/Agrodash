@@ -99,8 +99,8 @@
       <!-- Paso 2: Motivo -->
       {:else if step === 2}
         <div class="field">
-          <label class="field-label">motivo de la corrección <span class="req">*</span></label>
-          <textarea class="field-input" rows="3" bind:value={reason}
+          <label class="field-label" for="corr-reason">motivo de la corrección <span class="req">*</span></label>
+          <textarea id="corr-reason" class="field-input" rows="3" bind:value={reason}
                     placeholder="Explicá por qué se corrige esta entry (mín. 10 caracteres)"></textarea>
           {#if reason.length > 0 && reason.length < 10}
             <span class="field-hint">mínimo 10 caracteres ({reason.length}/10)</span>
@@ -128,13 +128,13 @@
         </div>
         {#each Object.entries(newData) as [k]}
           <div class="field">
-            <label class="field-label">{k}</label>
-            <input class="field-input mono" bind:value={newData[k]} />
+            <label class="field-label" for="corr-{k}">{k}</label>
+            <input id="corr-{k}" class="field-input mono" bind:value={newData[k]} />
           </div>
         {/each}
         <div class="field">
-          <label class="field-label">nota adicional (opcional)</label>
-          <input class="field-input" bind:value={note} placeholder="ej: sensor re-estabilizado" />
+          <label class="field-label" for="corr-note">nota adicional (opcional)</label>
+          <input id="corr-note" class="field-input" bind:value={note} placeholder="ej: sensor re-estabilizado" />
         </div>
         <div class="btn-row">
           <button class="btn-back" onclick={() => step = 2}>← volver</button>
