@@ -11,6 +11,7 @@ use axum::{routing::{delete, get, post, put}, Router};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use tower_http::{cors::{Any, CorsLayer}, trace::TraceLayer};
+use axum::http::header::{AUTHORIZATION, CONTENT_TYPE, ACCEPT};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -37,7 +38,10 @@ async fn main() {
 
     tokio::spawn(tasks::stats_worker::run(pool.clone()));
 
-    let cors = CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any);
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers([AUTHORIZATION, CONTENT_TYPE, ACCEPT]);
 
     // Seed route — solo se registra si SEED_SECRET está definido en .env.
     // Una vez creado el primer admin: borrar SEED_SECRET del .env y reiniciar.
