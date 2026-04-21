@@ -207,3 +207,56 @@ export async function fetchStats(
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+export interface AuthUser {
+  id:           string;
+  email:        string;
+  display_name: string;
+  role:         string;
+}
+
+export interface AuthResponse {
+  token:          string;
+  user:           AuthUser;
+  must_change_pw: boolean;
+}
+
+const TOKEN_KEY = 'agrodash_token';
+
+export function getToken(): string | null {
+  return typeof localStorage !== 'undefined'
+    ? localStorage.getItem(TOKEN_KEY)
+    : null;
+}
+
+export function setToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getToken();
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
+/** Redirige al usuario a Gitea para autenticación OAuth */
+export function loginWithGitea(): void {
+  window.location.href = `${API_BASE}/api/v1/auth/oauth/gitea`;
+}
+
+export async function fetchMe(): Promise<AuthUser> {
+  const res = await fetch(`${API_BASE}/api/v1/auth/me`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export function logout(): void {
+  clearToken();
+}
