@@ -1,6 +1,7 @@
 // src/main.rs
 
 mod auth;
+mod crypto;
 mod models;
 mod routes;
 mod script_engine;
@@ -57,7 +58,7 @@ async fn main() {
 
         // ── Auth (sin registro público) ─────────────────────────────────────
         // ── OAuth Gitea ─────────────────────────────────────────────────────
-        .route("/api/v1/auth/oauth/gitea",          get(routes::oauth::gitea_authorize))
+        .route("/api/v1/auth/oauth/gitea",          get(routes::oauth::gitea_login))
         .route("/api/v1/auth/oauth/gitea/callback", get(routes::oauth::gitea_callback))
         .route("/api/v1/auth/login",           post(routes::auth::login))
         .route("/api/v1/auth/me",              get(routes::auth::me))
