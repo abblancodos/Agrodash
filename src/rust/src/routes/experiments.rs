@@ -83,7 +83,7 @@ pub async fn list_templates(
     let rows = sqlx::query_as!(
         TemplateRow,
         r#"
-        SELECT id AS "id: Uuid", owner_id AS "owner_id?: Uuid", name,
+        SELECT id AS "id: Uuid", owner_id AS "owner_id: Uuid", name,
                description, public, steps, constants_schema, created_at
         FROM experiment_templates
         WHERE public = true OR owner_id = $1
@@ -108,7 +108,7 @@ pub async fn create_template(
         r#"
         INSERT INTO experiment_templates (owner_id, name, description, public, steps, constants_schema)
         VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id AS "id: Uuid", owner_id AS "owner_id?: Uuid", name,
+        RETURNING id AS "id: Uuid", owner_id AS "owner_id: Uuid", name,
                   description, public, steps, constants_schema, created_at
         "#,
         claims.sub as Uuid,
@@ -132,7 +132,7 @@ pub async fn get_template(
     let row = sqlx::query_as!(
         TemplateRow,
         r#"
-        SELECT id AS "id: Uuid", owner_id AS "owner_id?: Uuid", name,
+        SELECT id AS "id: Uuid", owner_id AS "owner_id: Uuid", name,
                description, public, steps, constants_schema, created_at
         FROM experiment_templates WHERE id = $1
         "#,
@@ -155,7 +155,7 @@ pub async fn get_template(
 pub struct ExperimentRow {
     pub id:          Uuid,
     pub template_id: Option<Uuid>,
-    pub owner_id:    Option<Uuid>,
+    pub owner_id:    Uuid,
     pub title:       String,
     pub description: Option<String>,
     pub public:      bool,
@@ -240,7 +240,7 @@ pub async fn create_experiment(
         INSERT INTO experiments (template_id, owner_id, title, description, public, constants)
         VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING id AS "id: Uuid", template_id AS "template_id?: Uuid",
-                  owner_id AS "owner_id?: Uuid", title, description,
+                  owner_id AS "owner_id: Uuid", title, description,
                   public, constants, status, created_at
         "#,
         body.template_id as Option<Uuid>,
@@ -265,7 +265,7 @@ pub async fn get_experiment(
         ExperimentRow,
         r#"
         SELECT id AS "id: Uuid", template_id AS "template_id?: Uuid",
-               owner_id AS "owner_id?: Uuid", title, description,
+               owner_id AS "owner_id: Uuid", title, description,
                public, constants, status, created_at
         FROM experiments WHERE id = $1
         "#,
@@ -299,7 +299,7 @@ pub async fn update_constants(
         UPDATE experiments SET constants = $1, updated_at = NOW()
         WHERE id = $2 AND owner_id = $3
         RETURNING id AS "id: Uuid", template_id AS "template_id?: Uuid",
-                  owner_id AS "owner_id?: Uuid", title, description,
+                  owner_id AS "owner_id: Uuid", title, description,
                   public, constants, status, created_at
         "#,
         body.constants,
@@ -346,7 +346,7 @@ pub async fn list_events(
 ) -> Result<Json<Vec<EventRow>>, (StatusCode, Json<Value>)> {
     // Verificar acceso al experimento
     let exp = sqlx::query!(
-        r#"SELECT public, owner_id AS "owner_id?: Uuid" FROM experiments WHERE id = $1"#,
+        r#"SELECT public, owner_id AS "owner_id: Uuid" FROM experiments WHERE id = $1"#,
         id
     )
     .fetch_optional(&pool)
@@ -383,7 +383,7 @@ pub async fn create_event(
 ) -> Result<Json<EventRow>, (StatusCode, Json<Value>)> {
     // Solo el owner puede registrar eventos
     let exp = sqlx::query!(
-        r#"SELECT owner_id AS "owner_id?: Uuid" FROM experiments WHERE id = $1"#,
+        r#"SELECT owner_id AS "owner_id: Uuid" FROM experiments WHERE id = $1"#,
         id
     )
     .fetch_optional(&pool)
@@ -427,7 +427,7 @@ pub async fn delete_event(
     Path((exp_id, event_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
     let exp = sqlx::query!(
-        r#"SELECT owner_id AS "owner_id?: Uuid" FROM experiments WHERE id = $1"#,
+        r#"SELECT owner_id AS "owner_id: Uuid" FROM experiments WHERE id = $1"#,
         exp_id
     )
     .fetch_optional(&pool)
@@ -480,7 +480,7 @@ pub async fn list_series(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<SeriesPoint>>, (StatusCode, Json<Value>)> {
     let exp = sqlx::query!(
-        r#"SELECT public, owner_id AS "owner_id?: Uuid" FROM experiments WHERE id = $1"#,
+        r#"SELECT public, owner_id AS "owner_id: Uuid" FROM experiments WHERE id = $1"#,
         id
     )
     .fetch_optional(&pool)
@@ -516,7 +516,7 @@ pub async fn create_series_point(
     Json(body): Json<CreateSeriesPointRequest>,
 ) -> Result<Json<SeriesPoint>, (StatusCode, Json<Value>)> {
     let exp = sqlx::query!(
-        r#"SELECT owner_id AS "owner_id?: Uuid" FROM experiments WHERE id = $1"#,
+        r#"SELECT owner_id AS "owner_id: Uuid" FROM experiments WHERE id = $1"#,
         id
     )
     .fetch_optional(&pool)
@@ -571,7 +571,7 @@ pub async fn upload_csv(
 ) -> Result<Json<UploadCsvResponse>, (StatusCode, Json<Value>)> {
     // Verificar acceso
     let exp = sqlx::query!(
-        r#"SELECT owner_id AS "owner_id?: Uuid" FROM experiments WHERE id = $1"#,
+        r#"SELECT owner_id AS "owner_id: Uuid" FROM experiments WHERE id = $1"#,
         id
     )
     .fetch_optional(&pool)
@@ -678,7 +678,7 @@ pub async fn run_step_script(
     // 1. Verificar acceso al experimento
     let exp = sqlx::query!(
         r#"
-        SELECT e.public, e.constants, e.owner_id AS "owner_id?: Uuid",
+        SELECT e.public, e.constants, e.owner_id AS "owner_id: Uuid",
                t.steps
         FROM experiments e
         LEFT JOIN experiment_templates t ON t.id = e.template_id

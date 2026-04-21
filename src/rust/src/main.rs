@@ -15,7 +15,6 @@ use axum::http::{
     header::{AUTHORIZATION, CONTENT_TYPE, ACCEPT},
     Method,
 };
-use std::str::FromStr;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
