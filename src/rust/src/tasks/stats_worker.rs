@@ -43,7 +43,7 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
     let window_1h  = now_cr - chrono::Duration::hours(1);
 
     // ── 2. Stats por sensor ───────────────────────────────────────────────────
-    for (sensor_id, box_id, sensor_type) in &sensors {
+    for (sensor_id, _box_id, _sensor_type) in &sensors {
         let stats = sqlx::query!(
             r#"
             SELECT
@@ -56,8 +56,7 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
             WHERE sensor_id = $1
               AND created_at >= $2
               AND created_at <= $3
-              AND created_at BETWEEN '2020-01-01' AND NOW()
-            "#,
+              "#,
             sensor_id,
             window_24h,
             now_cr,
@@ -72,8 +71,7 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
                 created_at    AS "created_at!: chrono::NaiveDateTime"
             FROM readings
             WHERE sensor_id = $1
-              AND created_at BETWEEN '2020-01-01' AND NOW()
-            ORDER BY created_at DESC
+              ORDER BY created_at DESC
             LIMIT 1
             "#,
             sensor_id,
@@ -88,8 +86,7 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
             WHERE sensor_id = $1
               AND created_at >= $2
               AND created_at <= $3
-              AND created_at BETWEEN '2020-01-01' AND NOW()
-            ORDER BY ABS(EXTRACT(EPOCH FROM (created_at - $2)))
+              ORDER BY ABS(EXTRACT(EPOCH FROM (created_at - $2)))
             LIMIT 1
             "#,
             sensor_id,
