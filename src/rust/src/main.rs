@@ -6,7 +6,7 @@ mod routes;
 mod script_engine;
 mod tasks;
 
-use axum::{routing::{delete, get, patch, post, put}, Router};
+use axum::{routing::{delete, get, post, put}, Router};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use tower_http::{cors::{Any, CorsLayer}, trace::TraceLayer};
@@ -56,6 +56,9 @@ async fn main() {
         .route("/api/v1/stats",                   get(routes::stats::get_stats))
 
         // ── Auth (sin registro público) ─────────────────────────────────────
+        // ── OAuth Gitea ─────────────────────────────────────────────────────
+        .route("/api/v1/auth/oauth/gitea",          get(routes::oauth::gitea_authorize))
+        .route("/api/v1/auth/oauth/gitea/callback", get(routes::oauth::gitea_callback))
         .route("/api/v1/auth/login",           post(routes::auth::login))
         .route("/api/v1/auth/me",              get(routes::auth::me))
         .route("/api/v1/auth/change-password", post(routes::auth::change_password));
@@ -70,6 +73,9 @@ async fn main() {
     let app = base
 
         // ── Admin — gestión de usuarios (requiere rol admin) ────────────────
+        .route("/api/v1/admin/invites",
+            get(routes::invites::list_invites)
+            .post(routes::invites::create_invite))
         .route("/api/v1/admin/users",
             get(routes::auth::admin_list_users)
             .post(routes::auth::admin_create_user))

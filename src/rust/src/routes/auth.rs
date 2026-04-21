@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use crate::auth::{encode_token, Claims};
+use crate::crypto::{decrypt_password, public_key_pem};
 
 const TEMP_PASSWORD: &str = "Estacion2";
 
@@ -28,14 +29,25 @@ pub struct UserInfo {
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
-    pub email:    String,
-    pub password: String,
+    pub email:              String,
+    pub password:           Option<String>,           // plaintext (solo desarrollo)
+    pub password_encrypted: Option<String>,           // base64 RSA-OAEP (producción)
 }
 
 #[derive(Deserialize)]
 pub struct ChangePasswordRequest {
-    pub current_password: String,
-    pub new_password:     String,
+    pub current_password:           Option<String>,
+    pub current_password_encrypted: Option<String>,
+    pub new_password:               Option<String>,
+    pub new_password_encrypted:     Option<String>,
+}
+
+// ── GET /api/v1/auth/public-key ───────────────────────────────────────────────
+// Devuelve la llave pública RSA en PEM para que el cliente cifre la contraseña.
+// Se llama una vez al cargar la página de login.
+
+pub async fn public_key() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "public_key": public_key_pem() }))
 }
 
 // ── Admin: crear usuario ───────────────────────────────────────────────────────
@@ -148,6 +160,18 @@ pub async fn login(
     State(pool): State<PgPool>,
     Json(body): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<serde_json::Value>)> {
+    // Resolver contraseña — acepta cifrada (producción) o plaintext (dev)
+    let password = if let Some(enc) = &body.password_encrypted {
+        decrypt_password(enc).map_err(|e| (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": format!("Error de descifrado: {e}") })),
+        ))?
+    } else if let Some(plain) = &body.password {
+        plain.clone()
+    } else {
+        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Se requiere password o password_encrypted" }))));
+    };
+
     let user = sqlx::query!(
         r#"
         SELECT id AS "id: uuid::Uuid", email, display_name, password_hash, role
@@ -163,7 +187,7 @@ pub async fn login(
         Json(serde_json::json!({ "error": "Credenciales inválidas" })),
     ))?;
 
-    let valid = verify(&body.password, &user.password_hash)
+    let valid = verify(&password, &user.password_hash)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
 
     if !valid {
@@ -215,7 +239,24 @@ pub async fn change_password(
     claims: Claims,
     Json(body): Json<ChangePasswordRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
-    if body.new_password.len() < 8 {
+    // Resolver contraseñas
+    let current_password = if let Some(enc) = &body.current_password_encrypted {
+        decrypt_password(enc).map_err(|e| (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))))?
+    } else if let Some(plain) = &body.current_password {
+        plain.clone()
+    } else {
+        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Se requiere current_password o current_password_encrypted" }))));
+    };
+
+    let new_password = if let Some(enc) = &body.new_password_encrypted {
+        decrypt_password(enc).map_err(|e| (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))))?
+    } else if let Some(plain) = &body.new_password {
+        plain.clone()
+    } else {
+        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Se requiere new_password o new_password_encrypted" }))));
+    };
+
+    if new_password.len() < 8 {
         return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Mínimo 8 caracteres" }))));
     }
 
@@ -227,18 +268,18 @@ pub async fn change_password(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
 
-    let valid = verify(&body.current_password, &user.password_hash)
+    let valid = verify(&current_password, &user.password_hash)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
 
     if !valid {
         return Err((StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Contraseña actual incorrecta" }))));
     }
 
-    if body.new_password == TEMP_PASSWORD {
+    if new_password == TEMP_PASSWORD {
         return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "No podés usar la contraseña temporal como nueva contraseña" }))));
     }
 
-    let new_hash = hash(&body.new_password, DEFAULT_COST)
+    let new_hash = hash(&new_password, DEFAULT_COST)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
 
     sqlx::query!(

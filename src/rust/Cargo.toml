@@ -30,6 +30,10 @@ csv = "1"
 # Scripting engine — sandboxed by default, no filesystem/network access
 rhai = { version = "1", features = ["sync"] }
 
+# HTTP client para OAuth
+reqwest    = { version = "0.12", features = ["json"] }
+urlencoding = "2"
+
 # Config / env
 dotenvy = "0.15"
 

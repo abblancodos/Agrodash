@@ -80,7 +80,6 @@ pub async fn get_time_range(
             MIN(created_at) AS "first!: chrono::NaiveDateTime",
             MAX(created_at) AS "last!:  chrono::NaiveDateTime"
         FROM readings
-        WHERE created_at BETWEEN '2020-01-01' AND NOW()
         "#
     )
     .fetch_one(&pool)
@@ -106,7 +105,6 @@ pub async fn get_last_reading(
             value::float8 AS "value!: f64"
         FROM readings
         WHERE sensor_id = $1
-          AND created_at BETWEEN '2020-01-01' AND NOW()
         ORDER BY created_at DESC
         LIMIT 1
         "#,
@@ -132,7 +130,7 @@ pub async fn get_temperature(
         FROM readings r
         JOIN sensors s ON s.id = r.sensor_id
         WHERE LOWER(s.type) IN ('temperatura', 'temperature', 'air temperature (°c)', 't')
-          AND r.created_at BETWEEN '2020-01-01' AND NOW()
+          AND r.created_at >= NOW() - INTERVAL '14 days'
           AND r.value BETWEEN -10 AND 60
         ORDER BY r.created_at DESC
         LIMIT 1

@@ -43,7 +43,7 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
     let window_1h  = now_cr - chrono::Duration::hours(1);
 
     // ── 2. Stats por sensor ───────────────────────────────────────────────────
-    for (sensor_id, box_id, sensor_type) in &sensors {
+    for (sensor_id, _box_id, _sensor_type) in &sensors {
         let stats = sqlx::query!(
             r#"
             SELECT
@@ -168,7 +168,7 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
     let mut groups: std::collections::HashMap<(uuid::Uuid, String), Vec<uuid::Uuid>> =
         std::collections::HashMap::new();
 
-    for (sensor_id, box_id, sensor_type) in &sensors {
+    for (sensor_id, _box_id, _sensor_type) in &sensors {
         groups
             .entry((*box_id, sensor_type.to_lowercase()))
             .or_default()

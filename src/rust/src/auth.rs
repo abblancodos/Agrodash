@@ -4,10 +4,8 @@
 // El token se pasa en el header Authorization: Bearer <token>
 
 use axum::{
-    extract::{FromRequestParts, Request},
+    extract::FromRequestParts,
     http::{request::Parts, StatusCode},
-    middleware::Next,
-    response::Response,
     Json,
 };
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};

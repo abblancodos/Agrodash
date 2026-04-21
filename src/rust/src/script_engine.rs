@@ -15,7 +15,7 @@
 //   constants  — Map con los valores de las constantes del experimento
 //   steps      — Map con los valores de pasos anteriores registrados
 
-use rhai::{Engine, Map, Scope, Dynamic, EvalAltResult};
+use rhai::{Engine, Map, Scope, Dynamic};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
