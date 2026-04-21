@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT e.step_key, e.event_type, e.soil_id, e.iteration,\n               e.data, e.note, e.recorded_at,\n               e.corrects_event_id AS \"corrects_event_id: Uuid\",\n               e.correction_reason, e.is_voided,\n               u.display_name AS recorded_by_name\n        FROM experiment_events e\n        LEFT JOIN users u ON u.id = e.recorded_by\n        WHERE e.experiment_id = $1\n        ORDER BY e.recorded_at\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "step_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "event_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "soil_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "iteration",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "data",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "note",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "recorded_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "corrects_event_id: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "correction_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_voided",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "recorded_by_name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "ca90a11e24b3b6698512c9e7aecbf392a5ba368773f696809ace8fe0b9743353"
+}

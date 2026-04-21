@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT value::float8 AS \"value!: f64\"\n            FROM readings\n            WHERE sensor_id = $1\n              AND created_at >= $2\n              AND created_at <= $3\n              ORDER BY ABS(EXTRACT(EPOCH FROM (created_at - $2)))\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value!: f64",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamp",
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "84473367a0b49142af60f8a8a8359e5cd15550336295f76e79bf84784e4fe287"
+}

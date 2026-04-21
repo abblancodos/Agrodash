@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM experiment_definitions WHERE id = $1 AND experiment_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "60793da423b9810cfc89b3a12ba5cfb625e05f01dd1cd2412092935e0777b87e"
+}

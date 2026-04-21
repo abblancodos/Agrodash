@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            box_id      AS \"box_id!: Uuid\",\n            sensor_type AS \"sensor_type!\",\n            sensor_id_a AS \"sensor_id_a!: Uuid\",\n            sensor_id_b AS \"sensor_id_b!: Uuid\",\n            pearson_r   AS \"pearson_r!\"\n        FROM sensor_correlations\n        WHERE ($1::uuid IS NULL OR box_id = $1)\n          AND ABS(pearson_r) >= $2\n        ORDER BY ABS(pearson_r) DESC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "box_id!: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "sensor_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "sensor_id_a!: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "sensor_id_b!: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "pearson_r!",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2561f584f9b0c95909846a9596980f529b11d5c0e30b5fdb73adbebf15cd1bd9"
+}
