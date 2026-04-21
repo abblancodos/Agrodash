@@ -113,6 +113,47 @@ async fn main() {
         .route("/api/v1/experiments/:id/upload-csv",
             post(routes::experiments::upload_csv))
 
+
+        // ── Server time ─────────────────────────────────────────────────────────
+        .route("/api/v1/time", get(routes::experiment_features::server_time))
+
+        // ── User search ─────────────────────────────────────────────────────────
+        .route("/api/v1/users/search", get(routes::experiment_features::search_users))
+
+        // ── Experiment collaborators ─────────────────────────────────────────────
+        .route("/api/v1/experiments/:id/collaborators",
+            get(routes::experiment_features::list_collaborators)
+            .post(routes::experiment_features::add_collaborator))
+        .route("/api/v1/experiments/:id/collaborators/:uid",
+            delete(routes::experiment_features::remove_collaborator))
+
+        // ── Event corrections ────────────────────────────────────────────────────
+        .route("/api/v1/experiments/:id/events/:eid/correct",
+            post(routes::experiment_features::correct_event))
+
+        // ── Definitions ──────────────────────────────────────────────────────────
+        .route("/api/v1/experiments/:id/definitions",
+            get(routes::experiment_features::list_definitions)
+            .post(routes::experiment_features::create_definition))
+        .route("/api/v1/experiments/:id/definitions/:did",
+            put(routes::experiment_features::update_definition)
+            .delete(routes::experiment_features::delete_definition))
+
+        // ── Objectives ───────────────────────────────────────────────────────────
+        .route("/api/v1/experiments/:id/objectives",
+            get(routes::experiment_features::list_objectives)
+            .post(routes::experiment_features::create_objective))
+        .route("/api/v1/experiments/:id/objectives/:oid",
+            delete(routes::experiment_features::delete_objective))
+
+        // ── Export CSV ───────────────────────────────────────────────────────────
+        .route("/api/v1/experiments/:id/export-csv",
+            get(routes::experiment_features::export_csv))
+
+        // ── Status ───────────────────────────────────────────────────────────────
+        .route("/api/v1/experiments/:id/status",
+            axum::routing::patch(routes::experiment_features::update_status))
+
         // ── Script execution ────────────────────────────────────────────────
         .route("/api/v1/experiments/:id/steps/:step_key/run",
             get(routes::experiments::run_step_script))

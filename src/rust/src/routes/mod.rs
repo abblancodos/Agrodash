@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod boxes;
+pub mod experiment_features;
 pub mod experiments;
 pub mod invites;
 pub mod oauth;
