@@ -1,5 +1,7 @@
 <script lang="ts">
   import DefinitionForms from './DefinitionForms.svelte';
+  import ConstantForm from './ConstantForm.svelte';
+  import CollaboratorList from './CollaboratorList.svelte';
 
   let { onClose }: { onClose: () => void } = $props();
 
@@ -7,7 +9,7 @@
   let selected = $state<DefType | null>(null);
 
   const options: { type: DefType; label: string; desc: string; icon: string }[] = [
-    { type: 'variable',    label: 'variable',         desc: 'Dato que se registra en cada entry',           icon: 'x' },
+    { type: 'variable',    label: 'variable',         desc: 'Dato que se registra en cada entry',           icon: 'χ' },
     { type: 'constant',    label: 'constante',        desc: 'Valor fijo con unidad y comentario',          icon: 'C' },
     { type: 'expression',  label: 'expresión',        desc: 'Cálculo automático sobre constantes/vars',    icon: 'ƒ' },
     { type: 'step',        label: 'paso',             desc: 'Campos a registrar + script Rhai opcional',   icon: '→' },
@@ -43,6 +45,10 @@
             </button>
           {/each}
         </div>
+      {:else if selected === 'constant'}
+        <ConstantForm onClose={onClose} />
+      {:else if selected === 'collaborator'}
+        <CollaboratorList onClose={onClose} />
       {:else}
         <DefinitionForms type={selected} onClose={onClose} />
       {/if}

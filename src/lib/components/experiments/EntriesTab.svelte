@@ -149,7 +149,7 @@
     </div>
 
   {:else}
-    <div class="table-wrap">
+    <div class="table-scroll"><div class="table-wrap">
       <table class="t">
         <thead>
           <tr>
@@ -239,7 +239,7 @@
           {/if}
         </tbody>
       </table>
-    </div>
+    </div></div>
 
     {#if $canEdit && !addingEntry}
       <button class="btn-add-row" onclick={() => addingEntry = true}>+ nueva entry</button>
@@ -258,7 +258,8 @@
   .col-chip { font-size: calc(12px * var(--font-scale)); padding: 4px 10px; border: 0.5px solid var(--border-default); border-radius: 20px; background: none; cursor: pointer; color: var(--text-secondary); }
   .col-chip:hover { background: var(--interactive-hover); }
 
-  .table-wrap { overflow-x: auto; border: 0.5px solid var(--border-subtle); border-radius: 8px; }
+  .table-scroll { overflow-x: auto; border: 0.5px solid var(--border-subtle); border-radius: 8px; }
+  .table-wrap { overflow: visible; }
   .t { width: 100%; border-collapse: collapse; font-size: calc(12px * var(--font-scale)); }
   th { background: var(--bg-elevated); padding: calc(8px * var(--font-scale)) calc(10px * var(--font-scale)); text-align: left; font-weight: 500; border-bottom: 0.5px solid var(--border-subtle); white-space: nowrap; }
   .th-ts { color: var(--text-muted); min-width: 110px; }
