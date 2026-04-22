@@ -105,12 +105,8 @@ function createExperimentStore() {
     lastActivity:  0,
   });
 
-  function headers(): Record<string, string> {
-        return {};
-  }
-
   async function fetchJson(path: string) {
-    const res = await fetch(`${API}${path}`, fetchOpts());
+    const res = await fetch(`${API}${path}`, { credentials: 'include' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   }
