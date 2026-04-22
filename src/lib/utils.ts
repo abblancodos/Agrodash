@@ -3,6 +3,7 @@
 /**
  * Convierte un timestamp ISO (UTC) a texto relativo legible.
  * Ej: "hace 30s", "hace 4 min", "hace 2 h", "hace 3 días", "hace 2 meses"
+ * 
  */
 export function relTime(isoUtc: string | null | undefined): string {
   if (!isoUtc) return 'sin datos';
