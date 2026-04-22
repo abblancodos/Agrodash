@@ -3,10 +3,11 @@
 
   let { onClose }: { onClose: () => void } = $props();
 
-  type DefType = 'constant' | 'expression' | 'objective' | 'step' | 'collaborator' | 'csv_schema';
+  type DefType = 'variable' | 'constant' | 'expression' | 'objective' | 'step' | 'collaborator' | 'csv_schema';
   let selected = $state<DefType | null>(null);
 
   const options: { type: DefType; label: string; desc: string; icon: string }[] = [
+    { type: 'variable',    label: 'variable',         desc: 'Dato que se registra en cada entry',           icon: 'x' },
     { type: 'constant',    label: 'constante',        desc: 'Valor fijo con unidad y comentario',          icon: 'C' },
     { type: 'expression',  label: 'expresión',        desc: 'Cálculo automático sobre constantes/vars',    icon: 'ƒ' },
     { type: 'step',        label: 'paso',             desc: 'Campos a registrar + script Rhai opcional',   icon: '→' },

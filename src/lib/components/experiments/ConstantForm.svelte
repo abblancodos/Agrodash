@@ -16,10 +16,10 @@
     const n = parseFloat(value);
     if (isNaN(n)) { error = 'El valor debe ser numérico'; loading = false; return; }
     try {
-      const token = auth.getToken();
-      const res = await fetch(`${API}/api/v1/experiments/${$experimentStore.experiment?.id}/definitions`, {
+            const res = await fetch(`${API}/api/v1/experiments/${$experimentStore.experiment?.id}/definitions`, {
+        credentials: 'include',
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key, label, type: 'constant', payload: { value: n, unit, comment } }),
       });
       const data = await res.json();
@@ -47,4 +47,28 @@
   </div>
 </div>
 
-<style src="./forms.css"></style>
+<style>
+.form-section { display: flex; flex-direction: column; gap: calc(12px * var(--font-scale)); }
+.form-title { font-size: calc(14px * var(--font-scale)); font-weight: 500; color: var(--text-primary); margin-bottom: 2px; }
+.form-hint { font-size: calc(12px * var(--font-scale)); color: var(--text-muted); line-height: 1.5; }
+.err { background: var(--error-bg); color: var(--error-color); border-radius: 6px; padding: 8px 12px; font-size: calc(12px * var(--font-scale)); }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
+.field.row { flex-direction: row; gap: 10px; align-items: flex-end; }
+.field-grow { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.field-unit { width: 80px; display: flex; flex-direction: column; gap: 4px; }
+.muted { color: var(--text-muted); }
+input, textarea, select {
+  padding: calc(7px * var(--font-scale)) calc(10px * var(--font-scale));
+  border: 0.5px solid var(--border-default); border-radius: 6px;
+  font-size: calc(13px * var(--font-scale)); background: var(--bg-surface);
+  color: var(--text-primary); outline: none; font-family: inherit;
+}
+input.mono, textarea.mono { font-family: 'DM Mono', monospace; }
+textarea { resize: vertical; }
+.btn-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.btn-cancel { font-size: calc(13px * var(--font-scale)); color: var(--text-secondary); background: none; border: none; cursor: pointer; padding: 6px 12px; }
+.btn-save { padding: calc(7px * var(--font-scale)) calc(16px * var(--font-scale)); background: var(--text-primary); color: var(--bg-surface); border: none; border-radius: 6px; cursor: pointer; font-size: calc(13px * var(--font-scale)); }
+.btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+
+</style>

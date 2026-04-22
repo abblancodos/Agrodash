@@ -13,16 +13,18 @@ const API = typeof window !== 'undefined'
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
 export interface Experiment {
-  id:          string;
-  owner_id:    string;
-  template_id: string;
-  title:       string;
-  description: string | null;
-  public:      boolean;
-  constants:   Record<string, unknown>;
-  status:      'active' | 'completed' | 'archived';
-  created_at:  string;
-  user_role:   'admin' | 'editor' | 'viewer' | null;
+  id:           string;
+  owner_id:     string;
+  template_id:  string | null;
+  title:        string;
+  description:  string | null;
+  public:       boolean;
+  constants:    Record<string, unknown>;
+  status:       'active' | 'completed' | 'archived';
+  created_at:   string;
+  user_role:    'admin' | 'editor' | 'viewer' | null;
+  columns:      ExperimentColumn[];
+  schema_notes: string | null;
 }
 
 export interface ExperimentEvent {
@@ -46,11 +48,30 @@ export interface Definition {
   id:            string;
   experiment_id: string;
   key:           string;
-  type:          'constant' | 'expression' | 'step' | 'csv_schema';
+  type:          'constant' | 'expression' | 'step' | 'csv_schema' | 'variable';
   label:         string;
   payload:       Record<string, unknown>;
   sort_order:    number;
+  var_type:      'numeric' | 'vector_csv' | 'text' | 'qualitative' | null;
+  options:       string[] | null;
   created_at:    string;
+}
+
+export interface ExperimentColumn {
+  key:     string;
+  type:    'variable' | 'expression' | 'constant' | 'system';
+  order:   number;
+  visible: boolean;
+  width?:  number;
+}
+
+export interface EntryValue {
+  id:             string;
+  entry_id:       string;
+  definition_key: string;
+  value_numeric:  number | null;
+  value_text:     string | null;
+  value_csv_data: unknown[] | null;
 }
 
 export interface Objective {
@@ -86,9 +107,10 @@ interface ExperimentState {
   definitions:   Definition[];
   objectives:    Objective[];
   collaborators: Collaborator[];
+  entryValues:   Record<string, Record<string, unknown>>;  // entry_id → {key → value}
   loading:       boolean;
   error:         string;
-  lastActivity:  number;  // timestamp del último evento — para detección de conflictos
+  lastActivity:  number;
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
@@ -100,6 +122,7 @@ function createExperimentStore() {
     definitions:   [],
     objectives:    [],
     collaborators: [],
+    entryValues:   {},
     loading:       false,
     error:         '',
     lastActivity:  0,
@@ -118,13 +141,14 @@ function createExperimentStore() {
     async load(id: string) {
       update(s => ({ ...s, loading: true, error: '' }));
       try {
-        const [experiment, events, definitions, objectives, collaborators] =
+        const [experiment, events, definitions, objectives, collaborators, entryValues] =
           await Promise.all([
             fetchJson(`/api/v1/experiments/${id}`),
             fetchJson(`/api/v1/experiments/${id}/events`),
             fetchJson(`/api/v1/experiments/${id}/definitions`),
             fetchJson(`/api/v1/experiments/${id}/objectives`),
             fetchJson(`/api/v1/experiments/${id}/collaborators`).catch(() => []),
+            fetchJson(`/api/v1/experiments/${id}/values`).catch(() => ({})),
           ]);
 
         // Calcular user_role si no viene del experimento
@@ -215,9 +239,23 @@ function createExperimentStore() {
       }));
     },
 
+    updateColumns(columns: ExperimentColumn[]) {
+      update(s => ({
+        ...s,
+        experiment: s.experiment ? { ...s.experiment, columns } : null,
+      }));
+    },
+
+    setEntryValues(entryId: string, values: Record<string, unknown>) {
+      update(s => ({
+        ...s,
+        entryValues: { ...s.entryValues, [entryId]: values },
+      }));
+    },
+
     reset() {
       set({ experiment: null, events: [], definitions: [], objectives: [],
-            collaborators: [], loading: false, error: '', lastActivity: 0 });
+            collaborators: [], entryValues: {}, loading: false, error: '', lastActivity: 0 });
     },
   };
 }

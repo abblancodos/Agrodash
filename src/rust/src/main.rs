@@ -107,7 +107,8 @@ async fn main() {
             get(routes::experiments::list_experiments)
             .post(routes::experiments::create_experiment))
         .route("/api/v1/experiments/:id",
-            get(routes::experiments::get_experiment))
+            get(routes::experiments::get_experiment)
+            .delete(routes::experiment_features::delete_experiment))
         .route("/api/v1/experiments/:id/constants",
             put(routes::experiments::update_constants))
 

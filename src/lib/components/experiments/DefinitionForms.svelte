@@ -28,23 +28,39 @@
 
   async function searchUsers() {
     if (searchQ.length < 2) return;
-    const token = auth.getToken();
-    const res = await fetch(`${API}/api/v1/users/search?q=${encodeURIComponent(searchQ)}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+        const res = await fetch(`${API}/api/v1/users/search?q=${encodeURIComponent(searchQ)}`, {
+          });
     if (res.ok) searchResults = await res.json();
   }
 
   async function save() {
     loading = true; error = '';
     const expId = $experimentStore.experiment?.id;
-    const token = auth.getToken();
-    const headers = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+        const headers = { 'Content-Type': 'application/json' };
 
     try {
-      if (type === 'expression') {
+      if (type === 'variable') {
+        if (!key || !label) { error = 'key y label requeridos'; return; }
+        const options = varType === 'qualitative'
+          ? qualOptions.split(',').map(s => s.trim()).filter(Boolean)
+          : [];
+        const res = await fetch(`${API}/api/v1/experiments/${expId}/definitions`, {
+          method: 'POST', headers, credentials: 'include',
+          body: JSON.stringify({
+            key, label, type: 'variable',
+            payload: { unit, comment },
+            var_type: varType,
+            options,
+          }),
+        });
+        const d = await res.json();
+        if (!res.ok) { error = d.error; return; }
+        experimentStore.addDefinition(d);
+
+      } else if (type === 'expression') {
         if (!key || !label || !formula) { error = 'key, label y fórmula requeridos'; return; }
         const res = await fetch(`${API}/api/v1/experiments/${expId}/definitions`, {
+        credentials: 'include',
           method: 'POST', headers,
           body: JSON.stringify({ key, label, type: 'expression', payload: { formula, unit, comment } }),
         });
@@ -58,6 +74,7 @@
           ? { variable, min: minVal ? parseFloat(minVal) : null, max: maxVal ? parseFloat(maxVal) : null, unit }
           : { expr };
         const res = await fetch(`${API}/api/v1/experiments/${expId}/objectives`, {
+        credentials: 'include',
           method: 'POST', headers,
           body: JSON.stringify({ name: label, condition_type: condType, condition, severity, goto_ok: gotoOk || null, goto_violation: gotoViol || null }),
         });
@@ -69,6 +86,7 @@
         if (!key || !label) { error = 'key y label requeridos'; return; }
         const validFields = fields.filter(f => f.key && f.label);
         const res = await fetch(`${API}/api/v1/experiments/${expId}/definitions`, {
+        credentials: 'include',
           method: 'POST', headers,
           body: JSON.stringify({ key, label, type: 'step', payload: { fields: validFields, script } }),
         });
@@ -79,6 +97,7 @@
       } else if (type === 'collaborator') {
         if (!selectedUser) { error = 'Seleccioná un usuario'; return; }
         const res = await fetch(`${API}/api/v1/experiments/${expId}/collaborators`, {
+        credentials: 'include',
           method: 'POST', headers,
           body: JSON.stringify({ user_id: selectedUser.id, role }),
         });
@@ -89,6 +108,7 @@
         if (!key || !label) { error = 'key y label requeridos'; return; }
         const validCols = columns.filter(c => c.key && c.label);
         const res = await fetch(`${API}/api/v1/experiments/${expId}/definitions`, {
+        credentials: 'include',
           method: 'POST', headers,
           body: JSON.stringify({ key, label, type: 'csv_schema', payload: { columns: validCols } }),
         });
@@ -148,6 +168,32 @@
       <div class="field-grow"><label for="df-goto-ok">ir a (si OK)</label><input id="df-goto-ok" class="mono" bind:value={gotoOk} placeholder="monitoreo_continuo" /></div>
       <div class="field-grow"><label for="df-goto-viol">ir a (si viola)</label><input id="df-goto-viol" class="mono" bind:value={gotoViol} placeholder="irrigar" /></div>
     </div>
+
+  {:else if type === 'variable'}
+    <h3 class="form-title">nueva variable</h3>
+    <div class="form-hint">Dato que el usuario introduce en cada entry.</div>
+    <div class="field"><label for="df-key">key</label><input id="df-key" class="mono" bind:value={key} placeholder="masa_maceta" /></div>
+    <div class="field"><label for="df-label">label</label><input id="df-label" bind:value={label} placeholder="Masa maceta + suelo" /></div>
+    <div class="field">
+      <label for="df-vartype">tipo</label>
+      <select id="df-vartype" bind:value={varType}>
+        <option value="numeric">numérico — un número por entry</option>
+        <option value="vector_csv">vectorial CSV — un archivo CSV por entry (graficable)</option>
+        <option value="text">texto libre</option>
+        <option value="qualitative">cualitativo — selección de opciones</option>
+      </select>
+    </div>
+    {#if varType === 'numeric'}
+      <div class="field row">
+        <div class="field-grow"><label for="df-unit">unidad</label><input id="df-unit" bind:value={unit} placeholder="g" /></div>
+      </div>
+    {:else if varType === 'qualitative'}
+      <div class="field">
+        <label for="df-options">opciones (separadas por coma)</label>
+        <input id="df-options" bind:value={qualOptions} placeholder="seco, húmedo, saturado" />
+      </div>
+    {/if}
+    <div class="field"><label for="df-comment">comentario</label><textarea id="df-comment" rows="2" bind:value={comment}></textarea></div>
 
   {:else if type === 'step'}
     <h3 class="form-title">nuevo paso</h3>
@@ -223,7 +269,29 @@
 </div>
 
 <style>
-  @import './forms.css';
+  .form-section { display: flex; flex-direction: column; gap: calc(12px * var(--font-scale)); }
+.form-title { font-size: calc(14px * var(--font-scale)); font-weight: 500; color: var(--text-primary); margin-bottom: 2px; }
+.form-hint { font-size: calc(12px * var(--font-scale)); color: var(--text-muted); line-height: 1.5; }
+.err { background: var(--error-bg); color: var(--error-color); border-radius: 6px; padding: 8px 12px; font-size: calc(12px * var(--font-scale)); }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
+.field.row { flex-direction: row; gap: 10px; align-items: flex-end; }
+.field-grow { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.field-unit { width: 80px; display: flex; flex-direction: column; gap: 4px; }
+.muted { color: var(--text-muted); }
+input, textarea, select {
+  padding: calc(7px * var(--font-scale)) calc(10px * var(--font-scale));
+  border: 0.5px solid var(--border-default); border-radius: 6px;
+  font-size: calc(13px * var(--font-scale)); background: var(--bg-surface);
+  color: var(--text-primary); outline: none; font-family: inherit;
+}
+input.mono, textarea.mono { font-family: 'DM Mono', monospace; }
+textarea { resize: vertical; }
+.btn-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.btn-cancel { font-size: calc(13px * var(--font-scale)); color: var(--text-secondary); background: none; border: none; cursor: pointer; padding: 6px 12px; }
+.btn-save { padding: calc(7px * var(--font-scale)) calc(16px * var(--font-scale)); background: var(--text-primary); color: var(--bg-surface); border: none; border-radius: 6px; cursor: pointer; font-size: calc(13px * var(--font-scale)); }
+.btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+
   .fields-title { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; margin-top: 4px; }
   .btn-add-field { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); background: none; border: 0.5px dashed var(--border-default); border-radius: 4px; padding: 4px 10px; cursor: pointer; }
   .btn-remove-field { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; padding: 0 4px; align-self: flex-end; margin-bottom: 6px; }

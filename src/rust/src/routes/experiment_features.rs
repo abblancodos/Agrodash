@@ -356,6 +356,8 @@ pub struct DefinitionRow {
     pub label:         String,
     pub payload:       Value,
     pub sort_order:    i32,
+    pub var_type:      Option<String>,
+    pub options:       Option<Value>,
     pub created_at:    chrono::DateTime<chrono::Utc>,
 }
 
@@ -370,7 +372,8 @@ pub async fn list_definitions(
         DefinitionRow,
         r#"
         SELECT id AS "id: Uuid", experiment_id AS "experiment_id: Uuid",
-               key, type AS "type: String", label, payload, sort_order, created_at
+               key, type AS "type: String", label, payload, sort_order,
+               var_type, options, created_at
         FROM experiment_definitions
         WHERE experiment_id = $1
         ORDER BY sort_order, created_at
@@ -391,6 +394,8 @@ pub struct CreateDefinitionRequest {
     pub label:      String,
     pub payload:    Value,
     pub sort_order: Option<i32>,
+    pub var_type:   Option<String>,
+    pub options:    Option<Value>,
 }
 
 pub async fn create_definition(
@@ -412,10 +417,11 @@ pub async fn create_definition(
         DefinitionRow,
         r#"
         INSERT INTO experiment_definitions
-            (experiment_id, key, type, label, payload, sort_order, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+            (experiment_id, key, type, label, payload, sort_order, created_by, var_type, options)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING id AS "id: Uuid", experiment_id AS "experiment_id: Uuid",
-                  key, type AS "type: String", label, payload, sort_order, created_at
+                  key, type AS "type: String", label, payload, sort_order,
+                  var_type, options, created_at
         "#,
         exp_id,
         body.key,
@@ -424,6 +430,8 @@ pub async fn create_definition(
         body.payload,
         body.sort_order.unwrap_or(0),
         claims.sub as Uuid,
+        body.var_type,
+        body.options,
     )
     .fetch_one(&pool)
     .await
@@ -447,7 +455,8 @@ pub async fn update_definition(
         SET label = $1, payload = $2, sort_order = $3, updated_at = NOW()
         WHERE id = $4 AND experiment_id = $5
         RETURNING id AS "id: Uuid", experiment_id AS "experiment_id: Uuid",
-                  key, type AS "type: String", label, payload, sort_order, created_at
+                  key, type AS "type: String", label, payload, sort_order,
+                  var_type, options, created_at
         "#,
         body.label,
         body.payload,
@@ -817,4 +826,165 @@ pub async fn delete_experiment(
         ],
         csv,
     ))
+}
+
+// ── PATCH /experiments/:id/columns ───────────────────────────────────────────
+// Actualiza el schema de columnas del experimento (orden, visibilidad, ancho).
+// Solo admins.
+
+#[derive(Deserialize)]
+pub struct UpdateColumnsRequest {
+    pub columns: Value,
+}
+
+pub async fn update_columns(
+    State(pool): State<PgPool>,
+    claims: Claims,
+    Path(exp_id): Path<Uuid>,
+    Json(body): Json<UpdateColumnsRequest>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    require_role(&pool, exp_id, claims.sub, "editor").await?;
+
+    sqlx::query!(
+        "UPDATE experiments SET columns = $1, updated_at = NOW() WHERE id = $2",
+        body.columns,
+        exp_id,
+    )
+    .execute(&pool)
+    .await
+    .map_err(err)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ── Entry values ──────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct EntryValueInput {
+    pub definition_key: String,
+    pub value_numeric:  Option<f64>,
+    pub value_text:     Option<String>,
+    pub value_csv_data: Option<Value>,
+}
+
+#[derive(Serialize)]
+pub struct EntryValueRow {
+    pub id:             Uuid,
+    pub entry_id:       Uuid,
+    pub definition_key: String,
+    pub value_numeric:  Option<f64>,
+    pub value_text:     Option<String>,
+    pub value_csv_data: Option<Value>,
+}
+
+// POST /experiments/:id/events/:eid/values — guardar valores de una entry
+pub async fn save_entry_values(
+    State(pool): State<PgPool>,
+    claims: Claims,
+    Path((exp_id, entry_id)): Path<(Uuid, Uuid)>,
+    Json(values): Json<Vec<EntryValueInput>>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    require_role(&pool, exp_id, claims.sub, "editor").await?;
+
+    for v in &values {
+        sqlx::query!(
+            r#"
+            INSERT INTO experiment_entry_values
+                (entry_id, definition_key, value_numeric, value_text, value_csv_data)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (entry_id, definition_key) DO UPDATE SET
+                value_numeric  = EXCLUDED.value_numeric,
+                value_text     = EXCLUDED.value_text,
+                value_csv_data = EXCLUDED.value_csv_data
+            "#,
+            entry_id,
+            v.definition_key,
+            v.value_numeric,
+            v.value_text,
+            v.value_csv_data,
+        )
+        .execute(&pool)
+        .await
+        .map_err(err)?;
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// GET /experiments/:id/events/:eid/values — obtener valores de una entry
+pub async fn get_entry_values(
+    State(pool): State<PgPool>,
+    claims: Claims,
+    Path((exp_id, entry_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<Vec<EntryValueRow>>, (StatusCode, Json<Value>)> {
+    require_role(&pool, exp_id, claims.sub, "viewer").await?;
+
+    let rows = sqlx::query!(
+        r#"
+        SELECT id AS "id: Uuid", entry_id AS "entry_id: Uuid",
+               definition_key, value_numeric, value_text, value_csv_data
+        FROM experiment_entry_values
+        WHERE entry_id = $1
+        "#,
+        entry_id,
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(err)?;
+
+    Ok(Json(rows.into_iter().map(|r| EntryValueRow {
+        id:             r.id,
+        entry_id:       r.entry_id,
+        definition_key: r.definition_key,
+        value_numeric:  r.value_numeric,
+        value_text:     r.value_text,
+        value_csv_data: r.value_csv_data,
+    }).collect()))
+}
+
+// GET /experiments/:id/values — todos los valores de todas las entries
+// Retorna un map: entry_id → {definition_key → value}
+pub async fn get_all_entry_values(
+    State(pool): State<PgPool>,
+    claims: Claims,
+    Path(exp_id): Path<Uuid>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_role(&pool, exp_id, claims.sub, "viewer").await?;
+
+    let rows = sqlx::query!(
+        r#"
+        SELECT ev.id AS "id: Uuid", ev.entry_id AS "entry_id: Uuid",
+               ev.definition_key, ev.value_numeric, ev.value_text, ev.value_csv_data
+        FROM experiment_entry_values ev
+        JOIN experiment_events e ON e.id = ev.entry_id
+        WHERE e.experiment_id = $1 AND e.is_voided = false
+        ORDER BY e.recorded_at, ev.definition_key
+        "#,
+        exp_id,
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(err)?;
+
+    // Agrupar por entry_id
+    let mut result: serde_json::Map<String, Value> = serde_json::Map::new();
+    for r in &rows {
+        let entry = result
+            .entry(r.entry_id.to_string())
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+        if let Value::Object(map) = entry {
+            let val = if let Some(n) = r.value_numeric {
+                Value::Number(serde_json::Number::from_f64(n).unwrap_or(serde_json::Number::from(0)))
+            } else if let Some(t) = &r.value_text {
+                Value::String(t.clone())
+            } else if let Some(d) = &r.value_csv_data {
+                d.clone()
+            } else {
+                Value::Null
+            };
+            map.insert(r.definition_key.clone(), val);
+        }
+    }
+
+    Ok(Json(Value::Object(result)))
 }
