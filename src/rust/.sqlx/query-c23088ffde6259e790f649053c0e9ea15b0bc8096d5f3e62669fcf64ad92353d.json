@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        INSERT INTO experiment_definitions\n            (experiment_id, key, type, label, payload, sort_order, created_by)\n        VALUES ($1, $2, $3, $4, $5, $6, $7)\n        RETURNING id AS \"id: Uuid\", experiment_id AS \"experiment_id: Uuid\",\n                  key, type AS \"type: String\", label, payload, sort_order, created_at\n        ",
+  "query": "\n        SELECT id AS \"id: Uuid\", experiment_id AS \"experiment_id: Uuid\",\n               key, type AS \"type: String\", label, payload, sort_order,\n               var_type, options, created_at\n        FROM experiment_definitions\n        WHERE experiment_id = $1\n        ORDER BY sort_order, created_at\n        ",
   "describe": {
     "columns": [
       {
@@ -40,18 +40,22 @@
       },
       {
         "ordinal": 7,
+        "name": "var_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "options",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Text",
-        "Text",
-        "Text",
-        "Jsonb",
-        "Int4",
         "Uuid"
       ]
     },
@@ -63,8 +67,10 @@
       false,
       false,
       false,
+      true,
+      true,
       false
     ]
   },
-  "hash": "fc6c5e7fb2425ee1122a54fa199354822c65d75b9526b5603700f8a569c2e0d4"
+  "hash": "c23088ffde6259e790f649053c0e9ea15b0bc8096d5f3e62669fcf64ad92353d"
 }

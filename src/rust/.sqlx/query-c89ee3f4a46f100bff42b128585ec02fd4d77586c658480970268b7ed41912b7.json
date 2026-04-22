@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO experiment_entry_values\n                (entry_id, definition_key, value_numeric, value_text, value_csv_data)\n            VALUES ($1, $2, $3, $4, $5)\n            ON CONFLICT (entry_id, definition_key) DO UPDATE SET\n                value_numeric  = EXCLUDED.value_numeric,\n                value_text     = EXCLUDED.value_text,\n                value_csv_data = EXCLUDED.value_csv_data\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Float8",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c89ee3f4a46f100bff42b128585ec02fd4d77586c658480970268b7ed41912b7"
+}

@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT ev.id AS \"id: Uuid\", ev.entry_id AS \"entry_id: Uuid\",\n               ev.definition_key, ev.value_numeric, ev.value_text, ev.value_csv_data\n        FROM experiment_entry_values ev\n        JOIN experiment_events e ON e.id = ev.entry_id\n        WHERE e.experiment_id = $1 AND e.is_voided = false\n        ORDER BY e.recorded_at, ev.definition_key\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "entry_id: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "definition_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "value_numeric",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 4,
+        "name": "value_text",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "value_csv_data",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "63587898c9bead56d79ff4c4ede2b2b7eea4cbbc524a1975bebcb78665a3440a"
+}

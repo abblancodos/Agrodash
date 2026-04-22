@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        UPDATE experiment_definitions\n        SET label = $1, payload = $2, sort_order = $3, updated_at = NOW()\n        WHERE id = $4 AND experiment_id = $5\n        RETURNING id AS \"id: Uuid\", experiment_id AS \"experiment_id: Uuid\",\n                  key, type AS \"type: String\", label, payload, sort_order, created_at\n        ",
+  "query": "\n        INSERT INTO experiment_definitions\n            (experiment_id, key, type, label, payload, sort_order, created_by, var_type, options)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n        RETURNING id AS \"id: Uuid\", experiment_id AS \"experiment_id: Uuid\",\n                  key, type AS \"type: String\", label, payload, sort_order,\n                  var_type, options, created_at\n        ",
   "describe": {
     "columns": [
       {
@@ -40,17 +40,31 @@
       },
       {
         "ordinal": 7,
+        "name": "var_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "options",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
+        "Uuid",
+        "Text",
+        "Text",
         "Text",
         "Jsonb",
         "Int4",
         "Uuid",
-        "Uuid"
+        "Text",
+        "Jsonb"
       ]
     },
     "nullable": [
@@ -61,8 +75,10 @@
       false,
       false,
       false,
+      true,
+      true,
       false
     ]
   },
-  "hash": "b8dcbf629a47913a2f650dd967ba5baf64d75f9b9a9df903d2c5be01d15a93f2"
+  "hash": "4e135271c0d0b7027b644527b105983f54bac5714954215c0e16e123cf479d7d"
 }

@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id AS \"id: Uuid\", entry_id AS \"entry_id: Uuid\",\n               definition_key, value_numeric, value_text, value_csv_data\n        FROM experiment_entry_values\n        WHERE entry_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "entry_id: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "definition_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "value_numeric",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 4,
+        "name": "value_text",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "value_csv_data",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "fb56aacf7346af96cc4006994923193c2e33d5d97f96af3677a4da112635bc41"
+}
