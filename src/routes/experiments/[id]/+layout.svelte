@@ -3,31 +3,37 @@
   import { onMount, onDestroy } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { auth, isLoggedIn } from '$lib/stores/auth';
+  import { auth } from '$lib/stores/auth';
   import { experimentStore } from '$lib/stores/experiment';
 
   let { children } = $props();
 
   const id = $derived($page.params.id);
   let pollInterval: ReturnType<typeof setInterval> | null = null;
+  let ready = $state(false);
 
   onMount(async () => {
+    // Primero inicializar auth, luego cargar el experimento
     await auth.init();
     await experimentStore.load(id);
 
-    // Si el experimento no existe → 404
-    if (!$experimentStore.experiment && !$experimentStore.loading) {
+    const exp = $experimentStore.experiment;
+
+    // Si no existe → volver
+    if (!exp && !$experimentStore.loading) {
       goto('/experiments');
       return;
     }
 
-    // Si no es público y no está loggeado → redirigir
-    if (!$experimentStore.experiment?.public && !$isLoggedIn) {
+    // Si no es público y no tiene rol → sin acceso
+    if (exp && !exp.public && !exp.user_role) {
       goto('/experiments');
       return;
     }
 
-    // Polling de eventos cada 30s para detectar conflictos
+    ready = true;
+
+    // Polling cada 30s para detectar conflictos
     pollInterval = setInterval(() => {
       experimentStore.reloadEvents(id);
     }, 30_000);
@@ -39,7 +45,7 @@
   });
 </script>
 
-{#if $experimentStore.loading}
+{#if $experimentStore.loading || !ready}
   <div class="loading-shell">
     <div class="spinner"></div>
     <span>cargando experimento...</span>
