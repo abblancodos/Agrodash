@@ -14,7 +14,7 @@
 //   GITEA_URL           — URL base del Gitea, ej: https://git.nm.35-208-114-233.nip.io
 //   GITEA_CLIENT_ID     — Client ID del OAuth2 app en Gitea
 //   GITEA_CLIENT_SECRET — Client Secret del OAuth2 app en Gitea
-//   APP_URL             — URL base del frontend, ej: https://agrodash.nm.35-208-114-233.nip.io
+//   APP_URL             — URL base de la app (frontend + API en mismo dominio)
 
 use axum::{
     extract::{Query, State},
@@ -41,9 +41,9 @@ fn app_url() -> String {
         .unwrap_or_else(|_| "https://agrodash.nm.35-208-114-233.nip.io".into())
 }
 fn redirect_uri() -> String {
-    let api = std::env::var("API_URL")
-        .unwrap_or_else(|_| "https://api-agrodash.nm.35-208-114-233.nip.io".into());
-    format!("{}/api/v1/auth/gitea/callback", api)
+    let base = std::env::var("APP_URL")
+        .unwrap_or_else(|_| "https://agrodash.nm.35-208-114-233.nip.io".into());
+    format!("{}/api/v1/auth/gitea/callback", base)
 }
 
 fn url_encode(s: &str) -> String {

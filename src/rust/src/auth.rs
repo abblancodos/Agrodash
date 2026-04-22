@@ -70,6 +70,7 @@ pub fn decode_token(token: &str) -> Result<Claims, jsonwebtoken::errors::Error> 
 /// Crea una cookie de sesión HttpOnly/Secure/SameSite=Lax con el JWT.
 pub fn session_cookie(token: String) -> Cookie<'static> {
     let secure = std::env::var("COOKIE_SECURE").unwrap_or_else(|_| "true".into()) != "false";
+    // Frontend y API en el mismo dominio — SameSite::Lax es suficiente
     Cookie::build((COOKIE_NAME, token))
         .http_only(true)
         .secure(secure)
