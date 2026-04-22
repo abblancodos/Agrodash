@@ -7,7 +7,7 @@
   import SensorChart from './SensorChart.svelte';
   import CsvDownloadMenu from './CsvDownloadMenu.svelte';
 
-  // ── Props ──────────────────────────────────────────────────────────────────
+  // ── Props ───────────────────────────────────────────────────────
 
   interface Props {
     box: Box;
