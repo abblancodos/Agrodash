@@ -4,12 +4,14 @@
   import ScriptEditor from './ScriptEditor.svelte';
 
   let { type, onClose }:
-    { type: 'expression' | 'objective' | 'step' | 'collaborator' | 'csv_schema'; onClose: () => void } = $props();
+    { type: 'variable' | 'expression' | 'objective' | 'step' | 'collaborator' | 'csv_schema'; onClose: () => void } = $props();
 
   const API = import.meta.env.VITE_API_BASE ?? '';
 
   let key = $state(''); let label = $state('');
   let formula = $state(''); let unit = $state(''); let comment = $state('');
+  let varType = $state<'numeric'|'vector_csv'|'text'|'qualitative'>('numeric');
+  let qualOptions = $state('');
   let script = $state('');
   // objective
   let condType = $state<'range' | 'expression'>('range');
