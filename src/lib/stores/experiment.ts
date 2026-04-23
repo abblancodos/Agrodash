@@ -148,7 +148,7 @@ function createExperimentStore() {
             fetchJson(`/api/v1/experiments/${id}/definitions`),
             fetchJson(`/api/v1/experiments/${id}/objectives`),
             fetchJson(`/api/v1/experiments/${id}/collaborators`).catch(() => []),
-            fetchJson(`/api/v1/experiments/${id}/values`).catch(() => ({})),
+            fetchJson(`/api/v1/experiments/${id}/values`).catch(() => ({})).then(v => v ?? {}),
           ]);
 
         // Calcular user_role si no viene del experimento
