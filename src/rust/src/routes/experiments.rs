@@ -429,8 +429,8 @@ pub async fn create_event(
         EventRow,
         r#"
         INSERT INTO experiment_events
-            (experiment_id, step_key, event_type, soil_id, iteration, data, note, recorded_at, group_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            (experiment_id, step_key, event_type, soil_id, iteration, data, note, recorded_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id AS "id: Uuid", experiment_id AS "experiment_id: Uuid",
                   step_key, event_type, soil_id, iteration, data, note, recorded_at
         "#,

@@ -14,7 +14,7 @@ use serde_json::Value;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::auth::Claims;
+use crate::auth::{Claims, OptionalClaims};
 
 fn err(msg: impl ToString) -> (StatusCode, Json<Value>) {
     (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": msg.to_string() })))
@@ -1018,15 +1018,8 @@ pub struct UpdateGroupRequest {
 // GET /experiments/:id/groups
 pub async fn list_groups(
     State(pool): State<PgPool>,
-    OptionalClaims(claims): OptionalClaims,
     Path(exp_id): Path<Uuid>,
 ) -> Result<Json<Vec<DefinitionGroupRow>>, (StatusCode, Json<Value>)> {
-    require_role(&pool, exp_id, claims.map(|c| c.sub).unwrap_or(Uuid::nil()), "viewer").await
-        .or_else(|_| {
-            // Allow if experiment is public
-            Ok(())
-        })?;
-
     let rows = sqlx::query_as!(
         DefinitionGroupRow,
         r#"SELECT id AS "id: Uuid", experiment_id AS "experiment_id: Uuid",
