@@ -4,6 +4,68 @@
   import AddDefinitionMenu from './AddDefinitionMenu.svelte';
   import ScriptEditor from './ScriptEditor.svelte';
   import DangerZone from '$lib/components/experiments/DangerZone.svelte';
+  import SymbolPicker from './SymbolPicker.svelte';
+
+  let editingId = $state<string | null>(null);
+  let editLabel = $state('');
+  let editUnit = $state('');
+  let editValue = $state('');
+  let editFormula = $state('');
+  let editComment = $state('');
+  let editSaving = $state(false);
+  let editError = $state('');
+  let editFormulaEl = $state<HTMLInputElement | null>(null);
+  let showEditPicker = $state(false);
+
+  function insertEditKey(key: string) {
+    if (!editFormulaEl) { editFormula += key; return; }
+    const start = editFormulaEl.selectionStart ?? editFormula.length;
+    const end = editFormulaEl.selectionEnd ?? editFormula.length;
+    editFormula = editFormula.slice(0, start) + key + editFormula.slice(end);
+    showEditPicker = false;
+    setTimeout(() => {
+      editFormulaEl?.focus();
+      editFormulaEl?.setSelectionRange(start + key.length, start + key.length);
+    }, 10);
+  }
+
+  function startEdit(def: any) {
+    editingId = def.id;
+    editLabel = def.label;
+    editUnit = def.payload?.unit ?? '';
+    editValue = def.payload?.value?.toString() ?? '';
+    editFormula = def.payload?.formula ?? '';
+    editComment = def.payload?.comment ?? '';
+    editError = '';
+  }
+
+  function cancelEdit() {
+    editingId = null;
+    editError = '';
+  }
+
+  async function saveEdit(def: any) {
+    editSaving = true; editError = '';
+    try {
+      const payload = def.type === 'constant'
+        ? { value: parseFloat(editValue) || 0, unit: editUnit, comment: editComment }
+        : def.type === 'expression'
+        ? { formula: editFormula, unit: editUnit, comment: editComment }
+        : { ...def.payload, unit: editUnit, comment: editComment };
+
+      const res = await fetch(`${API}/api/v1/experiments/${exp.id}/definitions/${def.id}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: editLabel, payload, sort_order: def.sort_order }),
+      });
+      const data = await res.json();
+      if (!res.ok) { editError = data.error ?? 'Error'; return; }
+      experimentStore.updateDefinition(data);
+      editingId = null;
+    } catch (e: any) { editError = e.message; }
+    finally { editSaving = false; }
+  }
 
   let { onDeleted }: { onDeleted: () => void } = $props();
 
@@ -16,6 +78,7 @@
   const colls= $derived($experimentStore.collaborators);
   const exp  = $derived($experimentStore.experiment!);
 
+  const variables   = $derived(defs.filter(d => d.type === 'variable'));
   const constants   = $derived(defs.filter(d => d.type === 'constant'));
   const expressions = $derived(defs.filter(d => d.type === 'expression'));
   const steps       = $derived(defs.filter(d => d.type === 'step'));
@@ -24,18 +87,16 @@
   const isEmpty = $derived(defs.length === 0 && objs.length === 0 && colls.length === 0);
 
   async function deleteDef(id: string) {
-    const token = auth.getToken();
-    await fetch(`${API}/api/v1/experiments/${exp.id}/definitions/${id}`, {
-      method: 'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+        await fetch(`${API}/api/v1/experiments/${exp.id}/definitions/${id}`, {
+        credentials: 'include',
+      method: 'DELETE',     });
     experimentStore.removeDefinition(id);
   }
 
   async function deleteObj(id: string) {
-    const token = auth.getToken();
-    await fetch(`${API}/api/v1/experiments/${exp.id}/objectives/${id}`, {
-      method: 'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+        await fetch(`${API}/api/v1/experiments/${exp.id}/objectives/${id}`, {
+        credentials: 'include',
+      method: 'DELETE',     });
     experimentStore.removeObjective(id);
   }
 </script>
@@ -259,4 +320,40 @@
 
   .btn-del { background: none; border: none; cursor: pointer; font-size: calc(11px * var(--font-scale)); color: var(--text-muted); padding: 2px 4px; margin-left: auto; }
   .btn-del:hover { color: #A32D2D; }
+
+  .def-type-badge { font-size: calc(10px * var(--font-scale)); padding: 1px 6px; border-radius: 20px; }
+  .def-type-badge--variable { background: #EAF3DE; color: #3B6D11; }
+  .edit-form { display: flex; flex-direction: column; gap: 8px; padding: 8px; background: var(--bg-elevated); border-radius: 6px; }
+  .edit-err { font-size: calc(11px * var(--font-scale)); color: var(--error-color); }
+  .edit-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .edit-field { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 120px; }
+  .edit-field--sm { flex: 0 0 80px; }
+  .edit-field label { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); }
+  .edit-field input { padding: 4px 8px; border: 0.5px solid var(--border-default); border-radius: 4px; font-size: calc(12px * var(--font-scale)); background: var(--bg-surface); color: var(--text-primary); outline: none; }
+  .input-row { display: flex; gap: 4px; align-items: center; }
+  .input-row input { flex: 1; }
+  .edit-actions { display: flex; justify-content: flex-end; gap: 6px; }
+  .btn-edit-cancel { font-size: calc(12px * var(--font-scale)); color: var(--text-muted); background: none; border: none; cursor: pointer; padding: 4px 8px; }
+  .btn-edit-save { font-size: calc(12px * var(--font-scale)); padding: 4px 12px; background: var(--text-primary); color: var(--bg-surface); border: none; border-radius: 4px; cursor: pointer; }
+  .btn-edit-save:disabled { opacity: 0.5; }
+  .btn-def-edit { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); background: none; border: 0.5px solid var(--border-subtle); border-radius: 4px; cursor: pointer; padding: 2px 8px; }
+  .btn-def-edit:hover { color: var(--text-primary); border-color: var(--border-default); }
+
+  .formula-autocomplete { position: relative; }
+  .formula-autocomplete input { width: 100%; }
+  .autocomplete-panel {
+    position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 50;
+    background: var(--bg-surface); border: 0.5px solid var(--border-default);
+    border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    max-height: 180px; overflow-y: auto; padding: 3px;
+  }
+  .ac-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 7px; border: none; background: none; cursor: pointer; border-radius: 4px; text-align: left; }
+  .ac-item:hover { background: var(--interactive-hover); }
+  .ac-type { font-size: calc(11px * var(--font-scale)); width: 14px; text-align: center; font-family: 'DM Mono', monospace; }
+  .ac-type--variable { color: #3B6D11; }
+  .ac-type--constant { color: #92400E; }
+  .ac-type--expression { color: #3C3489; }
+  .ac-key { font-size: calc(11px * var(--font-scale)); color: var(--text-primary); min-width: 80px; font-family: 'DM Mono', monospace; }
+  .ac-label { font-size: calc(11px * var(--font-scale)); color: var(--text-secondary); flex: 1; }
+  .ac-val { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; }
 </style>

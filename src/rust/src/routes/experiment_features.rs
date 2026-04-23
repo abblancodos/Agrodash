@@ -406,9 +406,7 @@ pub async fn create_definition(
 ) -> Result<Json<DefinitionRow>, (StatusCode, Json<Value>)> {
     require_role(&pool, exp_id, claims.sub, "editor").await?;
 
-    if !["constant", "expression", "step", "csv_schema", "variable"].contains(&body.r#type.as_str()) {
-        return Err(bad("type debe ser constant, expression, step, variable o csv_schema"));
-    }
+    // type check handled by DB — no hardcoded list here
     if body.key.is_empty() || body.label.is_empty() {
         return Err(bad("key y label son requeridos"));
     }

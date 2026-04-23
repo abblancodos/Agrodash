@@ -36,14 +36,11 @@
   <div class="form-hint">Valor fijo que no cambia durante el experimento. Ej: masa de sólidos, volumen de referencia.</div>
   {#if error}<div class="err">{error}</div>{/if}
   <div class="field">
-    <label>key (identificador)</label>
-    <div class="input-row">
-      <input class="mono" bind:value={key} placeholder="M_solidos" />
-      <SymbolPicker onPick={(s) => key += s} />
-    </div>
+    <label>key <span class="field-hint">identificador único, solo letras/números/guión bajo, sin espacios ni símbolos</span></label>
+    <input class="mono" bind:value={key} placeholder="M_solidos" />
   </div>
   <div class="field">
-    <label>label (para el usuario)</label>
+    <label>nombre <span class="field-hint">nombre legible, puede tener símbolos y tildes</span></label>
     <div class="input-row">
       <input bind:value={label} placeholder="Masa de sólidos" />
       <SymbolPicker onPick={(s) => label += s} />
@@ -51,7 +48,13 @@
   </div>
   <div class="field row">
     <div class="field-grow"><label>valor numérico</label><input class="mono" bind:value={value} inputmode="decimal" placeholder="8033.7" /></div>
-    <div class="field-unit"><label>unidad</label><input bind:value={unit} placeholder="g" /></div>
+    <div class="field-unit">
+      <label>unidad</label>
+      <div class="input-row">
+        <input bind:value={unit} placeholder="g" />
+        <SymbolPicker onPick={(s) => unit += s} />
+      </div>
+    </div>
   </div>
   <div class="field"><label>comentario <span class="muted">(recomendado)</span></label><textarea rows="2" bind:value={comment} placeholder="Ej: Pesaje realizado el 15 abr con suelo seco al aire"></textarea></div>
   <div class="btn-row">
@@ -71,6 +74,7 @@
 .field-grow { flex: 1; display: flex; flex-direction: column; gap: 4px; }
 .field-unit { width: 80px; display: flex; flex-direction: column; gap: 4px; }
 .muted { color: var(--text-muted); }
+.field-hint { font-size: calc(10px * var(--font-scale)); color: var(--text-muted); font-weight: 400; display: block; margin-top: 1px; }
 .input-row { display: flex; gap: 6px; align-items: center; }
 .input-row input { flex: 1; }
 input, textarea, select {

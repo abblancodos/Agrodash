@@ -13,6 +13,29 @@
   let formula = $state(''); let unit = $state(''); let comment = $state('');
   let varType = $state<'numeric'|'vector_csv'|'text'|'qualitative'>('numeric');
   let qualOptions = $state('');
+  let formulaEl = $state<HTMLInputElement | null>(null);
+  let showDefPicker = $state(false);
+
+  // Insertar key en la fórmula en la posición del cursor
+  function insertKey(key: string) {
+    if (!formulaEl) { formula += key; return; }
+    const start = formulaEl.selectionStart ?? formula.length;
+    const end = formulaEl.selectionEnd ?? formula.length;
+    formula = formula.slice(0, start) + key + formula.slice(end);
+    showDefPicker = false;
+    // Restaurar foco y cursor después del texto insertado
+    setTimeout(() => {
+      formulaEl?.focus();
+      formulaEl?.setSelectionRange(start + key.length, start + key.length);
+    }, 10);
+  }
+
+  // Definitions disponibles para el picker
+  const pickerDefs = $derived([
+    ...$experimentStore.definitions.filter(d => d.type === 'variable'),
+    ...$experimentStore.definitions.filter(d => d.type === 'constant'),
+    ...$experimentStore.definitions.filter(d => d.type === 'expression'),
+  ]);
   let script = $state('');
   // objective
   let condType = $state<'range' | 'expression'>('range');
@@ -130,14 +153,62 @@
 
   {#if type === 'expression'}
     <h3 class="form-title">nueva expresión</h3>
-    <div class="form-hint">Cálculo automático a partir de constantes, otras expresiones o variables de entries. Ej: <code>(masa - M_solidos) / V_suelo</code></div>
-    <div class="field"><label for="df-key">key</label><input id="df-key" class="mono" bind:value={key} placeholder="theta_grav" /></div>
-    <div class="field"><label for="df-label">label</label><input id="df-label" bind:value={label} placeholder="θ gravimétrico" /></div>
-    <div class="field"><label for="df-formula">fórmula</label><input id="df-formula" class="mono" bind:value={formula} placeholder="(masa_pesaje - M_solidos) / V_suelo" /></div>
-    <div class="field row">
-      <div class="field-grow"><label for="df-unit">unidad</label><input id="df-unit" bind:value={unit} placeholder="m³/m³" /></div>
+    <div class="form-hint">Cálculo automático a partir de constantes y variables. Operadores: <code>+ - * / ^ ( )</code></div>
+    <div class="field">
+      <label for="ef-key">key <span class="field-hint">solo letras/números/guión bajo — se usa en otras expresiones</span></label>
+      <input id="ef-key" class="mono" bind:value={key} placeholder="theta_grav" />
     </div>
-    <div class="field"><label for="df-comment">comentario</label><textarea id="df-comment" rows="2" bind:value={comment}></textarea></div>
+    <div class="field">
+      <label for="ef-label">nombre <span class="field-hint">nombre legible, puede tener símbolos como θ</span></label>
+      <div class="input-row">
+        <input id="ef-label" bind:value={label} placeholder="θ gravimétrico" />
+        <SymbolPicker onPick={(s) => label += s} />
+      </div>
+    </div>
+    <div class="field formula-field">
+      <label for="ef-formula">fórmula <span class="field-hint">hacé clic para ver variables y constantes disponibles</span></label>
+      <div class="formula-autocomplete">
+        <input id="ef-formula" class="mono" bind:this={formulaEl} bind:value={formula}
+               placeholder="(masa_pesaje - M_solidos) / V_suelo"
+               onfocus={() => showDefPicker = true}
+               oninput={() => showDefPicker = true}
+               onblur={() => setTimeout(() => showDefPicker = false, 150)} />
+        {#if showDefPicker && pickerDefs.length > 0}
+          {@const word = (() => {
+            const pos = formulaEl?.selectionStart ?? formula.length;
+            const m = formula.slice(0, pos).match(/[a-zA-Z_][a-zA-Z0-9_]*$/);
+            return m ? m[0].toLowerCase() : '';
+          })()}
+          {@const filtered = word.length >= 1
+            ? pickerDefs.filter(d => d.key.toLowerCase().includes(word) || d.label.toLowerCase().includes(word))
+            : pickerDefs}
+          {#if filtered.length > 0}
+            <div class="autocomplete-panel">
+              {#each filtered as def}
+                <button class="ac-item" type="button"
+                        onmousedown={(e) => { e.preventDefault(); insertKey(def.key); }}>
+                  <span class="ac-type ac-type--{def.type}">{def.type === 'variable' ? 'χ' : def.type === 'constant' ? 'C' : 'ƒ'}</span>
+                  <span class="ac-key mono">{def.key}</span>
+                  <span class="ac-label">{def.label}</span>
+                  {#if def.payload?.value !== undefined}<span class="ac-val mono">{def.payload.value}</span>{/if}
+                  {#if def.payload?.unit}<span class="ac-unit">{def.payload.unit}</span>{/if}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        {/if}
+      </div>
+    </div>
+    <div class="field row">
+      <div class="field-grow">
+        <label for="ef-unit">unidad <span class="field-hint">opcional</span></label>
+        <div class="input-row">
+          <input id="ef-unit" bind:value={unit} placeholder="%" />
+          <SymbolPicker onPick={(s) => unit += s} />
+        </div>
+      </div>
+    </div>
+    <div class="field"><label for="ef-comment">comentario</label><textarea id="ef-comment" rows="2" bind:value={comment}></textarea></div>
 
   {:else if type === 'objective'}
     <h3 class="form-title">nuevo objetivo</h3>
@@ -176,14 +247,11 @@
     <h3 class="form-title">nueva variable</h3>
     <div class="form-hint">Dato que el usuario introduce en cada entry.</div>
     <div class="field">
-      <label for="df-key">key</label>
-      <div class="input-row">
-        <input id="df-key" class="mono" bind:value={key} placeholder="masa_maceta" />
-        <SymbolPicker onPick={(s) => key += s} />
-      </div>
+      <label for="df-key">key <span class="field-hint">solo letras/números/guión bajo — se usa en expresiones</span></label>
+      <input id="df-key" class="mono" bind:value={key} placeholder="masa_maceta" />
     </div>
     <div class="field">
-      <label for="df-label">label</label>
+      <label for="df-label">nombre <span class="field-hint">nombre legible, puede tener símbolos</span></label>
       <div class="input-row">
         <input id="df-label" bind:value={label} placeholder="Masa maceta + suelo" />
         <SymbolPicker onPick={(s) => label += s} />
@@ -200,7 +268,13 @@
     </div>
     {#if varType === 'numeric'}
       <div class="field row">
-        <div class="field-grow"><label for="df-unit">unidad</label><input id="df-unit" bind:value={unit} placeholder="g" /></div>
+        <div class="field-grow">
+          <label for="df-unit">unidad <span class="field-hint">opcional, puede tener símbolos</span></label>
+          <div class="input-row">
+            <input id="df-unit" bind:value={unit} placeholder="g" />
+            <SymbolPicker onPick={(s) => unit += s} />
+          </div>
+        </div>
       </div>
     {:else if varType === 'qualitative'}
       <div class="field">
@@ -286,6 +360,7 @@
 <style>
   .input-row { display: flex; gap: 6px; align-items: center; }
 .input-row input { flex: 1; }
+.field-hint { font-size: calc(10px * var(--font-scale)); color: var(--text-muted); font-weight: 400; display: block; margin-top: 1px; }
 .form-section { display: flex; flex-direction: column; gap: calc(12px * var(--font-scale)); }
 .form-title { font-size: calc(14px * var(--font-scale)); font-weight: 500; color: var(--text-primary); margin-bottom: 2px; }
 .form-hint { font-size: calc(12px * var(--font-scale)); color: var(--text-muted); line-height: 1.5; }
@@ -321,4 +396,32 @@ textarea { resize: vertical; }
   .result-name { font-size: calc(13px * var(--font-scale)); color: var(--text-primary); }
   .result-email { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); }
   code { font-family: 'DM Mono', monospace; font-size: calc(11px * var(--font-scale)); background: var(--bg-elevated); padding: 1px 4px; border-radius: 3px; }
+
+  .formula-autocomplete { position: relative; }
+  .formula-autocomplete input { width: 100%; }
+  .autocomplete-panel {
+    position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+    z-index: 50;
+    background: var(--bg-surface);
+    border: 0.5px solid var(--border-default);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    max-height: 220px; overflow-y: auto;
+    padding: 4px;
+  }
+  .ac-item {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 6px 8px;
+    border: none; background: none; cursor: pointer;
+    border-radius: 4px; text-align: left;
+  }
+  .ac-item:hover { background: var(--interactive-hover); }
+  .ac-type { font-size: calc(11px * var(--font-scale)); width: 16px; text-align: center; font-family: 'DM Mono', monospace; }
+  .ac-type--variable { color: #3B6D11; }
+  .ac-type--constant { color: #92400E; }
+  .ac-type--expression { color: #3C3489; }
+  .ac-key { font-size: calc(12px * var(--font-scale)); color: var(--text-primary); min-width: 100px; }
+  .ac-label { font-size: calc(11px * var(--font-scale)); color: var(--text-secondary); flex: 1; }
+  .ac-val { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); }
+  .ac-unit { font-size: calc(10px * var(--font-scale)); color: var(--text-muted); }
 </style>
