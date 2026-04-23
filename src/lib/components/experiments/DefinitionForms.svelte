@@ -174,13 +174,16 @@
                oninput={() => showDefPicker = true}
                onblur={() => setTimeout(() => showDefPicker = false, 150)} />
         {#if showDefPicker && pickerDefs.length > 0}
-          {@const word = (() => {
-            const pos = formulaEl?.selectionStart ?? formula.length;
-            const m = formula.slice(0, pos).match(/[a-zA-Z_][a-zA-Z0-9_]*$/);
-            return m ? m[0].toLowerCase() : '';
-          })()}
-          {@const filtered = word.length >= 1
-            ? pickerDefs.filter(d => d.key.toLowerCase().includes(word) || d.label.toLowerCase().includes(word))
+          {@const filtered = formula.length >= 1
+            ? (() => {
+                const pos = formulaEl?.selectionStart ?? formula.length;
+                const before = formula.slice(0, pos);
+                const m = before.match(/[a-zA-Z_][a-zA-Z0-9_]*$/);
+                const word = m ? m[0].toLowerCase() : '';
+                return word.length >= 2
+                  ? pickerDefs.filter(d => d.key.toLowerCase().includes(word) || d.label.toLowerCase().includes(word))
+                  : pickerDefs;
+              })()
             : pickerDefs}
           {#if filtered.length > 0}
             <div class="autocomplete-panel">
