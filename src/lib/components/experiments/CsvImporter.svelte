@@ -402,34 +402,34 @@
           </div>
           <div class="config-fields">
             <div class="cfg-field">
-              <label>key</label>
+              <label for="cfg-key-{i}">key</label>
               <div class="input-row">
-                <input class="mono" bind:value={colConfigs[idx].key} placeholder="masa_maceta" />
+                <input id="cfg-key-{i}" class="mono" bind:value={colConfigs[idx].key} placeholder="masa_maceta" />
                 <SymbolPicker onPick={(s) => colConfigs[idx].key += s} />
               </div>
             </div>
             <div class="cfg-field">
-              <label>label</label>
+              <label for="cfg-label-{i}">nombre</label>
               <div class="input-row">
-                <input bind:value={colConfigs[idx].label} placeholder="Masa maceta" />
+                <input id="cfg-label-{i}" bind:value={colConfigs[idx].label} placeholder="Masa maceta" />
                 <SymbolPicker onPick={(s) => colConfigs[idx].label += s} />
               </div>
             </div>
             {#if cfg.role !== 'variable_qualitative' && cfg.role !== 'variable_text'}
               <div class="cfg-field cfg-field--sm">
-                <label>unidad</label>
-                <input bind:value={colConfigs[idx].unit} placeholder="g" />
+                <label for="cfg-unit-{i}">unidad</label>
+                <input id="cfg-unit-{i}" bind:value={colConfigs[idx].unit} placeholder="g" />
               </div>
             {/if}
             {#if cfg.role === 'constant'}
               <div class="cfg-field cfg-field--sm">
-                <label>valor</label>
-                <input class="mono" bind:value={colConfigs[idx].constValue} placeholder="8033.7" inputmode="decimal" />
+                <label for="cfg-val-{i}">valor</label>
+                <input id="cfg-val-{i}" class="mono" bind:value={colConfigs[idx].constValue} placeholder="8033.7" inputmode="decimal" />
               </div>
             {/if}
             {#if cfg.role === 'variable_qualitative' && cfg.detectedOptions.length > 0}
               <div class="cfg-field">
-                <label>opciones detectadas</label>
+                <span class="cfg-label-text">opciones detectadas</span>
                 <div class="opt-chips">
                   {#each cfg.detectedOptions as opt}
                     <span class="opt-chip">{opt}</span>

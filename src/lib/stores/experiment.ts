@@ -325,7 +325,8 @@ export const constantsMap = derived(experimentStore, $s => {
 });
 
 // Rol del usuario actual
-export const userRole = derived(experimentStore, $s =>
+export const groups      = derived(experimentStore, $s => $s.groups);
+export const userRole    = derived(experimentStore, $s =>
   $s.experiment?.user_role ?? null
 );
 

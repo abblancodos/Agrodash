@@ -377,7 +377,7 @@ input, textarea, select {
   font-size: calc(13px * var(--font-scale)); background: var(--bg-surface);
   color: var(--text-primary); outline: none; font-family: inherit;
 }
-input.mono, textarea.mono { font-family: 'DM Mono', monospace; }
+input.mono { font-family: 'DM Mono', monospace; }
 textarea { resize: vertical; }
 .btn-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .btn-cancel { font-size: calc(13px * var(--font-scale)); color: var(--text-secondary); background: none; border: none; cursor: pointer; padding: 6px 12px; }

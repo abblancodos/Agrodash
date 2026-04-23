@@ -375,10 +375,10 @@
   .edit-row { display: flex; gap: 8px; flex-wrap: wrap; }
   .edit-field { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 120px; }
   .edit-field--sm { flex: 0 0 80px; }
-  .edit-field label { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); }
-  .edit-field input { padding: 4px 8px; border: 0.5px solid var(--border-default); border-radius: 4px; font-size: calc(12px * var(--font-scale)); background: var(--bg-surface); color: var(--text-primary); outline: none; }
+  :global(.edit-field label) { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); }
+  :global(.edit-field input) { padding: 4px 8px; border: 0.5px solid var(--border-default); border-radius: 4px; font-size: calc(12px * var(--font-scale)); background: var(--bg-surface); color: var(--text-primary); outline: none; }
   .input-row { display: flex; gap: 4px; align-items: center; }
-  .input-row input { flex: 1; }
+  :global(.input-row input) { flex: 1; }
   .edit-actions { display: flex; justify-content: flex-end; gap: 6px; }
   .btn-edit-cancel { font-size: calc(12px * var(--font-scale)); color: var(--text-muted); background: none; border: none; cursor: pointer; padding: 4px 8px; }
   .btn-edit-save { font-size: calc(12px * var(--font-scale)); padding: 4px 12px; background: var(--text-primary); color: var(--bg-surface); border: none; border-radius: 4px; cursor: pointer; }
@@ -387,7 +387,7 @@
   .btn-def-edit:hover { color: var(--text-primary); border-color: var(--border-default); }
 
   .formula-autocomplete { position: relative; }
-  .formula-autocomplete input { width: 100%; }
+  :global(.formula-autocomplete input) { width: 100%; }
   .autocomplete-panel {
     position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 50;
     background: var(--bg-surface); border: 0.5px solid var(--border-default);
@@ -410,7 +410,7 @@
   .btn-new-group { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); background: none; border: 0.5px dashed var(--border-default); border-radius: 4px; cursor: pointer; padding: 2px 8px; }
   .btn-new-group:hover { color: var(--text-primary); border-color: var(--text-muted); }
   .new-group-form { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--bg-elevated); border-radius: 8px; border: 0.5px solid var(--border-subtle); }
-  .new-group-form input { padding: 6px 10px; border: 0.5px solid var(--border-default); border-radius: 4px; font-size: calc(13px * var(--font-scale)); background: var(--bg-surface); color: var(--text-primary); outline: none; }
+  :global(.new-group-form input) { padding: 6px 10px; border: 0.5px solid var(--border-default); border-radius: 4px; font-size: calc(13px * var(--font-scale)); background: var(--bg-surface); color: var(--text-primary); outline: none; }
   .color-picker { display: flex; gap: 6px; }
   .color-swatch { width: 20px; height: 20px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
   .color-swatch.selected { border-color: var(--text-primary); }

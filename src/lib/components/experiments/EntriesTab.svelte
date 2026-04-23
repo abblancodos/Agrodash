@@ -293,7 +293,7 @@
 
   {#if showImporter}
     <div class="overlay" onclick={() => showImporter = false} role="presentation">
-      <div class="import-panel" onclick={(e) => e.stopPropagation()} role="dialog">
+      <div class="import-panel" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === "Escape" && (showImporter = false)}>
         <div class="import-head">
           <span>importar entries desde CSV</span>
           <button class="btn-close-imp" onclick={() => showImporter = false}>✕</button>
@@ -362,7 +362,7 @@
   .entry-actions { display: flex; gap: 8px; align-items: center; }
   .btn-add-row { display: flex; align-items: center; gap: 6px; padding: calc(7px * var(--font-scale)) calc(14px * var(--font-scale)); border: 0.5px dashed var(--border-default); border-radius: 6px; background: none; cursor: pointer; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
   .btn-add-row:hover { border-color: var(--text-muted); color: var(--text-primary); }
-  .group-chip { font-size: calc(11px * var(--font-scale)); padding: 2px 8px; border-radius: 20px; font-weight: 500; }
+  :global(.group-chip) { font-size: calc(11px * var(--font-scale)); padding: 2px 8px; border-radius: 20px; font-weight: 500; }
   .btn-import { display: flex; align-items: center; gap: 6px; padding: calc(7px * var(--font-scale)) calc(14px * var(--font-scale)); border: 0.5px solid var(--border-default); border-radius: 6px; background: none; cursor: pointer; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
   .btn-import:hover { background: var(--interactive-hover); color: var(--text-primary); }
   .overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; padding: 20px; }

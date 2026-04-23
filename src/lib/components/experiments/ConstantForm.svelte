@@ -36,27 +36,27 @@
   <div class="form-hint">Valor fijo que no cambia durante el experimento. Ej: masa de sólidos, volumen de referencia.</div>
   {#if error}<div class="err">{error}</div>{/if}
   <div class="field">
-    <label>key <span class="field-hint">identificador único, solo letras/números/guión bajo, sin espacios ni símbolos</span></label>
-    <input class="mono" bind:value={key} placeholder="M_solidos" />
+    <label for="cf-key">key <span class="field-hint">identificador único, solo letras/números/guión bajo, sin espacios ni símbolos</span></label>
+    <input id="cf-key" class="mono" bind:value={key} placeholder="M_solidos" />
   </div>
   <div class="field">
-    <label>nombre <span class="field-hint">nombre legible, puede tener símbolos y tildes</span></label>
+    <label for="cf-label">nombre <span class="field-hint">nombre legible, puede tener símbolos y tildes</span></label>
     <div class="input-row">
-      <input bind:value={label} placeholder="Masa de sólidos" />
+      <input id="cf-label" bind:value={label} placeholder="Masa de sólidos" />
       <SymbolPicker onPick={(s) => label += s} />
     </div>
   </div>
   <div class="field row">
-    <div class="field-grow"><label>valor numérico</label><input class="mono" bind:value={value} inputmode="decimal" placeholder="8033.7" /></div>
+    <div class="field-grow"><label for="cf-value">valor numérico</label><input id="cf-value" class="mono" bind:value={value} inputmode="decimal" placeholder="8033.7" /></div>
     <div class="field-unit">
-      <label>unidad</label>
+      <label for="cf-unit">unidad</label>
       <div class="input-row">
-        <input bind:value={unit} placeholder="g" />
+        <input id="cf-unit" bind:value={unit} placeholder="g" />
         <SymbolPicker onPick={(s) => unit += s} />
       </div>
     </div>
   </div>
-  <div class="field"><label>comentario <span class="muted">(recomendado)</span></label><textarea rows="2" bind:value={comment} placeholder="Ej: Pesaje realizado el 15 abr con suelo seco al aire"></textarea></div>
+  <div class="field"><label for="cf-comment">comentario <span class="muted">(recomendado)</span></label><textarea id="cf-comment" rows="2" bind:value={comment} placeholder="Ej: Pesaje realizado el 15 abr con suelo seco al aire"></textarea></div>
   <div class="btn-row">
     <button class="btn-cancel" onclick={onClose}>cancelar</button>
     <button class="btn-save" disabled={loading} onclick={save}>{loading ? 'guardando...' : 'guardar constante'}</button>
@@ -77,13 +77,13 @@
 .field-hint { font-size: calc(10px * var(--font-scale)); color: var(--text-muted); font-weight: 400; display: block; margin-top: 1px; }
 .input-row { display: flex; gap: 6px; align-items: center; }
 .input-row input { flex: 1; }
-input, textarea, select {
+input, textarea {
   padding: calc(7px * var(--font-scale)) calc(10px * var(--font-scale));
   border: 0.5px solid var(--border-default); border-radius: 6px;
   font-size: calc(13px * var(--font-scale)); background: var(--bg-surface);
   color: var(--text-primary); outline: none; font-family: inherit;
 }
-input.mono, textarea.mono { font-family: 'DM Mono', monospace; }
+input.mono { font-family: 'DM Mono', monospace; }
 textarea { resize: vertical; }
 .btn-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .btn-cancel { font-size: calc(13px * var(--font-scale)); color: var(--text-secondary); background: none; border: none; cursor: pointer; padding: 6px 12px; }
