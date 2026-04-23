@@ -2,6 +2,7 @@
 <script lang="ts">
   import { experimentStore } from '$lib/stores/experiment';
   import { auth } from '$lib/stores/auth';
+  import SymbolPicker from './SymbolPicker.svelte';
 
   let { onClose }: { onClose: () => void } = $props();
   const API = import.meta.env.VITE_API_BASE ?? '';
@@ -34,8 +35,20 @@
   <h3 class="form-title">nueva constante</h3>
   <div class="form-hint">Valor fijo que no cambia durante el experimento. Ej: masa de sólidos, volumen de referencia.</div>
   {#if error}<div class="err">{error}</div>{/if}
-  <div class="field"><label>key (identificador)</label><input class="mono" bind:value={key} placeholder="M_solidos" /></div>
-  <div class="field"><label>label (para el usuario)</label><input bind:value={label} placeholder="Masa de sólidos" /></div>
+  <div class="field">
+    <label>key (identificador)</label>
+    <div class="input-row">
+      <input class="mono" bind:value={key} placeholder="M_solidos" />
+      <SymbolPicker onPick={(s) => key += s} />
+    </div>
+  </div>
+  <div class="field">
+    <label>label (para el usuario)</label>
+    <div class="input-row">
+      <input bind:value={label} placeholder="Masa de sólidos" />
+      <SymbolPicker onPick={(s) => label += s} />
+    </div>
+  </div>
   <div class="field row">
     <div class="field-grow"><label>valor numérico</label><input class="mono" bind:value={value} inputmode="decimal" placeholder="8033.7" /></div>
     <div class="field-unit"><label>unidad</label><input bind:value={unit} placeholder="g" /></div>
@@ -58,6 +71,8 @@
 .field-grow { flex: 1; display: flex; flex-direction: column; gap: 4px; }
 .field-unit { width: 80px; display: flex; flex-direction: column; gap: 4px; }
 .muted { color: var(--text-muted); }
+.input-row { display: flex; gap: 6px; align-items: center; }
+.input-row input { flex: 1; }
 input, textarea, select {
   padding: calc(7px * var(--font-scale)) calc(10px * var(--font-scale));
   border: 0.5px solid var(--border-default); border-radius: 6px;
