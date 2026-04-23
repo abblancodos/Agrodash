@@ -3,6 +3,9 @@
   import { experimentStore, canEdit, canAdmin, activeEvents } from '$lib/stores/experiment';
   import type { ExperimentColumn, Definition } from '$lib/stores/experiment';
   import ConflictBanner from './ConflictBanner.svelte';
+  import CsvImporter from './CsvImporter.svelte';
+
+  let showImporter = $state(false);
 
   const API = import.meta.env.VITE_API_BASE ?? '';
 
@@ -242,8 +245,25 @@
     </div></div>
 
     {#if $canEdit && !addingEntry}
-      <button class="btn-add-row" onclick={() => addingEntry = true}>+ nueva entry</button>
+      <div class="entry-actions">
+        <button class="btn-add-row" onclick={() => addingEntry = true}>+ nueva entry</button>
+        <button class="btn-import" onclick={() => showImporter = true}>↑ importar CSV</button>
+      </div>
     {/if}
+
+  {#if showImporter}
+    <div class="overlay" onclick={() => showImporter = false} role="presentation">
+      <div class="import-panel" onclick={(e) => e.stopPropagation()} role="dialog">
+        <div class="import-head">
+          <span>importar entries desde CSV</span>
+          <button class="btn-close-imp" onclick={() => showImporter = false}>✕</button>
+        </div>
+        <div class="import-body">
+          <CsvImporter onClose={() => showImporter = false} />
+        </div>
+      </div>
+    </div>
+  {/if}
   {/if}
 </div>
 
@@ -299,6 +319,14 @@
   .btn-ok { background: #3B6D11; color: #fff; border: none; border-radius: 4px; cursor: pointer; padding: 3px 8px; font-size: calc(12px * var(--font-scale)); }
   .btn-ok:disabled { opacity: 0.5; }
   .btn-x { background: none; border: none; cursor: pointer; color: var(--text-muted); padding: 3px 6px; font-size: calc(12px * var(--font-scale)); }
-  .btn-add-row { display: flex; align-items: center; gap: 6px; width: fit-content; padding: calc(7px * var(--font-scale)) calc(14px * var(--font-scale)); border: 0.5px dashed var(--border-default); border-radius: 6px; background: none; cursor: pointer; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
+  .entry-actions { display: flex; gap: 8px; align-items: center; }
+  .btn-add-row { display: flex; align-items: center; gap: 6px; padding: calc(7px * var(--font-scale)) calc(14px * var(--font-scale)); border: 0.5px dashed var(--border-default); border-radius: 6px; background: none; cursor: pointer; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
   .btn-add-row:hover { border-color: var(--text-muted); color: var(--text-primary); }
+  .btn-import { display: flex; align-items: center; gap: 6px; padding: calc(7px * var(--font-scale)) calc(14px * var(--font-scale)); border: 0.5px solid var(--border-default); border-radius: 6px; background: none; cursor: pointer; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
+  .btn-import:hover { background: var(--interactive-hover); color: var(--text-primary); }
+  .overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .import-panel { background: var(--bg-surface); border-radius: 12px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; }
+  .import-head { display: flex; align-items: center; justify-content: space-between; padding: calc(14px * var(--font-scale)) calc(16px * var(--font-scale)); border-bottom: 0.5px solid var(--border-subtle); font-size: calc(14px * var(--font-scale)); font-weight: 500; color: var(--text-primary); }
+  .btn-close-imp { background: none; border: none; cursor: pointer; font-size: 14px; color: var(--text-muted); }
+  .import-body { padding: calc(16px * var(--font-scale)); }
 </style>

@@ -2,6 +2,7 @@
   import { experimentStore } from '$lib/stores/experiment';
   import { auth } from '$lib/stores/auth';
   import ScriptEditor from './ScriptEditor.svelte';
+  import SymbolPicker from './SymbolPicker.svelte';
 
   let { type, onClose }:
     { type: 'variable' | 'expression' | 'objective' | 'step' | 'collaborator' | 'csv_schema'; onClose: () => void } = $props();
@@ -174,8 +175,20 @@
   {:else if type === 'variable'}
     <h3 class="form-title">nueva variable</h3>
     <div class="form-hint">Dato que el usuario introduce en cada entry.</div>
-    <div class="field"><label for="df-key">key</label><input id="df-key" class="mono" bind:value={key} placeholder="masa_maceta" /></div>
-    <div class="field"><label for="df-label">label</label><input id="df-label" bind:value={label} placeholder="Masa maceta + suelo" /></div>
+    <div class="field">
+      <label for="df-key">key</label>
+      <div class="input-row">
+        <input id="df-key" class="mono" bind:value={key} placeholder="masa_maceta" />
+        <SymbolPicker onPick={(s) => key += s} />
+      </div>
+    </div>
+    <div class="field">
+      <label for="df-label">label</label>
+      <div class="input-row">
+        <input id="df-label" bind:value={label} placeholder="Masa maceta + suelo" />
+        <SymbolPicker onPick={(s) => label += s} />
+      </div>
+    </div>
     <div class="field">
       <label for="df-vartype">tipo</label>
       <select id="df-vartype" bind:value={varType}>
@@ -271,7 +284,9 @@
 </div>
 
 <style>
-  .form-section { display: flex; flex-direction: column; gap: calc(12px * var(--font-scale)); }
+  .input-row { display: flex; gap: 6px; align-items: center; }
+.input-row input { flex: 1; }
+.form-section { display: flex; flex-direction: column; gap: calc(12px * var(--font-scale)); }
 .form-title { font-size: calc(14px * var(--font-scale)); font-weight: 500; color: var(--text-primary); margin-bottom: 2px; }
 .form-hint { font-size: calc(12px * var(--font-scale)); color: var(--text-muted); line-height: 1.5; }
 .err { background: var(--error-bg); color: var(--error-color); border-radius: 6px; padding: 8px 12px; font-size: calc(12px * var(--font-scale)); }
