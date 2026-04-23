@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { experimentStore, canEdit, canAdmin, groups } from '$lib/stores/experiment';
+  import { experimentStore, canEdit, canAdmin } from '$lib/stores/experiment';
   import type { DefinitionGroup } from '$lib/stores/experiment';
   import { auth } from '$lib/stores/auth';
   import AddDefinitionMenu from './AddDefinitionMenu.svelte';
@@ -63,6 +63,17 @@
   let editError = $state('');
   let editFormulaEl = $state<HTMLInputElement | null>(null);
   let showEditPicker = $state(false);
+
+  const filteredEditDefs = $derived(() => {
+    if (!showEditPicker) return [];
+    const pos = editFormulaEl?.selectionStart ?? editFormula.length;
+    const m = editFormula.slice(0, pos).match(/[a-zA-Z_][a-zA-Z0-9_]*$/);
+    const word = m ? m[0].toLowerCase() : '';
+    return defs.filter(d =>
+      (d.type === 'variable' || d.type === 'constant' || d.type === 'expression') &&
+      (word.length < 2 || d.key.toLowerCase().includes(word) || d.label.toLowerCase().includes(word))
+    );
+  });
 
   function insertEditKey(key: string) {
     if (!editFormulaEl) { editFormula += key; return; }

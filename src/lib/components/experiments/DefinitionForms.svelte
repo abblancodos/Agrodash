@@ -31,11 +31,22 @@
   }
 
   // Definitions disponibles para el picker
-  const pickerDefs = $derived([
-    ...$experimentStore.definitions.filter(d => d.type === 'variable'),
-    ...$experimentStore.definitions.filter(d => d.type === 'constant'),
-    ...$experimentStore.definitions.filter(d => d.type === 'expression'),
-  ]);
+  const pickerDefs = $derived(
+    $experimentStore.definitions.filter(d =>
+      d.type === 'variable' || d.type === 'constant' || d.type === 'expression'
+    )
+  );
+
+  // Filtered definitions based on current formula text
+  const filteredDefs = $derived(() => {
+    if (!showDefPicker || pickerDefs.length === 0) return [];
+    const pos = formulaEl?.selectionStart ?? formula.length;
+    const m = formula.slice(0, pos).match(/[a-zA-Z_][a-zA-Z0-9_]*$/);
+    const word = m ? m[0].toLowerCase() : '';
+    return word.length >= 2
+      ? pickerDefs.filter(d => d.key.toLowerCase().includes(word) || d.label.toLowerCase().includes(word))
+      : pickerDefs;
+  });
   let script = $state('');
   // objective
   let condType = $state<'range' | 'expression'>('range');
@@ -173,21 +184,9 @@
                onfocus={() => showDefPicker = true}
                oninput={() => showDefPicker = true}
                onblur={() => setTimeout(() => showDefPicker = false, 150)} />
-        {#if showDefPicker && pickerDefs.length > 0}
-          {@const filtered = formula.length >= 1
-            ? (() => {
-                const pos = formulaEl?.selectionStart ?? formula.length;
-                const before = formula.slice(0, pos);
-                const m = before.match(/[a-zA-Z_][a-zA-Z0-9_]*$/);
-                const word = m ? m[0].toLowerCase() : '';
-                return word.length >= 2
-                  ? pickerDefs.filter(d => d.key.toLowerCase().includes(word) || d.label.toLowerCase().includes(word))
-                  : pickerDefs;
-              })()
-            : pickerDefs}
-          {#if filtered.length > 0}
+        {#if showDefPicker && filteredDefs().length > 0}
             <div class="autocomplete-panel">
-              {#each filtered as def}
+              {#each filteredDefs() as def}
                 <button class="ac-item" type="button"
                         onmousedown={(e) => { e.preventDefault(); insertKey(def.key); }}>
                   <span class="ac-type ac-type--{def.type}">{def.type === 'variable' ? 'χ' : def.type === 'constant' ? 'C' : 'ƒ'}</span>
@@ -198,7 +197,6 @@
                 </button>
               {/each}
             </div>
-          {/if}
         {/if}
       </div>
     </div>
