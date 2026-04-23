@@ -986,3 +986,193 @@ pub async fn get_all_entry_values(
 
     Ok(Json(Value::Object(result)))
 }
+
+// ── Definition Groups ─────────────────────────────────────────────────────────
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct DefinitionGroupRow {
+    pub id:            Uuid,
+    pub experiment_id: Uuid,
+    pub name:          String,
+    pub description:   Option<String>,
+    pub color:         String,
+    pub sort_order:    i32,
+    pub created_at:    chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Deserialize)]
+pub struct CreateGroupRequest {
+    pub name:        String,
+    pub description: Option<String>,
+    pub color:       Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateGroupRequest {
+    pub name:        Option<String>,
+    pub description: Option<String>,
+    pub color:       Option<String>,
+    pub sort_order:  Option<i32>,
+}
+
+// GET /experiments/:id/groups
+pub async fn list_groups(
+    State(pool): State<PgPool>,
+    OptionalClaims(claims): OptionalClaims,
+    Path(exp_id): Path<Uuid>,
+) -> Result<Json<Vec<DefinitionGroupRow>>, (StatusCode, Json<Value>)> {
+    require_role(&pool, exp_id, claims.map(|c| c.sub).unwrap_or(Uuid::nil()), "viewer").await
+        .or_else(|_| {
+            // Allow if experiment is public
+            Ok(())
+        })?;
+
+    let rows = sqlx::query_as!(
+        DefinitionGroupRow,
+        r#"SELECT id AS "id: Uuid", experiment_id AS "experiment_id: Uuid",
+                  name, description, color, sort_order, created_at
+           FROM experiment_definition_groups
+           WHERE experiment_id = $1
+           ORDER BY sort_order, created_at"#,
+        exp_id,
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(err)?;
+
+    Ok(Json(rows))
+}
+
+// POST /experiments/:id/groups
+pub async fn create_group(
+    State(pool): State<PgPool>,
+    claims: Claims,
+    Path(exp_id): Path<Uuid>,
+    Json(body): Json<CreateGroupRequest>,
+) -> Result<Json<DefinitionGroupRow>, (StatusCode, Json<Value>)> {
+    require_role(&pool, exp_id, claims.sub, "admin").await?;
+
+    if body.name.is_empty() {
+        return Err(bad("name es requerido"));
+    }
+
+    let row = sqlx::query_as!(
+        DefinitionGroupRow,
+        r#"INSERT INTO experiment_definition_groups
+               (experiment_id, name, description, color)
+           VALUES ($1, $2, $3, $4)
+           RETURNING id AS "id: Uuid", experiment_id AS "experiment_id: Uuid",
+                     name, description, color, sort_order, created_at"#,
+        exp_id,
+        body.name,
+        body.description,
+        body.color.unwrap_or_else(|| "#8a9bb0".to_string()),
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(err)?;
+
+    Ok(Json(row))
+}
+
+// PATCH /experiments/:id/groups/:gid
+pub async fn update_group(
+    State(pool): State<PgPool>,
+    claims: Claims,
+    Path((exp_id, gid)): Path<(Uuid, Uuid)>,
+    Json(body): Json<UpdateGroupRequest>,
+) -> Result<Json<DefinitionGroupRow>, (StatusCode, Json<Value>)> {
+    require_role(&pool, exp_id, claims.sub, "admin").await?;
+
+    let row = sqlx::query_as!(
+        DefinitionGroupRow,
+        r#"UPDATE experiment_definition_groups
+           SET name        = COALESCE($1, name),
+               description = COALESCE($2, description),
+               color       = COALESCE($3, color),
+               sort_order  = COALESCE($4, sort_order)
+           WHERE id = $5 AND experiment_id = $6
+           RETURNING id AS "id: Uuid", experiment_id AS "experiment_id: Uuid",
+                     name, description, color, sort_order, created_at"#,
+        body.name,
+        body.description,
+        body.color,
+        body.sort_order,
+        gid,
+        exp_id,
+    )
+    .fetch_optional(&pool)
+    .await
+    .map_err(err)?
+    .ok_or_else(not_found)?;
+
+    Ok(Json(row))
+}
+
+// DELETE /experiments/:id/groups/:gid
+pub async fn delete_group(
+    State(pool): State<PgPool>,
+    claims: Claims,
+    Path((exp_id, gid)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    require_role(&pool, exp_id, claims.sub, "admin").await?;
+
+    sqlx::query!(
+        "DELETE FROM experiment_definition_groups WHERE id = $1 AND experiment_id = $2",
+        gid, exp_id,
+    )
+    .execute(&pool)
+    .await
+    .map_err(err)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// PATCH /experiments/:id/definitions/:did/group — mover definition a grupo
+#[derive(Deserialize)]
+pub struct SetGroupRequest {
+    pub group_id: Option<Uuid>,
+}
+
+pub async fn set_definition_group(
+    State(pool): State<PgPool>,
+    claims: Claims,
+    Path((exp_id, def_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<SetGroupRequest>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    require_role(&pool, exp_id, claims.sub, "admin").await?;
+
+    sqlx::query!(
+        "UPDATE experiment_definitions SET group_id = $1 WHERE id = $2 AND experiment_id = $3",
+        body.group_id as Option<Uuid>,
+        def_id,
+        exp_id,
+    )
+    .execute(&pool)
+    .await
+    .map_err(err)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// PATCH /experiments/:id/events/:eid/group — asignar entry a grupo
+pub async fn set_event_group(
+    State(pool): State<PgPool>,
+    claims: Claims,
+    Path((exp_id, event_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<SetGroupRequest>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    require_role(&pool, exp_id, claims.sub, "editor").await?;
+
+    sqlx::query!(
+        "UPDATE experiment_events SET group_id = $1 WHERE id = $2 AND experiment_id = $3",
+        body.group_id as Option<Uuid>,
+        event_id,
+        exp_id,
+    )
+    .execute(&pool)
+    .await
+    .map_err(err)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}

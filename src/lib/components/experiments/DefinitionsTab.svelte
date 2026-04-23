@@ -1,11 +1,58 @@
 <script lang="ts">
-  import { experimentStore, canEdit, canAdmin } from '$lib/stores/experiment';
+  import { experimentStore, canEdit, canAdmin, groups } from '$lib/stores/experiment';
+  import type { DefinitionGroup } from '$lib/stores/experiment';
   import { auth } from '$lib/stores/auth';
   import AddDefinitionMenu from './AddDefinitionMenu.svelte';
   import ScriptEditor from './ScriptEditor.svelte';
   import DangerZone from '$lib/components/experiments/DangerZone.svelte';
   import SymbolPicker from './SymbolPicker.svelte';
 
+  // ── Grupos ───────────────────────────────────────────────────────────────
+  let showNewGroup = $state(false);
+  let newGroupName = $state('');
+  let newGroupColor = $state('#4a90d9');
+  let editingGroupId = $state<string | null>(null);
+  let editGroupName = $state('');
+  let editGroupColor = $state('');
+  let groupSaving = $state(false);
+
+  const groupColors = ['#4a90d9','#3da85a','#e07b54','#7c6fcd','#e8a838','#d47cb0','#78c4b8','#8a9bb0'];
+
+  async function createGroup() {
+    if (!newGroupName.trim()) return;
+    groupSaving = true;
+    const res = await fetch(`${API}/api/v1/experiments/${exp.id}/groups`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newGroupName.trim(), color: newGroupColor }),
+    });
+    if (res.ok) {
+      experimentStore.addGroup(await res.json());
+      newGroupName = ''; showNewGroup = false;
+    }
+    groupSaving = false;
+  }
+
+  async function deleteGroup(gid: string) {
+    if (!confirm('¿Borrar grupo? Las definitions quedan sin grupo.')) return;
+    await fetch(`${API}/api/v1/experiments/${exp.id}/groups/${gid}`, {
+      method: 'DELETE', credentials: 'include',
+    });
+    experimentStore.removeGroup(gid);
+  }
+
+  async function moveDefToGroup(defId: string, groupId: string | null) {
+    await fetch(`${API}/api/v1/experiments/${exp.id}/definitions/${defId}/group`, {
+      method: 'PATCH', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group_id: groupId }),
+    });
+    // Update local state
+    const def = $experimentStore.definitions.find(d => d.id === defId);
+    if (def) experimentStore.updateDefinition({ ...def, group_id: groupId });
+  }
+
+  // ── Edición de definitions ────────────────────────────────────────────────
   let editingId = $state<string | null>(null);
   let editLabel = $state('');
   let editUnit = $state('');
@@ -356,4 +403,37 @@
   .ac-key { font-size: calc(11px * var(--font-scale)); color: var(--text-primary); min-width: 80px; font-family: 'DM Mono', monospace; }
   .ac-label { font-size: calc(11px * var(--font-scale)); color: var(--text-secondary); flex: 1; }
   .ac-val { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; }
+
+  /* Groups */
+  .groups-section { display: flex; flex-direction: column; gap: calc(8px * var(--font-scale)); margin-bottom: calc(8px * var(--font-scale)); }
+  .groups-head { display: flex; align-items: center; justify-content: space-between; }
+  .btn-new-group { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); background: none; border: 0.5px dashed var(--border-default); border-radius: 4px; cursor: pointer; padding: 2px 8px; }
+  .btn-new-group:hover { color: var(--text-primary); border-color: var(--text-muted); }
+  .new-group-form { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--bg-elevated); border-radius: 8px; border: 0.5px solid var(--border-subtle); }
+  .new-group-form input { padding: 6px 10px; border: 0.5px solid var(--border-default); border-radius: 4px; font-size: calc(13px * var(--font-scale)); background: var(--bg-surface); color: var(--text-primary); outline: none; }
+  .color-picker { display: flex; gap: 6px; }
+  .color-swatch { width: 20px; height: 20px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
+  .color-swatch.selected { border-color: var(--text-primary); }
+  .btn-row-sm { display: flex; justify-content: flex-end; gap: 6px; }
+  .btn-sec-sm { font-size: calc(12px * var(--font-scale)); color: var(--text-muted); background: none; border: none; cursor: pointer; padding: 4px 8px; }
+  .btn-pri-sm { font-size: calc(12px * var(--font-scale)); padding: 4px 12px; background: var(--text-primary); color: var(--bg-surface); border: none; border-radius: 4px; cursor: pointer; }
+  .btn-pri-sm:disabled { opacity: 0.5; }
+  .groups-list { display: flex; flex-direction: column; gap: 6px; }
+  .group-card { border: 0.5px solid var(--border-subtle); border-radius: 8px; overflow: hidden; }
+  .group-card-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-elevated); }
+  .group-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .group-name { font-size: calc(13px * var(--font-scale)); font-weight: 500; color: var(--text-primary); flex: 1; }
+  .btn-del-group { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 12px; }
+  .btn-del-group:hover { color: var(--error-color); }
+  .group-defs { display: flex; flex-direction: column; padding: 6px 8px; gap: 2px; }
+  .group-def-item { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 4px; }
+  .group-def-item:hover { background: var(--interactive-hover); }
+  .group-def-type { font-size: calc(10px * var(--font-scale)); width: 14px; text-align: center; color: var(--text-muted); font-family: 'DM Mono', monospace; }
+  .group-def-key { font-size: calc(11px * var(--font-scale)); color: var(--text-primary); min-width: 80px; }
+  .group-def-label { font-size: calc(11px * var(--font-scale)); color: var(--text-secondary); flex: 1; }
+  .group-def-val { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); }
+  .btn-ungroup { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 11px; padding: 0 4px; }
+  .btn-ungroup:hover { color: var(--text-primary); }
+  .group-empty { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); padding: 4px 6px; font-style: italic; }
+  .group-sel { font-size: calc(11px * var(--font-scale)); padding: 2px 4px; border: 0.5px solid var(--border-subtle); border-radius: 4px; background: var(--bg-surface); color: var(--text-muted); cursor: pointer; }
 </style>

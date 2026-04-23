@@ -54,6 +54,17 @@ export interface Definition {
   sort_order:    number;
   var_type:      'numeric' | 'vector_csv' | 'text' | 'qualitative' | null;
   options:       string[] | null;
+  group_id:      string | null;
+  created_at:    string;
+}
+
+export interface DefinitionGroup {
+  id:            string;
+  experiment_id: string;
+  name:          string;
+  description:   string | null;
+  color:         string;
+  sort_order:    number;
   created_at:    string;
 }
 
@@ -107,7 +118,8 @@ interface ExperimentState {
   definitions:   Definition[];
   objectives:    Objective[];
   collaborators: Collaborator[];
-  entryValues:   Record<string, Record<string, unknown>>;  // entry_id → {key → value}
+  groups:        DefinitionGroup[];
+  entryValues:   Record<string, Record<string, unknown>>;
   loading:       boolean;
   error:         string;
   lastActivity:  number;
@@ -122,6 +134,7 @@ function createExperimentStore() {
     definitions:   [],
     objectives:    [],
     collaborators: [],
+    groups:        [],
     entryValues:   {},
     loading:       false,
     error:         '',
@@ -141,7 +154,7 @@ function createExperimentStore() {
     async load(id: string) {
       update(s => ({ ...s, loading: true, error: '' }));
       try {
-        const [experiment, events, definitions, objectives, collaborators, entryValues] =
+        const [experiment, events, definitions, objectives, collaborators, entryValues, groups] =
           await Promise.all([
             fetchJson(`/api/v1/experiments/${id}`),
             fetchJson(`/api/v1/experiments/${id}/events`),
@@ -149,6 +162,7 @@ function createExperimentStore() {
             fetchJson(`/api/v1/experiments/${id}/objectives`),
             fetchJson(`/api/v1/experiments/${id}/collaborators`).catch(() => []),
             fetchJson(`/api/v1/experiments/${id}/values`).catch(() => ({})).then(v => v ?? {}),
+            fetchJson(`/api/v1/experiments/${id}/groups`).catch(() => []),
           ]);
 
         // Calcular user_role si no viene del experimento
@@ -239,6 +253,16 @@ function createExperimentStore() {
       }));
     },
 
+    addGroup(group: DefinitionGroup) {
+      update(s => ({ ...s, groups: [...s.groups, group] }));
+    },
+    updateGroup(group: DefinitionGroup) {
+      update(s => ({ ...s, groups: s.groups.map(g => g.id === group.id ? group : g) }));
+    },
+    removeGroup(id: string) {
+      update(s => ({ ...s, groups: s.groups.filter(g => g.id !== id) }));
+    },
+
     updateColumns(columns: ExperimentColumn[]) {
       update(s => ({
         ...s,
@@ -255,7 +279,7 @@ function createExperimentStore() {
 
     reset() {
       set({ experiment: null, events: [], definitions: [], objectives: [],
-            collaborators: [], entryValues: {}, loading: false, error: '', lastActivity: 0 });
+            collaborators: [], groups: [], entryValues: {}, loading: false, error: '', lastActivity: 0 });
     },
   };
 }

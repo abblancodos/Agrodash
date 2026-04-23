@@ -1,6 +1,6 @@
 <!-- src/lib/components/experiments/EntriesTab.svelte -->
 <script lang="ts">
-  import { experimentStore, canEdit, canAdmin, activeEvents } from '$lib/stores/experiment';
+  import { experimentStore, canEdit, canAdmin, activeEvents, groups } from '$lib/stores/experiment';
   import type { ExperimentColumn, Definition } from '$lib/stores/experiment';
   import ConflictBanner from './ConflictBanner.svelte';
   import CsvImporter from './CsvImporter.svelte';
@@ -22,6 +22,7 @@
   );
 
   const addedKeys = $derived(new Set(columns.map(c => c.key)));
+  const hasGroupCol = $derived(columns.some(c => c.type === 'group'));
   const entryValues = $derived($experimentStore.entryValues);
   const events = $derived($activeEvents);
 
@@ -31,6 +32,21 @@
   let error = $state('');
   let dragOver = $state<number | null>(null);
   let dragCol = $state<number | null>(null);
+
+  async function addGroupColumn() {
+    const exp = $experimentStore.experiment!;
+    if (hasGroupCol) return;
+    const newColumns: ExperimentColumn[] = [
+      ...columns,
+      { key: '_group', type: 'group' as any, order: columns.length, visible: true }
+    ];
+    await fetch(`${API}/api/v1/experiments/${exp.id}/columns`, {
+      method: 'PATCH', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ columns: newColumns }),
+    });
+    experimentStore.updateColumns(newColumns);
+  }
 
   async function addColumn(def: Definition) {
     const exp = $experimentStore.experiment!;
@@ -113,11 +129,21 @@
 
   function calcExpression(entryId: string, def: Definition): string {
     const ctx: Record<string, number> = {};
+    // Constantes globales del experimento
     const consts = $experimentStore.experiment?.constants ?? {};
     for (const [k, v] of Object.entries(consts)) if (typeof v === 'number') ctx[k] = v;
-    for (const d of $experimentStore.definitions.filter(d => d.type === 'constant')) {
+    // Constantes globales (sin grupo)
+    for (const d of $experimentStore.definitions.filter(d => d.type === 'constant' && !d.group_id)) {
       const val = (d.payload as any).value;
       if (typeof val === 'number') ctx[d.key] = val;
+    }
+    // Constantes del grupo de esta entry (sobreescribe globales)
+    const ev = events.find(e => e.id === entryId);
+    if (ev?.group_id) {
+      for (const d of $experimentStore.definitions.filter(d => d.type === 'constant' && d.group_id === ev.group_id)) {
+        const val = (d.payload as any).value;
+        if (typeof val === 'number') ctx[d.key] = val;
+      }
     }
     const vals = entryValues[entryId] ?? {};
     for (const [k, v] of Object.entries(vals)) if (typeof v === 'number') ctx[k] = v;
@@ -176,12 +202,17 @@
                 <div class="add-wrap">
                   <button class="btn-plus">+</button>
                   <div class="dropdown">
+                    {#if !hasGroupCol && $groups.length > 0}
+                      <button class="opt" onclick={addGroupColumn}>
+                        <span class="opt-type">grupo</span>grupo de suelo
+                      </button>
+                    {/if}
                     {#each variables.filter(d => !addedKeys.has(d.key)) as def}
                       <button class="opt" onclick={() => addColumn(def)}>
                         <span class="opt-type">{def.var_type ?? def.type}</span>{def.label}
                       </button>
                     {:else}
-                      <span class="opt-empty">todas agregadas</span>
+                      {#if hasGroupCol || $groups.length === 0}<span class="opt-empty">todas agregadas</span>{/if}
                     {/each}
                   </div>
                 </div>
@@ -216,7 +247,14 @@
               <td class="td-ts muted">ahora</td>
               {#each columns as col}
                 <td class="td-val">
-                  {#if col.type === 'variable'}
+                  {#if col.type === 'group'}
+                    <select class="cell-in" bind:value={newRowValues['_group']}>
+                      <option value="">sin grupo</option>
+                      {#each $groups as g}
+                        <option value={g.id}>{g.name}</option>
+                      {/each}
+                    </select>
+                  {:else if col.type === 'variable'}
                     {@const def = variables.find(d => d.key === col.key)}
                     {#if def?.var_type === 'qualitative' && def.options?.length}
                       <select class="cell-in" bind:value={newRowValues[col.key]}>
@@ -324,6 +362,7 @@
   .entry-actions { display: flex; gap: 8px; align-items: center; }
   .btn-add-row { display: flex; align-items: center; gap: 6px; padding: calc(7px * var(--font-scale)) calc(14px * var(--font-scale)); border: 0.5px dashed var(--border-default); border-radius: 6px; background: none; cursor: pointer; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
   .btn-add-row:hover { border-color: var(--text-muted); color: var(--text-primary); }
+  .group-chip { font-size: calc(11px * var(--font-scale)); padding: 2px 8px; border-radius: 20px; font-weight: 500; }
   .btn-import { display: flex; align-items: center; gap: 6px; padding: calc(7px * var(--font-scale)) calc(14px * var(--font-scale)); border: 0.5px solid var(--border-default); border-radius: 6px; background: none; cursor: pointer; font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
   .btn-import:hover { background: var(--interactive-hover); color: var(--text-primary); }
   .overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; padding: 20px; }

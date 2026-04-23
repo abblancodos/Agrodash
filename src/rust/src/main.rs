@@ -171,6 +171,18 @@ async fn main() {
         .route("/api/v1/experiments/:id/clone",
             post(routes::experiments::clone_experiment))
 
+        // ── Definition groups ─────────────────────────────────────────────────
+        .route("/api/v1/experiments/:id/groups",
+            get(routes::experiment_features::list_groups)
+            .post(routes::experiment_features::create_group))
+        .route("/api/v1/experiments/:id/groups/:gid",
+            axum::routing::patch(routes::experiment_features::update_group)
+            .delete(routes::experiment_features::delete_group))
+        .route("/api/v1/experiments/:id/definitions/:did/group",
+            axum::routing::patch(routes::experiment_features::set_definition_group))
+        .route("/api/v1/experiments/:id/events/:eid/group",
+            axum::routing::patch(routes::experiment_features::set_event_group))
+
         // ── Script execution ────────────────────────────────────────────────
         .route("/api/v1/experiments/:id/steps/:step_key/run",
             get(routes::experiments::run_step_script))
