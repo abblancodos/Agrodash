@@ -181,7 +181,7 @@ pub struct ListQuery {
 pub async fn list_experiments(
     State(pool): State<PgPool>,
     OptionalClaims(claims): OptionalClaims,
-    Query(q): Query<ListQuery>,
+    Query(_q): Query<ListQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<Value>)> {
     let user_id = claims.map(|c| c.sub);
 
@@ -391,8 +391,7 @@ pub async fn list_events(
         SELECT id AS "id: Uuid", experiment_id AS "experiment_id: Uuid",
                step_key, event_type, soil_id, iteration, data, note, recorded_at,
                group_id AS "group_id?: Uuid"
-        FROM experiment_events
-        WHERE experiment_id = $1
+        FROM experiment_events WHERE experiment_id = $1
         ORDER BY recorded_at ASC
         "#,
         id,
@@ -432,7 +431,8 @@ pub async fn create_event(
             (experiment_id, step_key, event_type, soil_id, iteration, data, note, recorded_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id AS "id: Uuid", experiment_id AS "experiment_id: Uuid",
-                  step_key, event_type, soil_id, iteration, data, note, recorded_at
+                  step_key, event_type, soil_id, iteration, data, note, recorded_at,
+                  group_id AS "group_id?: Uuid"
         "#,
         id,
         body.step_key,
@@ -446,6 +446,18 @@ pub async fn create_event(
     .fetch_one(&pool)
     .await
     .map_err(err)?;
+
+    // Update group_id if provided
+    if let Some(gid) = body.group_id {
+        let _ = sqlx::query!(
+            "UPDATE experiment_events SET group_id = $1 WHERE id = $2",
+            gid as Uuid,
+            row.id as Uuid,
+        )
+        .execute(&pool)
+        .await;
+    }
+
     Ok(Json(row))
 }
 

@@ -14,7 +14,7 @@ use serde_json::Value;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::auth::{Claims, OptionalClaims};
+use crate::auth::Claims;
 
 fn err(msg: impl ToString) -> (StatusCode, Json<Value>) {
     (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": msg.to_string() })))
