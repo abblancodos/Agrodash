@@ -364,6 +364,7 @@ pub struct CreateEventRequest {
     pub data:        Value,
     pub note:        Option<String>,
     pub recorded_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub group_id:    Option<Uuid>,
 }
 
 pub async fn list_events(
@@ -512,6 +513,7 @@ pub struct CreateSeriesPointRequest {
     pub unit:        Option<String>,
     pub note:        Option<String>,
     pub recorded_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub group_id:    Option<Uuid>,
 }
 
 pub async fn list_series(
