@@ -244,9 +244,11 @@
       </table>
     </div></div>
 
-    {#if $canEdit && !addingEntry}
+    {#if $canEdit}
       <div class="entry-actions">
-        <button class="btn-add-row" onclick={() => addingEntry = true}>+ nueva entry</button>
+        {#if !addingEntry && columns.length > 0}
+          <button class="btn-add-row" onclick={() => addingEntry = true}>+ nueva entry</button>
+        {/if}
         <button class="btn-import" onclick={() => showImporter = true}>↑ importar CSV</button>
       </div>
     {/if}
