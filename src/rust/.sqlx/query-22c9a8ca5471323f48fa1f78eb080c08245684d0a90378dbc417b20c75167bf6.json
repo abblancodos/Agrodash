@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE experiment_events SET group_id = $1 WHERE id = $2 AND experiment_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "22c9a8ca5471323f48fa1f78eb080c08245684d0a90378dbc417b20c75167bf6"
+}

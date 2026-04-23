@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id AS \"id: Uuid\", experiment_id AS \"experiment_id: Uuid\",\n               step_key, event_type, soil_id, iteration, data, note, recorded_at,\n               group_id AS \"group_id?: Uuid\"\n        FROM experiment_events WHERE experiment_id = $1\n        ORDER BY recorded_at ASC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "experiment_id: Uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "step_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "soil_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "iteration",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "data",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "note",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "recorded_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "group_id?: Uuid",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "56f05c2cad29c15d286deb01523a3508fe174eb9b9ad1eb48eb9accdbb00c444"
+}

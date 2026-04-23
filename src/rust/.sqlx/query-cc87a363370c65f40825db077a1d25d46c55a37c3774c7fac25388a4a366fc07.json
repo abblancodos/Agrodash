@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        INSERT INTO experiment_events\n            (experiment_id, step_key, event_type, soil_id, iteration, data, note, recorded_at)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        RETURNING id AS \"id: Uuid\", experiment_id AS \"experiment_id: Uuid\",\n                  step_key, event_type, soil_id, iteration, data, note, recorded_at\n        ",
+  "query": "\n        INSERT INTO experiment_events\n            (experiment_id, step_key, event_type, soil_id, iteration, data, note, recorded_at)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        RETURNING id AS \"id: Uuid\", experiment_id AS \"experiment_id: Uuid\",\n                  step_key, event_type, soil_id, iteration, data, note, recorded_at,\n                  group_id AS \"group_id?: Uuid\"\n        ",
   "describe": {
     "columns": [
       {
@@ -47,6 +47,11 @@
         "ordinal": 8,
         "name": "recorded_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "group_id?: Uuid",
+        "type_info": "Uuid"
       }
     ],
     "parameters": {
@@ -70,8 +75,9 @@
       true,
       false,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "8131ed2d46ab4a4c76f5f0026de8bb35ddb9e5af7d8d9efd1d60fbd12fed4e59"
+  "hash": "cc87a363370c65f40825db077a1d25d46c55a37c3774c7fac25388a4a366fc07"
 }
