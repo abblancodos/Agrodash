@@ -1,89 +1,107 @@
-<!-- ConstantForm.svelte -->
+<!-- SymbolPicker.svelte -->
 <script lang="ts">
-  import { experimentStore } from '$lib/stores/experiment';
-  import { auth } from '$lib/stores/auth';
-  import SymbolPicker from './SymbolPicker.svelte';
+  import { onDestroy } from 'svelte';
 
-  let { onClose }: { onClose: () => void } = $props();
-  const API = import.meta.env.VITE_API_BASE ?? '';
+  let { onPick }: { onPick: (s: string) => void } = $props();
 
-  let key = $state(''); let label = $state(''); let value = $state('');
-  let unit = $state(''); let comment = $state('');
-  let loading = $state(false); let error = $state('');
+  const groups = [
+    { label: 'griegas min', symbols: ['α','β','γ','δ','ε','ζ','η','θ','ι','κ','λ','μ','ν','ξ','π','ρ','σ','τ','φ','χ','ψ','ω'] },
+    { label: 'griegas may', symbols: ['Γ','Δ','Θ','Λ','Σ','Φ','Ψ','Ω'] },
+    { label: 'matemáticas', symbols: ['∂','∑','∫','∏','√','∞','≈','≠','≤','≥','±','×','÷','·','°','‰','∝','∇'] },
+    { label: 'subíndices',  symbols: ['₀','₁','₂','₃','₄','₅','₆','₇','₈','₉','ₐ','ₑ','ₒ','ₓ','ₙ','ₘ'] },
+    { label: 'superíndices',symbols: ['⁰','¹','²','³','⁴','⁵','⁶','⁷','⁸','⁹','ⁿ'] },
+  ];
 
-  async function save() {
-    if (!key || !label || value === '') { error = 'key, label y valor son requeridos'; return; }
-    loading = true; error = '';
-    const n = parseFloat(value);
-    if (isNaN(n)) { error = 'El valor debe ser numérico'; loading = false; return; }
-    try {
-            const res = await fetch(`${API}/api/v1/experiments/${$experimentStore.experiment?.id}/definitions`, {
-        credentials: 'include',
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, label, type: 'constant', payload: { value: n, unit, comment } }),
-      });
-      const data = await res.json();
-      if (!res.ok) { error = data.error ?? 'Error'; return; }
-      experimentStore.addDefinition(data);
-      onClose();
-    } catch (e: any) { error = e.message; } finally { loading = false; }
+  let open = $state(false);
+  let btnEl = $state<HTMLButtonElement | null>(null);
+  let panelEl = $state<HTMLDivElement | null>(null);
+
+  // Posición del panel — se calcula cuando se abre
+  let panelStyle = $state('');
+
+  function toggle() {
+    open = !open;
+    if (open && btnEl) {
+      // Calcular posición relativa al viewport
+      const rect = btnEl.getBoundingClientRect();
+      const panelW = 300;
+      const panelH = 280;
+      let left = rect.left;
+      let top = rect.top - panelH - 6;
+      // Si se sale por la derecha
+      if (left + panelW > window.innerWidth - 8) left = window.innerWidth - panelW - 8;
+      // Si se sale por arriba, poner debajo
+      if (top < 8) top = rect.bottom + 6;
+      panelStyle = `left:${left}px; top:${top}px; width:${panelW}px;`;
+    }
   }
+
+  function pick(s: string) {
+    onPick(s);
+    open = false;
+  }
+
+  function onDocClick(e: MouseEvent) {
+    if (!open) return;
+    const t = e.target as Node;
+    if (!btnEl?.contains(t) && !panelEl?.contains(t)) open = false;
+  }
+
+  $effect(() => {
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  });
 </script>
 
-<div class="form-section">
-  <h3 class="form-title">nueva constante</h3>
-  <div class="form-hint">Valor fijo que no cambia durante el experimento. Ej: masa de sólidos, volumen de referencia.</div>
-  {#if error}<div class="err">{error}</div>{/if}
-  <div class="field">
-    <label>key (identificador)</label>
-    <div class="input-row">
-      <input class="mono" bind:value={key} placeholder="M_solidos" />
-      <SymbolPicker onPick={(s) => key += s} />
-    </div>
+<button bind:this={btnEl} class="btn-sym" type="button" onclick={toggle} title="insertar símbolo">Ω</button>
+
+{#if open}
+  <!-- Portal al body para evitar overflow:hidden del modal -->
+  <div bind:this={panelEl} class="sym-panel" style={panelStyle}>
+    {#each groups as g}
+      <div class="sym-group">
+        <span class="sym-label">{g.label}</span>
+        <div class="sym-row">
+          {#each g.symbols as s}
+            <button class="sym-btn" type="button" onclick={() => pick(s)}>{s}</button>
+          {/each}
+        </div>
+      </div>
+    {/each}
   </div>
-  <div class="field">
-    <label>label (para el usuario)</label>
-    <div class="input-row">
-      <input bind:value={label} placeholder="Masa de sólidos" />
-      <SymbolPicker onPick={(s) => label += s} />
-    </div>
-  </div>
-  <div class="field row">
-    <div class="field-grow"><label>valor numérico</label><input class="mono" bind:value={value} inputmode="decimal" placeholder="8033.7" /></div>
-    <div class="field-unit"><label>unidad</label><input bind:value={unit} placeholder="g" /></div>
-  </div>
-  <div class="field"><label>comentario <span class="muted">(recomendado)</span></label><textarea rows="2" bind:value={comment} placeholder="Ej: Pesaje realizado el 15 abr con suelo seco al aire"></textarea></div>
-  <div class="btn-row">
-    <button class="btn-cancel" onclick={onClose}>cancelar</button>
-    <button class="btn-save" disabled={loading} onclick={save}>{loading ? 'guardando...' : 'guardar constante'}</button>
-  </div>
-</div>
+{/if}
 
 <style>
-.form-section { display: flex; flex-direction: column; gap: calc(12px * var(--font-scale)); }
-.form-title { font-size: calc(14px * var(--font-scale)); font-weight: 500; color: var(--text-primary); margin-bottom: 2px; }
-.form-hint { font-size: calc(12px * var(--font-scale)); color: var(--text-muted); line-height: 1.5; }
-.err { background: var(--error-bg); color: var(--error-color); border-radius: 6px; padding: 8px 12px; font-size: calc(12px * var(--font-scale)); }
-.field { display: flex; flex-direction: column; gap: 4px; }
-.field label { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
-.field.row { flex-direction: row; gap: 10px; align-items: flex-end; }
-.field-grow { flex: 1; display: flex; flex-direction: column; gap: 4px; }
-.field-unit { width: 80px; display: flex; flex-direction: column; gap: 4px; }
-.muted { color: var(--text-muted); }
-.input-row { display: flex; gap: 6px; align-items: center; }
-.input-row input { flex: 1; }
-input, textarea, select {
-  padding: calc(7px * var(--font-scale)) calc(10px * var(--font-scale));
-  border: 0.5px solid var(--border-default); border-radius: 6px;
-  font-size: calc(13px * var(--font-scale)); background: var(--bg-surface);
-  color: var(--text-primary); outline: none; font-family: inherit;
-}
-input.mono, textarea.mono { font-family: 'DM Mono', monospace; }
-textarea { resize: vertical; }
-.btn-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-.btn-cancel { font-size: calc(13px * var(--font-scale)); color: var(--text-secondary); background: none; border: none; cursor: pointer; padding: 6px 12px; }
-.btn-save { padding: calc(7px * var(--font-scale)) calc(16px * var(--font-scale)); background: var(--text-primary); color: var(--bg-surface); border: none; border-radius: 6px; cursor: pointer; font-size: calc(13px * var(--font-scale)); }
-.btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-sym {
+    padding: 3px 8px; border: 0.5px solid var(--border-default);
+    border-radius: 4px; background: var(--bg-elevated); cursor: pointer;
+    font-size: calc(13px * var(--font-scale)); color: var(--text-secondary);
+    font-family: 'DM Mono', monospace; flex-shrink: 0;
+  }
+  .btn-sym:hover { border-color: var(--text-muted); color: var(--text-primary); }
 
+  /* El panel va fixed al viewport, encima de todo */
+  .sym-panel {
+    position: fixed;
+    z-index: 9999;
+    background: var(--bg-surface);
+    border: 0.5px solid var(--border-default);
+    border-radius: 8px;
+    padding: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+  .sym-group { display: flex; flex-direction: column; gap: 3px; }
+  .sym-label { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+  .sym-row { display: flex; flex-wrap: wrap; gap: 2px; }
+  .sym-btn {
+    width: 26px; height: 26px; border: none; background: none;
+    cursor: pointer; font-size: calc(13px * var(--font-scale));
+    border-radius: 4px; color: var(--text-primary);
+  }
+  .sym-btn:hover { background: var(--interactive-hover); }
 </style>
