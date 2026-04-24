@@ -294,8 +294,8 @@ export const experimentStore = createExperimentStore();
 export const activeEvents = derived(experimentStore, $s =>
   $s.events
     .filter(e => !e.is_voided)
-    .sort((a: any, b: any) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
-});
+    .sort((a: any, b: any) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime())
+);
 
 // Entries anuladas con su corrección agrupadas para mostrar en tabla
 export const eventsWithCorrections = derived(experimentStore, $s => {
