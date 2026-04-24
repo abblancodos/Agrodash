@@ -118,6 +118,8 @@ async fn main() {
             .post(routes::experiments::create_event))
         .route("/api/v1/experiments/:id/events/:eid",
             delete(routes::experiments::delete_event))
+        .route("/api/v1/experiments/:id/events/:eid/void",
+            axum::routing::post(routes::experiment_features::void_event))
 
         // ── Series temporales (pesadas periódicas) ──────────────────────────
         .route("/api/v1/experiments/:id/series",

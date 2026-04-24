@@ -221,6 +221,15 @@ function createExperimentStore() {
           .concat(newEvent),
       }));
     },
+    voidEvent(id: string) {
+      update(s => ({
+        ...s,
+        events: s.events.map(e => e.id === id ? { ...e, is_voided: true } : e),
+      }));
+    },
+    deleteEvent(id: string) {
+      update(s => ({ ...s, events: s.events.filter(e => e.id !== id) }));
+    },
 
     // ── CRUD definitions ──────────────────────────────────────────────────────
     addDefinition(def: Definition) {

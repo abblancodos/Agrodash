@@ -136,6 +136,7 @@
   const colls= $derived($experimentStore.collaborators);
   const exp  = $derived($experimentStore.experiment!);
 
+  const defGroups   = $derived($experimentStore.groups ?? []);
   const variables   = $derived(defs.filter(d => d.type === 'variable'));
   const constants   = $derived(defs.filter(d => d.type === 'constant'));
   const expressions = $derived(defs.filter(d => d.type === 'expression'));
@@ -183,6 +184,76 @@
     </div>
 
   {:else}
+    <!-- Grupos de definitions -->
+    {#if $canAdmin || defGroups.length > 0}
+      <section class="def-section groups-section">
+        <div class="groups-head">
+          <div class="section-head" style="margin-bottom:0">grupos</div>
+          {#if $canAdmin}
+            <button class="btn-new-group" onclick={() => showNewGroup = !showNewGroup}>
+              {showNewGroup ? 'cancelar' : '+ nuevo grupo'}
+            </button>
+          {/if}
+        </div>
+
+        {#if showNewGroup}
+          <div class="new-group-form">
+            <input bind:value={newGroupName} placeholder="Nombre del grupo" />
+            <div class="color-picker">
+              {#each groupColors as c}
+                <button class="color-swatch" class:selected={newGroupColor === c}
+                  style="background:{c}" onclick={() => newGroupColor = c}
+                  type="button" aria-label={c}></button>
+              {/each}
+            </div>
+            <div class="btn-row-sm">
+              <button class="btn-sec-sm" onclick={() => showNewGroup = false}>cancelar</button>
+              <button class="btn-pri-sm" disabled={groupSaving || !newGroupName.trim()} onclick={createGroup}>
+                {groupSaving ? 'guardando...' : 'crear grupo'}
+              </button>
+            </div>
+          </div>
+        {/if}
+
+        {#if defGroups.length > 0}
+          <div class="groups-list">
+            {#each defGroups as g (g.id)}
+              {@const gDefs = defs.filter(d => d.group_id === g.id)}
+              <div class="group-card">
+                <div class="group-card-head" style="border-left: 3px solid {g.color}">
+                  <span class="group-dot" style="background:{g.color}"></span>
+                  <span class="group-name">{g.name}</span>
+                  <span class="group-count">{gDefs.length} def{gDefs.length !== 1 ? 's' : ''}</span>
+                  {#if $canAdmin}
+                    <button class="btn-del-group" onclick={() => deleteGroup(g.id)}>✕</button>
+                  {/if}
+                </div>
+                {#if gDefs.length > 0}
+                  <div class="group-defs">
+                    {#each gDefs as d}
+                      <div class="group-def-item">
+                        <span class="group-def-type" style="color:{d.type === 'constant' ? '#0C447C' : d.type === 'expression' ? '#3C3489' : '#3B6D11'}">{d.type === 'constant' ? 'C' : d.type === 'expression' ? 'ƒ' : 'χ'}</span>
+                        <span class="group-def-key">{d.key}</span>
+                        <span class="group-def-label">{d.label}</span>
+                        {#if d.type === 'constant'}<span class="group-def-val">{(d.payload as any).value} {(d.payload as any).unit ?? ''}</span>{/if}
+                        {#if $canAdmin}
+                          <button class="btn-ungroup" onclick={() => moveDefToGroup(d.id, null)} title="quitar del grupo">↗</button>
+                        {/if}
+                      </div>
+                    {/each}
+                  </div>
+                {:else}
+                  <p class="group-empty">sin definitions asignadas</p>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {:else}
+          <p class="group-empty-hint">Los grupos permiten asociar constantes distintas a subconjuntos de entries.</p>
+        {/if}
+      </section>
+    {/if}
+
     <!-- Variables -->
     {#if variables.length > 0}
       <section class="def-section">
@@ -192,19 +263,43 @@
             <div class="def-card-head">
               <span class="def-type def-type--variable">variable</span>
               <span class="def-key">{d.key}</span>
-              <span class="def-label">{d.label}</span>
+              {#if editingId === d.id}
+                <input class="edit-label-in" bind:value={editLabel} />
+              {:else}
+                <span class="def-label">{d.label}</span>
+              {/if}
+              {#if $canEdit}
+                {#if editingId === d.id}
+                  <button class="btn-edit-cancel" onclick={cancelEdit}>cancelar</button>
+                {:else}
+                  <button class="btn-def-edit" onclick={() => startEdit(d)}>editar</button>
+                {/if}
+              {/if}
               {#if $canAdmin}<button class="btn-del" onclick={() => deleteDef(d.id)}>✕</button>{/if}
             </div>
-            <div class="def-card-body">
-              <span class="def-vartype">{(d as any).var_type ?? '—'}</span>
-              {#if (d.payload as any).unit}<span class="def-unit">{(d.payload as any).unit}</span>{/if}
-              {#if (d as any).options?.length}
-                <div class="fields-list">
-                  {#each (d as any).options as opt}<span class="field-chip">{opt}</span>{/each}
+            {#if editingId === d.id}
+              <div class="edit-form">
+                {#if editError}<div class="edit-err">{editError}</div>{/if}
+                <div class="edit-row">
+                  <div class="edit-field"><label>unidad</label><input bind:value={editUnit} placeholder="kg, %, …" /></div>
+                  <div class="edit-field"><label>comentario</label><input bind:value={editComment} /></div>
                 </div>
-              {/if}
-              {#if (d.payload as any).comment}<p class="def-comment">{(d.payload as any).comment}</p>{/if}
-            </div>
+                <div class="edit-actions">
+                  <button class="btn-edit-save" disabled={editSaving} onclick={() => saveEdit(d)}>{editSaving ? 'guardando...' : 'guardar'}</button>
+                </div>
+              </div>
+            {:else}
+              <div class="def-card-body">
+                <span class="def-vartype">{(d as any).var_type ?? '—'}</span>
+                {#if (d.payload as any).unit}<span class="def-unit">{(d.payload as any).unit}</span>{/if}
+                {#if (d as any).options?.length}
+                  <div class="fields-list">
+                    {#each (d as any).options as opt}<span class="field-chip">{opt}</span>{/each}
+                  </div>
+                {/if}
+                {#if (d.payload as any).comment}<p class="def-comment">{(d.payload as any).comment}</p>{/if}
+              </div>
+            {/if}
           </div>
         {/each}
       </section>
@@ -219,14 +314,50 @@
             <div class="def-card-head">
               <span class="def-type def-type--constant">constante</span>
               <span class="def-key">{d.key}</span>
-              <span class="def-label">{d.label}</span>
+              {#if editingId === d.id}
+                <input class="edit-label-in" bind:value={editLabel} />
+              {:else}
+                <span class="def-label">{d.label}</span>
+              {/if}
+              {#if $canEdit}
+                {#if editingId === d.id}
+                  <button class="btn-edit-cancel" onclick={cancelEdit}>cancelar</button>
+                {:else}
+                  <button class="btn-def-edit" onclick={() => startEdit(d)}>editar</button>
+                {/if}
+              {/if}
               {#if $canAdmin}<button class="btn-del" onclick={() => deleteDef(d.id)}>✕</button>{/if}
             </div>
-            <div class="def-card-body">
-              <span class="def-val">{(d.payload as any).value}</span>
-              {#if (d.payload as any).unit}<span class="def-unit">{(d.payload as any).unit}</span>{/if}
-              {#if (d.payload as any).comment}<p class="def-comment">{(d.payload as any).comment}</p>{/if}
-            </div>
+            {#if editingId === d.id}
+              <div class="edit-form">
+                {#if editError}<div class="edit-err">{editError}</div>{/if}
+                <div class="edit-row">
+                  <div class="edit-field"><label>valor</label><input class="mono" bind:value={editValue} inputmode="decimal" /></div>
+                  <div class="edit-field edit-field--sm"><label>unidad</label><input bind:value={editUnit} placeholder="g" /></div>
+                </div>
+                <div class="edit-row">
+                  <div class="edit-field"><label>comentario</label><input bind:value={editComment} /></div>
+                  {#if defGroups.length > 0}
+                    <div class="edit-field edit-field--sm">
+                      <label>grupo</label>
+                      <select class="group-sel" onchange={(e) => moveDefToGroup(d.id, (e.target as HTMLSelectElement).value || null)}>
+                        <option value="" selected={!d.group_id}>sin grupo</option>
+                        {#each defGroups as g}<option value={g.id} selected={d.group_id === g.id}>{g.name}</option>{/each}
+                      </select>
+                    </div>
+                  {/if}
+                </div>
+                <div class="edit-actions">
+                  <button class="btn-edit-save" disabled={editSaving} onclick={() => saveEdit(d)}>{editSaving ? 'guardando...' : 'guardar'}</button>
+                </div>
+              </div>
+            {:else}
+              <div class="def-card-body">
+                <span class="def-val">{(d.payload as any).value}</span>
+                {#if (d.payload as any).unit}<span class="def-unit">{(d.payload as any).unit}</span>{/if}
+                {#if (d.payload as any).comment}<p class="def-comment">{(d.payload as any).comment}</p>{/if}
+              </div>
+            {/if}
           </div>
         {/each}
       </section>
@@ -241,14 +372,56 @@
             <div class="def-card-head">
               <span class="def-type def-type--expression">expresión</span>
               <span class="def-key">{d.key}</span>
-              <span class="def-label">{d.label}</span>
+              {#if editingId === d.id}
+                <input class="edit-label-in" bind:value={editLabel} />
+              {:else}
+                <span class="def-label">{d.label}</span>
+              {/if}
+              {#if $canEdit}
+                {#if editingId === d.id}
+                  <button class="btn-edit-cancel" onclick={cancelEdit}>cancelar</button>
+                {:else}
+                  <button class="btn-def-edit" onclick={() => startEdit(d)}>editar</button>
+                {/if}
+              {/if}
               {#if $canAdmin}<button class="btn-del" onclick={() => deleteDef(d.id)}>✕</button>{/if}
             </div>
-            <div class="def-card-body">
-              <code class="def-formula">{(d.payload as any).formula}</code>
-              {#if (d.payload as any).unit}<span class="def-unit">{(d.payload as any).unit}</span>{/if}
-              {#if (d.payload as any).comment}<p class="def-comment">{(d.payload as any).comment}</p>{/if}
-            </div>
+            {#if editingId === d.id}
+              <div class="edit-form">
+                {#if editError}<div class="edit-err">{editError}</div>{/if}
+                <div class="edit-field formula-autocomplete">
+                  <label>fórmula</label>
+                  <input class="mono" bind:this={editFormulaEl} bind:value={editFormula}
+                    onfocus={() => showEditPicker = true}
+                    oninput={() => showEditPicker = true}
+                    onblur={() => setTimeout(() => showEditPicker = false, 150)} />
+                  {#if showEditPicker && getFilteredEditDefs().length > 0}
+                    <div class="autocomplete-panel">
+                      {#each getFilteredEditDefs() as fd}
+                        <button class="ac-item" type="button" onmousedown={() => insertEditKey(fd.key)}>
+                          <span class="ac-type ac-type--{fd.type}">{fd.type === 'variable' ? 'χ' : fd.type === 'constant' ? 'C' : 'ƒ'}</span>
+                          <span class="ac-key">{fd.key}</span>
+                          <span class="ac-label">{fd.label}</span>
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+                <div class="edit-row">
+                  <div class="edit-field edit-field--sm"><label>unidad</label><input bind:value={editUnit} placeholder="%" /></div>
+                  <div class="edit-field"><label>comentario</label><input bind:value={editComment} /></div>
+                </div>
+                <div class="edit-actions">
+                  <button class="btn-edit-save" disabled={editSaving} onclick={() => saveEdit(d)}>{editSaving ? 'guardando...' : 'guardar'}</button>
+                </div>
+              </div>
+            {:else}
+              <div class="def-card-body">
+                <code class="def-formula">{(d.payload as any).formula}</code>
+                {#if (d.payload as any).unit}<span class="def-unit">{(d.payload as any).unit}</span>{/if}
+                {#if (d.payload as any).comment}<p class="def-comment">{(d.payload as any).comment}</p>{/if}
+              </div>
+            {/if}
           </div>
         {/each}
       </section>
@@ -424,6 +597,8 @@
   .btn-edit-save:disabled { opacity: 0.5; }
   .btn-def-edit { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); background: none; border: 0.5px solid var(--border-subtle); border-radius: 4px; cursor: pointer; padding: 2px 8px; }
   .btn-def-edit:hover { color: var(--text-primary); border-color: var(--border-default); }
+  .edit-label-in { flex: 1; padding: 2px 6px; border: 0.5px solid var(--border-default); border-radius: 4px; font-size: calc(13px * var(--font-scale)); font-weight: 500; background: var(--bg-surface); color: var(--text-primary); outline: none; min-width: 0; }
+  .edit-label-in:focus { border-color: var(--text-primary); }
 
   .formula-autocomplete { position: relative; }
   :global(.formula-autocomplete input) { width: 100%; }
@@ -473,6 +648,8 @@
   .group-def-val { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); }
   .btn-ungroup { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 11px; padding: 0 4px; }
   .btn-ungroup:hover { color: var(--text-primary); }
+  .group-count { font-size: calc(10px * var(--font-scale)); color: var(--text-muted); background: var(--bg-elevated); padding: 1px 6px; border-radius: 10px; }
   .group-empty { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); padding: 4px 6px; font-style: italic; }
+  .group-empty-hint { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); font-style: italic; }
   .group-sel { font-size: calc(11px * var(--font-scale)); padding: 2px 4px; border: 0.5px solid var(--border-subtle); border-radius: 4px; background: var(--bg-surface); color: var(--text-muted); cursor: pointer; }
 </style>

@@ -345,6 +345,26 @@ pub async fn correct_event(
     Ok(Json(new_event))
 }
 
+// ── POST /experiments/:id/events/:eid/void ────────────────────────────────────
+
+pub async fn void_event(
+    State(pool): State<PgPool>,
+    claims: Claims,
+    Path((exp_id, event_id)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    require_role(&pool, exp_id, claims.sub, "editor").await?;
+
+    sqlx::query!(
+        "UPDATE experiment_events SET is_voided = true WHERE id = $1 AND experiment_id = $2",
+        event_id, exp_id,
+    )
+    .execute(&pool)
+    .await
+    .map_err(err)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 // ── Definitions ───────────────────────────────────────────────────────────────
 
 #[derive(Serialize, sqlx::FromRow)]
