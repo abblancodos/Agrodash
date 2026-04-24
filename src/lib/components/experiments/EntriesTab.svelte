@@ -168,7 +168,7 @@
     await removeColumn(dragCol);
   }
 
-(entryId: string, key: string): string {
+function getCellValue(entryId: string, key: string): string {
     const v = entryValues[entryId]?.[key];
     if (v === null || v === undefined) return '—';
     if (typeof v === 'number') return v.toFixed(6).replace(/\.?0+$/, '');
