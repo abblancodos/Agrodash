@@ -50,10 +50,7 @@
     <div class="field-grow"><label for="cf-value">valor numérico</label><input id="cf-value" class="mono" bind:value={value} inputmode="decimal" placeholder="8033.7" /></div>
     <div class="field-unit">
       <label for="cf-unit">unidad</label>
-      <div class="input-row">
-        <input id="cf-unit" bind:value={unit} placeholder="g" />
-        <SymbolPicker onPick={(s) => unit += s} />
-      </div>
+      <input id="cf-unit" bind:value={unit} placeholder="g" />
     </div>
   </div>
   <div class="field"><label for="cf-comment">comentario <span class="muted">(recomendado)</span></label><textarea id="cf-comment" rows="2" bind:value={comment} placeholder="Ej: Pesaje realizado el 15 abr con suelo seco al aire"></textarea></div>
@@ -70,9 +67,9 @@
 .err { background: var(--error-bg); color: var(--error-color); border-radius: 6px; padding: 8px 12px; font-size: calc(12px * var(--font-scale)); }
 .field { display: flex; flex-direction: column; gap: 4px; }
 .field label { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
-.field.row { flex-direction: row; gap: 10px; align-items: flex-end; }
-.field-grow { flex: 1; display: flex; flex-direction: column; gap: 4px; }
-.field-unit { flex: 0 0 auto; min-width: 80px; max-width: 120px; display: flex; flex-direction: column; gap: 4px; }
+.field.row { flex-direction: row; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.field-grow { flex: 1; min-width: 120px; display: flex; flex-direction: column; gap: 4px; }
+.field-unit { flex: 0 0 90px; display: flex; flex-direction: column; gap: 4px; }
 .muted { color: var(--text-muted); }
 .field-hint { font-size: calc(10px * var(--font-scale)); color: var(--text-muted); font-weight: 400; display: block; margin-top: 1px; }
 .input-row { display: flex; gap: 6px; align-items: center; }

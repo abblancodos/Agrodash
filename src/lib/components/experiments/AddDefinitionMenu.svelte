@@ -58,7 +58,7 @@
 
 <style>
   .overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; padding: 20px; }
-  .panel { background: var(--bg-surface); border: 0.5px solid var(--border-default); border-radius: 12px; width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto; }
+  .panel { background: var(--bg-surface); border: 0.5px solid var(--border-default); border-radius: 12px; width: 100%; max-width: 540px; max-height: 90vh; overflow-y: auto; overflow-x: hidden; }
   .panel-head { display: flex; align-items: center; gap: 8px; padding: calc(14px * var(--font-scale)) calc(16px * var(--font-scale)); border-bottom: 0.5px solid var(--border-subtle); }
   .panel-title { font-size: calc(14px * var(--font-scale)); font-weight: 500; color: var(--text-primary); flex: 1; }
   .btn-back { background: none; border: none; cursor: pointer; font-size: 14px; color: var(--text-muted); padding: 0 4px; }

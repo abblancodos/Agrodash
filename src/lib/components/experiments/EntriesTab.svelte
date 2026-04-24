@@ -29,7 +29,7 @@
   let dropdownOpen = $state(false);
   let dropdownStyle = $state('');
   let dropdownBtnEl = $state<HTMLButtonElement | null>(null);
-  let dropdownPanelEl = $state<HTMLDivElement | null>(null);
+  let dropdownPortalEl = $state<HTMLDivElement | null>(null);
 
   function openDropdown() {
     if (!dropdownBtnEl) return;
@@ -37,6 +37,7 @@
     const panelW = 210;
     let left = rect.right - panelW;
     if (left < 8) left = rect.left;
+    // si se sale por abajo del viewport, abrir hacia arriba
     const top = rect.bottom + 4;
     dropdownStyle = `left:${left}px; top:${top}px; width:${panelW}px;`;
     dropdownOpen = true;
@@ -44,11 +45,19 @@
 
   function closeDropdown() { dropdownOpen = false; }
 
+  // Portal: mueve el panel al <body> para evitar cualquier overflow/stacking context
+  $effect(() => {
+    if (dropdownPortalEl) {
+      document.body.appendChild(dropdownPortalEl);
+      return () => { dropdownPortalEl?.remove(); };
+    }
+  });
+
   $effect(() => {
     function handler(e: MouseEvent) {
       if (!dropdownOpen) return;
       const t = e.target as Node;
-      if (!dropdownBtnEl?.contains(t) && !dropdownPanelEl?.contains(t)) dropdownOpen = false;
+      if (!dropdownBtnEl?.contains(t) && !dropdownPortalEl?.contains(t)) dropdownOpen = false;
     }
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -353,9 +362,9 @@ function getCellValue(entryId: string, key: string): string {
     </div>
   {/if}
 
-  <!-- Dropdown de columnas — fixed al viewport -->
+  <!-- Dropdown de columnas — portado al <body> para evitar overflow/stacking -->
   {#if dropdownOpen}
-    <div bind:this={dropdownPanelEl} class="dropdown-portal" style={dropdownStyle}>
+    <div bind:this={dropdownPortalEl} class="dropdown-portal" style={dropdownStyle}>
       {#if !hasGroupCol && $groups.length > 0}
         <button class="opt" onclick={() => { addGroupColumn(); closeDropdown(); }}>
           <span class="opt-type">grupo</span>grupo de suelo
@@ -386,7 +395,7 @@ function getCellValue(entryId: string, key: string): string {
   .table-outer { display: flex; flex-direction: column; gap: 6px; }
   .table-scroll { overflow-x: auto; border: 0.5px solid var(--border-subtle); border-radius: 8px; overflow-y: visible; }
   .table-wrap { overflow: visible; }
-  .t { width: 100%; border-collapse: collapse; font-size: calc(12px * var(--font-scale)); }
+  .t { width: max-content; min-width: 100%; border-collapse: collapse; font-size: calc(12px * var(--font-scale)); }
   th { background: var(--bg-elevated); padding: calc(8px * var(--font-scale)) calc(10px * var(--font-scale)); text-align: left; font-weight: 500; border-bottom: 0.5px solid var(--border-subtle); white-space: nowrap; }
   .th-ts { color: var(--text-muted); min-width: 110px; }
   .th-col { color: var(--text-secondary); cursor: grab; user-select: none; max-width: 160px; overflow: hidden; }
