@@ -302,7 +302,7 @@ pub async fn get_experiment(
         "description": row.description,
         "public":      row.public,
         "constants":   row.constants,
-        "columns":     row.columns.unwrap_or(serde_json::json!([])),
+        "columns":     row.columns,
         "status":      row.status,
         "created_at":  row.created_at,
         "user_role":   row.user_role,
