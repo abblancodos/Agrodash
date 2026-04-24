@@ -18,6 +18,21 @@
 
   const groupColors = ['#4a90d9','#3da85a','#e07b54','#7c6fcd','#e8a838','#d47cb0','#78c4b8','#8a9bb0'];
 
+  // Drag definitions into groups
+  let draggingDefId = $state<string | null>(null);
+  let dragOverGroupId = $state<string | null>(null);
+
+  function onDefDragStart(e: DragEvent, defId: string) {
+    draggingDefId = defId;
+    e.dataTransfer?.setData('text/plain', defId);
+  }
+  function onDefDragEnd() { draggingDefId = null; dragOverGroupId = null; }
+  async function onDropToGroup(groupId: string | null) {
+    if (!draggingDefId) return;
+    await moveDefToGroup(draggingDefId, groupId);
+    draggingDefId = null; dragOverGroupId = null;
+  }
+
   async function createGroup() {
     if (!newGroupName.trim()) return;
     groupSaving = true;
@@ -115,7 +130,7 @@
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: editLabel, payload, sort_order: def.sort_order }),
+        body: JSON.stringify({ key: def.key, type: def.type, label: editLabel, payload, sort_order: def.sort_order }),
       });
       const data = await res.json();
       if (!res.ok) { editError = data.error ?? 'Error'; return; }
@@ -219,7 +234,11 @@
           <div class="groups-list">
             {#each defGroups as g (g.id)}
               {@const gDefs = defs.filter(d => d.group_id === g.id)}
-              <div class="group-card">
+              <div class="group-card"
+                class:group-dragover={dragOverGroupId === g.id}
+                ondragover={(e) => { e.preventDefault(); dragOverGroupId = g.id; }}
+                ondragleave={() => dragOverGroupId = null}
+                ondrop={() => onDropToGroup(g.id)}>
                 <div class="group-card-head" style="border-left: 3px solid {g.color}">
                   <span class="group-dot" style="background:{g.color}"></span>
                   <span class="group-name">{g.name}</span>
@@ -251,6 +270,17 @@
         {:else}
           <p class="group-empty-hint">Los grupos permiten asociar constantes distintas a subconjuntos de entries.</p>
         {/if}
+
+        <!-- Zona "sin grupo" — drop target para quitar del grupo -->
+        {#if draggingDefId !== null}
+          <div class="ungroup-zone"
+            class:ungroup-over={dragOverGroupId === '__none__'}
+            ondragover={(e) => { e.preventDefault(); dragOverGroupId = '__none__'; }}
+            ondragleave={() => dragOverGroupId = null}
+            ondrop={() => onDropToGroup(null)}>
+            sin grupo
+          </div>
+        {/if}
       </section>
     {/if}
 
@@ -259,7 +289,10 @@
       <section class="def-section">
         <div class="section-head">variables</div>
         {#each variables as d (d.id)}
-          <div class="def-card">
+          <div class="def-card" class:def-dragging={draggingDefId === d.id}
+               draggable="true"
+               ondragstart={(e) => onDefDragStart(e, d.id)}
+               ondragend={onDefDragEnd}>
             <div class="def-card-head">
               <span class="def-type def-type--variable">variable</span>
               <span class="def-key">{d.key}</span>
@@ -310,7 +343,10 @@
       <section class="def-section">
         <div class="section-head">constantes</div>
         {#each constants as d (d.id)}
-          <div class="def-card">
+          <div class="def-card" class:def-dragging={draggingDefId === d.id}
+               draggable="true"
+               ondragstart={(e) => onDefDragStart(e, d.id)}
+               ondragend={onDefDragEnd}>
             <div class="def-card-head">
               <span class="def-type def-type--constant">constante</span>
               <span class="def-key">{d.key}</span>
@@ -337,15 +373,7 @@
                 </div>
                 <div class="edit-row">
                   <div class="edit-field"><label>comentario</label><input bind:value={editComment} /></div>
-                  {#if defGroups.length > 0}
-                    <div class="edit-field edit-field--sm">
-                      <label>grupo</label>
-                      <select class="group-sel" onchange={(e) => moveDefToGroup(d.id, (e.target as HTMLSelectElement).value || null)}>
-                        <option value="" selected={!d.group_id}>sin grupo</option>
-                        {#each defGroups as g}<option value={g.id} selected={d.group_id === g.id}>{g.name}</option>{/each}
-                      </select>
-                    </div>
-                  {/if}
+
                 </div>
                 <div class="edit-actions">
                   <button class="btn-edit-save" disabled={editSaving} onclick={() => saveEdit(d)}>{editSaving ? 'guardando...' : 'guardar'}</button>
@@ -368,7 +396,10 @@
       <section class="def-section">
         <div class="section-head">expresiones</div>
         {#each expressions as d (d.id)}
-          <div class="def-card">
+          <div class="def-card" class:def-dragging={draggingDefId === d.id}
+               draggable="true"
+               ondragstart={(e) => onDefDragStart(e, d.id)}
+               ondragend={onDefDragEnd}>
             <div class="def-card-head">
               <span class="def-type def-type--expression">expresión</span>
               <span class="def-key">{d.key}</span>
@@ -651,5 +682,14 @@
   .group-count { font-size: calc(10px * var(--font-scale)); color: var(--text-muted); background: var(--bg-elevated); padding: 1px 6px; border-radius: 10px; }
   .group-empty { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); padding: 4px 6px; font-style: italic; }
   .group-empty-hint { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); font-style: italic; }
+  .def-dragging { opacity: 0.4; }
+  .group-dragover { outline: 2px solid var(--text-primary); outline-offset: -2px; }
+  .ungroup-zone {
+    border: 1.5px dashed var(--border-default); border-radius: 6px;
+    padding: 6px 12px; font-size: calc(11px * var(--font-scale));
+    color: var(--text-muted); text-align: center; cursor: default;
+    transition: all .12s;
+  }
+  .ungroup-zone.ungroup-over { border-color: var(--text-muted); color: var(--text-primary); background: var(--interactive-hover); }
   .group-sel { font-size: calc(11px * var(--font-scale)); padding: 2px 4px; border: 0.5px solid var(--border-subtle); border-radius: 4px; background: var(--bg-surface); color: var(--text-muted); cursor: pointer; }
 </style>
