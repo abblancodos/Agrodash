@@ -294,8 +294,8 @@ export const experimentStore = createExperimentStore();
 export const activeEvents = derived(experimentStore, $s =>
   $s.events
     .filter(e => !e.is_voided)
-    .sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime())
-);
+    .sort((a: any, b: any) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
+});
 
 // Entries anuladas con su corrección agrupadas para mostrar en tabla
 export const eventsWithCorrections = derived(experimentStore, $s => {
@@ -315,7 +315,7 @@ export const eventsWithCorrections = derived(experimentStore, $s => {
 });
 
 // Constantes del experimento como objeto plano para los scripts
-export const constantsMap = derived(experimentStore, $s => {
+export const constantsMap = derived(experimentStore, $s => { console.log("[derived] constantsMap");
   const base = ($s.experiment?.constants ?? {}) as Record<string, unknown>;
   const fromDefs = $s.definitions
     .filter(d => d.type === 'constant')
@@ -327,10 +327,8 @@ export const constantsMap = derived(experimentStore, $s => {
 });
 
 // Rol del usuario actual
-export const groups      = derived(experimentStore, $s => $s.groups ?? []);
-export const userRole    = derived(experimentStore, $s =>
-  $s.experiment?.user_role ?? null
-);
+export const groups      = derived(experimentStore, $s => { console.log("[derived] groups"); return $s.groups ?? []; });
+export const userRole    = derived(experimentStore, $s => { console.log("[derived] userRole"); return $s.experiment?.user_role ?? null; });
 
 export const canEdit = derived(userRole, r => r === 'editor' || r === 'admin');
 export const canAdmin = derived(userRole, r => r === 'admin');
@@ -431,7 +429,7 @@ export const experimentContext = derived(
 // ── Evaluación de objetivos — completamente genérica ─────────────────────────
 
 export const objectiveEvaluations = derived(
-  [experimentStore, experimentContext],
+  [experimentStore, experimentContext], // DEBUG
   ([$s, ctx]) => {
     return $s.objectives.map(obj => {
       const cond = obj.condition as Record<string, unknown>;
