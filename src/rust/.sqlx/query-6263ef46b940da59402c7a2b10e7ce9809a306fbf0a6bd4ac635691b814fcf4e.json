@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE experiment_events SET is_voided = true WHERE id = $1 AND experiment_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6263ef46b940da59402c7a2b10e7ce9809a306fbf0a6bd4ac635691b814fcf4e"
+}
