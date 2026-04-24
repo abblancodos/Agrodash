@@ -134,7 +134,7 @@ function createExperimentStore() {
     definitions:   [],
     objectives:    [],
     collaborators: [],
-    groups:        [],
+    groups:        [] as DefinitionGroup[],
     entryValues:   {},
     loading:       false,
     error:         '',
@@ -170,11 +170,13 @@ function createExperimentStore() {
 
         update(s => ({
           ...s,
-          experiment: { ...experiment, user_role },
+          experiment: { ...experiment, user_role, columns: experiment.columns ?? [] },
           events,
           definitions,
           objectives,
           collaborators,
+          groups:      Array.isArray(groups) ? groups : [],
+          entryValues: (entryValues && typeof entryValues === 'object') ? entryValues : {},
           loading: false,
           lastActivity: events.length > 0
             ? new Date(events[events.length - 1].recorded_at).getTime()
@@ -325,7 +327,7 @@ export const constantsMap = derived(experimentStore, $s => {
 });
 
 // Rol del usuario actual
-export const groups      = derived(experimentStore, $s => $s.groups);
+export const groups      = derived(experimentStore, $s => $s.groups ?? []);
 export const userRole    = derived(experimentStore, $s =>
   $s.experiment?.user_role ?? null
 );
