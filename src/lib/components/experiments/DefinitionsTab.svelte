@@ -18,20 +18,16 @@
 
   const groupColors = ['#4a90d9','#3da85a','#e07b54','#7c6fcd','#e8a838','#d47cb0','#78c4b8','#8a9bb0'];
 
-  // Drag definitions into groups
-  let draggingDefId = $state<string | null>(null);
-  let dragOverGroupId = $state<string | null>(null);
+  let groupPickerDefId = $state<string | null>(null);
+  function toggleGroupPicker(defId: string) {
+    groupPickerDefId = groupPickerDefId === defId ? null : defId;
+  }
+  async function assignGroup(def: any, groupId: string | null) {
+    await moveDefToGroup(def.id, groupId);
+    groupPickerDefId = null;
+  }
 
-  function onDefDragStart(e: DragEvent, defId: string) {
-    draggingDefId = defId;
-    e.dataTransfer?.setData('text/plain', defId);
-  }
-  function onDefDragEnd() { draggingDefId = null; dragOverGroupId = null; }
-  async function onDropToGroup(groupId: string | null) {
-    if (!draggingDefId) return;
-    await moveDefToGroup(draggingDefId, groupId);
-    draggingDefId = null; dragOverGroupId = null;
-  }
+
 
   async function createGroup() {
     if (!newGroupName.trim()) return;
@@ -140,6 +136,21 @@
     finally { editSaving = false; }
   }
 
+  async function cloneDef(d: any) {
+    const key = `${d.key}_copia`;
+    const res = await fetch(`${API}/api/v1/experiments/${exp.id}/definitions`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        key, label: `${d.label} (copia)`,
+        type: d.type, payload: d.payload,
+        var_type: d.var_type ?? null,
+        options: d.options ?? null,
+      }),
+    });
+    if (res.ok) experimentStore.addDefinition(await res.json());
+  }
+
   let { onDeleted }: { onDeleted: () => void } = $props();
 
   const API = import.meta.env.VITE_API_BASE ?? '';
@@ -234,11 +245,7 @@
           <div class="groups-list">
             {#each defGroups as g (g.id)}
               {@const gDefs = defs.filter(d => d.group_id === g.id)}
-              <div class="group-card"
-                class:group-dragover={dragOverGroupId === g.id}
-                ondragover={(e) => { e.preventDefault(); dragOverGroupId = g.id; }}
-                ondragleave={() => dragOverGroupId = null}
-                ondrop={() => onDropToGroup(g.id)}>
+              <div class="group-card">
                 <div class="group-card-head" style="border-left: 3px solid {g.color}">
                   <span class="group-dot" style="background:{g.color}"></span>
                   <span class="group-name">{g.name}</span>
@@ -248,21 +255,69 @@
                   {/if}
                 </div>
                 {#if gDefs.length > 0}
-                  <div class="group-defs">
-                    {#each gDefs as d}
-                      <div class="group-def-item">
-                        <span class="group-def-type" style="color:{d.type === 'constant' ? '#0C447C' : d.type === 'expression' ? '#3C3489' : '#3B6D11'}">{d.type === 'constant' ? 'C' : d.type === 'expression' ? 'ƒ' : 'χ'}</span>
-                        <span class="group-def-key">{d.key}</span>
-                        <span class="group-def-label">{d.label}</span>
-                        {#if d.type === 'constant'}<span class="group-def-val">{(d.payload as any).value} {(d.payload as any).unit ?? ''}</span>{/if}
-                        {#if $canAdmin}
-                          <button class="btn-ungroup" onclick={() => moveDefToGroup(d.id, null)} title="quitar del grupo">↗</button>
+                  <div class="group-defs-cards">
+                    {#each gDefs as d (d.id)}
+                      <div class="def-card">
+                        <div class="def-card-head">
+                          <span class="def-type def-type--{d.type === 'constant' ? 'constant' : d.type === 'expression' ? 'expression' : 'variable'}">{d.type === 'constant' ? 'constante' : d.type === 'expression' ? 'expresión' : 'variable'}</span>
+                          <span class="def-key">{d.key}</span>
+                          {#if editingId === d.id}
+                            <input class="edit-label-in" bind:value={editLabel} />
+                          {:else}
+                            <span class="def-label">{d.label}</span>
+                          {/if}
+                          {#if $canEdit}
+                            {#if editingId === d.id}
+                              <button class="btn-edit-cancel" onclick={cancelEdit}>cancelar</button>
+                            {:else}
+                              <button class="btn-def-edit" onclick={() => startEdit(d)}>editar</button>
+                            {/if}
+                          {/if}
+                          {#if $canEdit}<button class="btn-clone" onclick={() => cloneDef(d)} title="clonar">⎘</button>{/if}
+                          {#if $canAdmin}<button class="btn-del" onclick={() => deleteDef(d.id)}>✕</button>{/if}
+                          {#if $canEdit}
+                            <button class="btn-ungroup-sm" onclick={() => moveDefToGroup(d.id, null)} title="quitar del grupo">↗ quitar</button>
+                          {/if}
+                        </div>
+                        {#if editingId === d.id}
+                          <div class="edit-form">
+                            {#if editError}<div class="edit-err">{editError}</div>{/if}
+                            {#if d.type === 'constant'}
+                              <div class="edit-row">
+                                <div class="edit-field"><label>valor</label><input class="mono" bind:value={editValue} inputmode="decimal" /></div>
+                                <div class="edit-field edit-field--sm"><label>unidad</label><input bind:value={editUnit} placeholder="g" /></div>
+                              </div>
+                            {:else if d.type === 'expression'}
+                              <div class="edit-field"><label>fórmula</label><input class="mono" bind:value={editFormula} /></div>
+                              <div class="edit-field edit-field--sm"><label>unidad</label><input bind:value={editUnit} /></div>
+                            {/if}
+                            <div class="edit-row">
+                              <div class="edit-field"><label>comentario</label><input bind:value={editComment} /></div>
+                            </div>
+                            <div class="edit-actions">
+                              <button class="btn-edit-save" disabled={editSaving} onclick={() => saveEdit(d)}>{editSaving ? 'guardando...' : 'guardar'}</button>
+                            </div>
+                          </div>
+                        {:else}
+                          <div class="def-card-body">
+                            {#if d.type === 'constant'}
+                              <span class="def-val">{(d.payload as any).value}</span>
+                              {#if (d.payload as any).unit}<span class="def-unit">{(d.payload as any).unit}</span>{/if}
+                            {:else if d.type === 'expression'}
+                              <code class="def-formula">{(d.payload as any).formula}</code>
+                              {#if (d.payload as any).unit}<span class="def-unit">{(d.payload as any).unit}</span>{/if}
+                            {:else}
+                              <span class="def-vartype">{(d as any).var_type ?? '—'}</span>
+                              {#if (d.payload as any).unit}<span class="def-unit">{(d.payload as any).unit}</span>{/if}
+                            {/if}
+                            {#if (d.payload as any).comment}<p class="def-comment">{(d.payload as any).comment}</p>{/if}
+                          </div>
                         {/if}
                       </div>
                     {/each}
                   </div>
                 {:else}
-                  <p class="group-empty">sin definitions asignadas</p>
+                  <p class="group-empty">sin definitions asignadas — usá el botón <strong>+ grupo</strong> en cada definition para asignarla aquí.</p>
                 {/if}
               </div>
             {/each}
@@ -271,28 +326,15 @@
           <p class="group-empty-hint">Los grupos permiten asociar constantes distintas a subconjuntos de entries.</p>
         {/if}
 
-        <!-- Zona "sin grupo" — drop target para quitar del grupo -->
-        {#if draggingDefId !== null}
-          <div class="ungroup-zone"
-            class:ungroup-over={dragOverGroupId === '__none__'}
-            ondragover={(e) => { e.preventDefault(); dragOverGroupId = '__none__'; }}
-            ondragleave={() => dragOverGroupId = null}
-            ondrop={() => onDropToGroup(null)}>
-            sin grupo
-          </div>
-        {/if}
       </section>
     {/if}
 
     <!-- Variables -->
-    {#if variables.length > 0}
+    {#if variables.filter(d => !d.group_id).length > 0}
       <section class="def-section">
         <div class="section-head">variables</div>
-        {#each variables as d (d.id)}
-          <div class="def-card" class:def-dragging={draggingDefId === d.id}
-               draggable="true"
-               ondragstart={(e) => onDefDragStart(e, d.id)}
-               ondragend={onDefDragEnd}>
+        {#each variables.filter(d => !d.group_id) as d (d.id)}
+          <div class="def-card">
             <div class="def-card-head">
               <span class="def-type def-type--variable">variable</span>
               <span class="def-key">{d.key}</span>
@@ -309,6 +351,36 @@
                 {/if}
               {/if}
               {#if $canAdmin}<button class="btn-del" onclick={() => deleteDef(d.id)}>✕</button>{/if}
+              {#if $canEdit}<button class="btn-clone" onclick={() => cloneDef(d)} title="clonar">⎘</button>{/if}
+              {#if $canEdit && defGroups.length > 0}
+                {#if groupPickerDefId === d.id}
+                  <div class="group-picker-inline">
+                    <button class="gpi-opt gpi-opt--none" onclick={() => assignGroup(d, null)}>
+                      sin grupo
+                    </button>
+                    {#each defGroups as g}
+                      <button class="gpi-opt" class:gpi-opt--active={d.group_id === g.id}
+                        style="--gcolor:{g.color}"
+                        onclick={() => assignGroup(d, g.id)}>
+                        <span class="gpi-dot" style="background:{g.color}"></span>{g.name}
+                      </button>
+                    {/each}
+                    <button class="gpi-cancel" onclick={() => groupPickerDefId = null}>✕</button>
+                  </div>
+                {:else}
+                  <button class="btn-group-assign"
+                    class:btn-group-assign--active={!!d.group_id}
+                    title={d.group_id ? 'cambiar grupo' : 'asignar a grupo'}
+                    onclick={() => toggleGroupPicker(d.id)}>
+                    {#if d.group_id}
+                      {@const g = defGroups.find(g => g.id === d.group_id)}
+                      <span class="group-dot-sm" style="background:{g?.color ?? '#888'}"></span>{g?.name ?? 'grupo'}
+                    {:else}
+                      + grupo
+                    {/if}
+                  </button>
+                {/if}
+              {/if}
             </div>
             {#if editingId === d.id}
               <div class="edit-form">
@@ -339,14 +411,11 @@
     {/if}
 
     <!-- Constantes -->
-    {#if constants.length > 0}
+    {#if constants.filter(d => !d.group_id).length > 0}
       <section class="def-section">
         <div class="section-head">constantes</div>
-        {#each constants as d (d.id)}
-          <div class="def-card" class:def-dragging={draggingDefId === d.id}
-               draggable="true"
-               ondragstart={(e) => onDefDragStart(e, d.id)}
-               ondragend={onDefDragEnd}>
+        {#each constants.filter(d => !d.group_id) as d (d.id)}
+          <div class="def-card">
             <div class="def-card-head">
               <span class="def-type def-type--constant">constante</span>
               <span class="def-key">{d.key}</span>
@@ -363,6 +432,36 @@
                 {/if}
               {/if}
               {#if $canAdmin}<button class="btn-del" onclick={() => deleteDef(d.id)}>✕</button>{/if}
+              {#if $canEdit}<button class="btn-clone" onclick={() => cloneDef(d)} title="clonar">⎘</button>{/if}
+              {#if $canEdit && defGroups.length > 0}
+                {#if groupPickerDefId === d.id}
+                  <div class="group-picker-inline">
+                    <button class="gpi-opt gpi-opt--none" onclick={() => assignGroup(d, null)}>
+                      sin grupo
+                    </button>
+                    {#each defGroups as g}
+                      <button class="gpi-opt" class:gpi-opt--active={d.group_id === g.id}
+                        style="--gcolor:{g.color}"
+                        onclick={() => assignGroup(d, g.id)}>
+                        <span class="gpi-dot" style="background:{g.color}"></span>{g.name}
+                      </button>
+                    {/each}
+                    <button class="gpi-cancel" onclick={() => groupPickerDefId = null}>✕</button>
+                  </div>
+                {:else}
+                  <button class="btn-group-assign"
+                    class:btn-group-assign--active={!!d.group_id}
+                    title={d.group_id ? 'cambiar grupo' : 'asignar a grupo'}
+                    onclick={() => toggleGroupPicker(d.id)}>
+                    {#if d.group_id}
+                      {@const g = defGroups.find(g => g.id === d.group_id)}
+                      <span class="group-dot-sm" style="background:{g?.color ?? '#888'}"></span>{g?.name ?? 'grupo'}
+                    {:else}
+                      + grupo
+                    {/if}
+                  </button>
+                {/if}
+              {/if}
             </div>
             {#if editingId === d.id}
               <div class="edit-form">
@@ -392,14 +491,11 @@
     {/if}
 
     <!-- Expresiones -->
-    {#if expressions.length > 0}
+    {#if expressions.filter(d => !d.group_id).length > 0}
       <section class="def-section">
         <div class="section-head">expresiones</div>
-        {#each expressions as d (d.id)}
-          <div class="def-card" class:def-dragging={draggingDefId === d.id}
-               draggable="true"
-               ondragstart={(e) => onDefDragStart(e, d.id)}
-               ondragend={onDefDragEnd}>
+        {#each expressions.filter(d => !d.group_id) as d (d.id)}
+          <div class="def-card">
             <div class="def-card-head">
               <span class="def-type def-type--expression">expresión</span>
               <span class="def-key">{d.key}</span>
@@ -416,6 +512,36 @@
                 {/if}
               {/if}
               {#if $canAdmin}<button class="btn-del" onclick={() => deleteDef(d.id)}>✕</button>{/if}
+              {#if $canEdit}<button class="btn-clone" onclick={() => cloneDef(d)} title="clonar">⎘</button>{/if}
+              {#if $canEdit && defGroups.length > 0}
+                {#if groupPickerDefId === d.id}
+                  <div class="group-picker-inline">
+                    <button class="gpi-opt gpi-opt--none" onclick={() => assignGroup(d, null)}>
+                      sin grupo
+                    </button>
+                    {#each defGroups as g}
+                      <button class="gpi-opt" class:gpi-opt--active={d.group_id === g.id}
+                        style="--gcolor:{g.color}"
+                        onclick={() => assignGroup(d, g.id)}>
+                        <span class="gpi-dot" style="background:{g.color}"></span>{g.name}
+                      </button>
+                    {/each}
+                    <button class="gpi-cancel" onclick={() => groupPickerDefId = null}>✕</button>
+                  </div>
+                {:else}
+                  <button class="btn-group-assign"
+                    class:btn-group-assign--active={!!d.group_id}
+                    title={d.group_id ? 'cambiar grupo' : 'asignar a grupo'}
+                    onclick={() => toggleGroupPicker(d.id)}>
+                    {#if d.group_id}
+                      {@const g = defGroups.find(g => g.id === d.group_id)}
+                      <span class="group-dot-sm" style="background:{g?.color ?? '#888'}"></span>{g?.name ?? 'grupo'}
+                    {:else}
+                      + grupo
+                    {/if}
+                  </button>
+                {/if}
+              {/if}
             </div>
             {#if editingId === d.id}
               <div class="edit-form">
@@ -670,26 +796,40 @@
   .group-name { font-size: calc(13px * var(--font-scale)); font-weight: 500; color: var(--text-primary); flex: 1; }
   .btn-del-group { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 12px; }
   .btn-del-group:hover { color: var(--error-color); }
-  .group-defs { display: flex; flex-direction: column; padding: 6px 8px; gap: 2px; }
-  .group-def-item { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 4px; }
-  .group-def-item:hover { background: var(--interactive-hover); }
-  .group-def-type { font-size: calc(10px * var(--font-scale)); width: 14px; text-align: center; color: var(--text-muted); font-family: 'DM Mono', monospace; }
-  .group-def-key { font-size: calc(11px * var(--font-scale)); color: var(--text-primary); min-width: 80px; }
-  .group-def-label { font-size: calc(11px * var(--font-scale)); color: var(--text-secondary); flex: 1; }
-  .group-def-val { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); }
-  .btn-ungroup { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 11px; padding: 0 4px; }
-  .btn-ungroup:hover { color: var(--text-primary); }
+  .group-defs-cards { display: flex; flex-direction: column; gap: calc(4px * var(--font-scale)); padding: calc(8px * var(--font-scale)); }
+  .group-defs-cards .def-card { margin: 0; }
+  .btn-ungroup-sm { font-size: calc(10px * var(--font-scale)); color: var(--text-muted); background: none; border: 0.5px dashed var(--border-subtle); border-radius: 4px; cursor: pointer; padding: 1px 6px; white-space: nowrap; flex-shrink: 0; }
+  .btn-ungroup-sm:hover { color: var(--text-primary); border-color: var(--border-default); }
+  .btn-clone { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); background: none; border: 0.5px solid var(--border-subtle); border-radius: 4px; cursor: pointer; padding: 2px 6px; }
+  .btn-clone:hover { color: var(--text-primary); border-color: var(--border-default); }
   .group-count { font-size: calc(10px * var(--font-scale)); color: var(--text-muted); background: var(--bg-elevated); padding: 1px 6px; border-radius: 10px; }
   .group-empty { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); padding: 4px 6px; font-style: italic; }
   .group-empty-hint { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); font-style: italic; }
-  .def-dragging { opacity: 0.4; }
-  .group-dragover { outline: 2px solid var(--text-primary); outline-offset: -2px; }
-  .ungroup-zone {
-    border: 1.5px dashed var(--border-default); border-radius: 6px;
-    padding: 6px 12px; font-size: calc(11px * var(--font-scale));
-    color: var(--text-muted); text-align: center; cursor: default;
+  .btn-group-assign {
+    font-size: calc(10px * var(--font-scale)); padding: 2px 7px;
+    border: 0.5px dashed var(--border-default); border-radius: 20px;
+    background: none; cursor: pointer; color: var(--text-muted);
+    display: flex; align-items: center; gap: 4px; white-space: nowrap;
+    transition: all .12s; flex-shrink: 0;
+  }
+  .btn-group-assign:hover { border-color: var(--text-muted); color: var(--text-secondary); }
+  .btn-group-assign--active { border-style: solid; color: var(--text-secondary); }
+  .group-dot-sm { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .group-picker-inline {
+    display: flex; align-items: center; gap: 4px; flex-wrap: wrap; flex: 1;
+  }
+  .gpi-opt {
+    font-size: calc(10px * var(--font-scale)); padding: 2px 8px;
+    border: 0.5px solid var(--border-default); border-radius: 20px;
+    background: none; cursor: pointer; color: var(--text-secondary);
+    display: flex; align-items: center; gap: 4px; white-space: nowrap;
     transition: all .12s;
   }
-  .ungroup-zone.ungroup-over { border-color: var(--text-muted); color: var(--text-primary); background: var(--interactive-hover); }
+  .gpi-opt:hover { background: var(--interactive-hover); color: var(--text-primary); }
+  .gpi-opt--active { border-color: var(--gcolor, var(--border-default)); color: var(--text-primary); font-weight: 500; }
+  .gpi-opt--none { color: var(--text-muted); border-style: dashed; }
+  .gpi-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .gpi-cancel { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 11px; padding: 2px 4px; }
+  .gpi-cancel:hover { color: var(--text-primary); }
   .group-sel { font-size: calc(11px * var(--font-scale)); padding: 2px 4px; border: 0.5px solid var(--border-subtle); border-radius: 4px; background: var(--bg-surface); color: var(--text-muted); cursor: pointer; }
 </style>
