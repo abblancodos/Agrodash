@@ -111,6 +111,13 @@ async fn main() {
             .delete(routes::experiment_features::delete_experiment))
         .route("/api/v1/experiments/:id/constants",
             put(routes::experiments::update_constants))
+        .route("/api/v1/experiments/:id/columns",
+            axum::routing::patch(routes::experiment_features::update_columns))
+        .route("/api/v1/experiments/:id/values",
+            get(routes::experiment_features::get_all_entry_values))
+        .route("/api/v1/experiments/:id/events/:eid/values",
+            get(routes::experiment_features::get_entry_values)
+            .post(routes::experiment_features::save_entry_values))
 
         // ── Eventos (registro cronológico) ──────────────────────────────────
         .route("/api/v1/experiments/:id/events",
