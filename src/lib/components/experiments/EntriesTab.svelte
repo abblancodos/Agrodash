@@ -34,12 +34,10 @@
   function openDropdown() {
     if (!dropdownBtnEl) return;
     const rect = dropdownBtnEl.getBoundingClientRect();
-    const panelW = 210;
-    let left = rect.right - panelW;
+    let left = rect.right - 220;
     if (left < 8) left = rect.left;
-    // si se sale por abajo del viewport, abrir hacia arriba
     const top = rect.bottom + 4;
-    dropdownStyle = `left:${left}px; top:${top}px; width:${panelW}px;`;
+    dropdownStyle = `left:${left}px; top:${top}px;`;
     dropdownOpen = true;
   }
 
@@ -407,19 +405,32 @@ function getCellValue(entryId: string, key: string): string {
   .th-add { width: 40px; text-align: center; position: relative; }
   .th-act { width: 60px; }
 
-  .dropdown-portal {
+  :global(.dropdown-portal) {
     position: fixed; z-index: 200; background: var(--bg-surface);
     border: 0.5px solid var(--border-default); border-radius: 8px;
     padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.14);
-    display: flex; flex-direction: column;
+    display: flex; flex-direction: column; min-width: 220px;
+    font-family: 'DM Sans', sans-serif; font-size: 13px; line-height: 1.4;
+  }
+  :global(.dropdown-portal .opt) {
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+    background: none; border: none; cursor: pointer;
+    font-size: 12px; font-family: 'DM Sans', sans-serif;
+    color: var(--text-primary); border-radius: 4px;
+    text-align: left; white-space: nowrap; width: 100%;
+  }
+  :global(.dropdown-portal .opt:hover) { background: var(--interactive-hover); }
+  :global(.dropdown-portal .opt-type) {
+    font-size: 10px; padding: 1px 5px; border-radius: 20px;
+    background: var(--bg-elevated); color: var(--text-muted);
+    font-family: 'DM Mono', monospace; flex-shrink: 0;
+  }
+  :global(.dropdown-portal .opt-empty) {
+    font-size: 11px; color: var(--text-muted); padding: 6px 10px; white-space: nowrap;
   }
   .add-wrap { position: relative; display: inline-block; }
   .btn-plus { width: 24px; height: 24px; border-radius: 50%; border: 0.5px dashed var(--border-default); background: none; cursor: pointer; font-size: 14px; color: var(--text-muted); }
   .btn-plus:hover { border-color: var(--text-muted); color: var(--text-primary); }
-  .opt { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: none; border: none; cursor: pointer; font-size: calc(12px * var(--font-scale)); color: var(--text-primary); border-radius: 4px; text-align: left; }
-  .opt:hover { background: var(--interactive-hover); }
-  .opt-type { font-size: calc(10px * var(--font-scale)); padding: 1px 5px; border-radius: 20px; background: var(--bg-elevated); color: var(--text-muted); font-family: 'DM Mono', monospace; }
-  .opt-empty { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); padding: 6px 10px; }
 
   /* Trash drop zone — appears while dragging */
   .trash-zone {

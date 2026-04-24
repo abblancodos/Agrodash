@@ -269,7 +269,7 @@ pub async fn get_experiment(
             e.id            AS "id: Uuid",
             e.template_id   AS "template_id?: Uuid",
             e.owner_id      AS "owner_id: Uuid",
-            e.title, e.description, e.public, e.constants, e.status, e.created_at,
+            e.title, e.description, e.public, e.constants, e.columns, e.status, e.created_at,
             CASE
                 WHEN e.owner_id = $2                THEN 'admin'
                 WHEN c.role IS NOT NULL             THEN c.role
@@ -302,6 +302,7 @@ pub async fn get_experiment(
         "description": row.description,
         "public":      row.public,
         "constants":   row.constants,
+        "columns":     row.columns.unwrap_or(serde_json::json!([])),
         "status":      row.status,
         "created_at":  row.created_at,
         "user_role":   row.user_role,

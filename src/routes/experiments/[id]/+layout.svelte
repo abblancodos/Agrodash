@@ -5,6 +5,8 @@
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth';
   import { experimentStore } from '$lib/stores/experiment';
+  import { preferences } from '$lib/stores/preferences';
+  import ExperimentHelpPanel from '$lib/components/experiments/ExperimentHelpPanel.svelte';
 
   let { children } = $props();
 
@@ -13,19 +15,16 @@
   let ready = $state(false);
 
   onMount(async () => {
-    // Primero inicializar auth, luego cargar el experimento
     await auth.init();
     await experimentStore.load(id);
 
     const exp = $experimentStore.experiment;
 
-    // Si no existe → volver
     if (!exp && !$experimentStore.loading) {
       goto('/experiments');
       return;
     }
 
-    // Si no es público y no tiene rol → sin acceso
     if (exp && !exp.public && !exp.user_role) {
       goto('/experiments');
       return;
@@ -33,7 +32,6 @@
 
     ready = true;
 
-    // Polling cada 30s para detectar conflictos
     pollInterval = setInterval(() => {
       experimentStore.reloadEvents(id);
     }, 30_000);
@@ -56,7 +54,11 @@
     <a href="/experiments">← volver a experimentos</a>
   </div>
 {:else if $experimentStore.experiment}
-  {@render children()}
+  <!-- Sobreescribir --font-scale con el valor de experimentos -->
+  <div class="exp-shell" style="--font-scale: {$preferences.expFontScaleValue}">
+    {@render children()}
+    <ExperimentHelpPanel />
+  </div>
 {/if}
 
 <style>
@@ -74,4 +76,5 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .error-shell a { color: var(--text-primary); font-size: 13px; }
+  .exp-shell { display: contents; }
 </style>

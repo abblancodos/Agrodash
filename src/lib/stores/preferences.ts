@@ -3,10 +3,13 @@
 import { writable } from 'svelte/store';
 
 export type FontScale = 'sm' | 'md' | 'lg';
+export type AppContext = 'dashboard' | 'experiments';
 
 export interface Preferences {
-  fontScale: FontScale;
-  fontScaleValue: number;  // valor real 0.8–1.5
+  fontScale:            FontScale;
+  fontScaleValue:       number;
+  expFontScale:         FontScale;
+  expFontScaleValue:    number;
 }
 
 export const FONT_SCALES: Record<FontScale, number> = {
@@ -16,7 +19,12 @@ export const FONT_SCALES: Record<FontScale, number> = {
 };
 
 const STORAGE_KEY = 'agrodash-prefs';
-const DEFAULT: Preferences = { fontScale: 'md', fontScaleValue: 1.0 };
+const DEFAULT: Preferences = {
+  fontScale:         'md',
+  fontScaleValue:    1.0,
+  expFontScale:      'lg',
+  expFontScaleValue: 1.2,
+};
 
 function load(): Preferences {
   try {
@@ -35,6 +43,8 @@ function createPreferences() {
   return {
     subscribe,
     init() { set(load()); },
+
+    // Dashboard font
     setFontScale(scale: FontScale) {
       update(p => {
         const next = { ...p, fontScale: scale, fontScaleValue: FONT_SCALES[scale] };
@@ -42,12 +52,28 @@ function createPreferences() {
       });
     },
     setFontScaleValue(value: number) {
-      // Mapear al FontScale más cercano para compatibilidad
       const entry = Object.entries(FONT_SCALES).reduce((best, [k, v]) =>
         Math.abs(v - value) < Math.abs(FONT_SCALES[best as FontScale] - value) ? k : best
       , 'md' as string) as FontScale;
       update(p => {
         const next = { ...p, fontScale: entry, fontScaleValue: value };
+        save(next); return next;
+      });
+    },
+
+    // Experiments font
+    setExpFontScale(scale: FontScale) {
+      update(p => {
+        const next = { ...p, expFontScale: scale, expFontScaleValue: FONT_SCALES[scale] };
+        save(next); return next;
+      });
+    },
+    setExpFontScaleValue(value: number) {
+      const entry = Object.entries(FONT_SCALES).reduce((best, [k, v]) =>
+        Math.abs(v - value) < Math.abs(FONT_SCALES[best as FontScale] - value) ? k : best
+      , 'lg' as string) as FontScale;
+      update(p => {
+        const next = { ...p, expFontScale: entry, expFontScaleValue: value };
         save(next); return next;
       });
     },
