@@ -38,7 +38,8 @@
   );
 
   // Filtered definitions based on current formula text
-  const filteredDefs = $derived(() => {
+  // Filter based on last word being typed in formula
+  function getFilteredDefs(): typeof pickerDefs {
     if (!showDefPicker || pickerDefs.length === 0) return [];
     const pos = formulaEl?.selectionStart ?? formula.length;
     const m = formula.slice(0, pos).match(/[a-zA-Z_][a-zA-Z0-9_]*$/);
@@ -46,7 +47,7 @@
     return word.length >= 2
       ? pickerDefs.filter(d => d.key.toLowerCase().includes(word) || d.label.toLowerCase().includes(word))
       : pickerDefs;
-  });
+  }
   let script = $state('');
   // objective
   let condType = $state<'range' | 'expression'>('range');
@@ -184,9 +185,9 @@
                onfocus={() => showDefPicker = true}
                oninput={() => showDefPicker = true}
                onblur={() => setTimeout(() => showDefPicker = false, 150)} />
-        {#if showDefPicker && filteredDefs().length > 0}
+        {#if showDefPicker && getFilteredDefs().length > 0}
             <div class="autocomplete-panel">
-              {#each filteredDefs() as def}
+              {#each getFilteredDefs() as def}
                 <button class="ac-item" type="button"
                         onmousedown={(e) => { e.preventDefault(); insertKey(def.key); }}>
                   <span class="ac-type ac-type--{def.type}">{def.type === 'variable' ? 'χ' : def.type === 'constant' ? 'C' : 'ƒ'}</span>
