@@ -183,6 +183,33 @@
     </div>
 
   {:else}
+    <!-- Variables -->
+    {#if variables.length > 0}
+      <section class="def-section">
+        <div class="section-head">variables</div>
+        {#each variables as d (d.id)}
+          <div class="def-card">
+            <div class="def-card-head">
+              <span class="def-type def-type--variable">variable</span>
+              <span class="def-key">{d.key}</span>
+              <span class="def-label">{d.label}</span>
+              {#if $canAdmin}<button class="btn-del" onclick={() => deleteDef(d.id)}>✕</button>{/if}
+            </div>
+            <div class="def-card-body">
+              <span class="def-vartype">{(d as any).var_type ?? '—'}</span>
+              {#if (d.payload as any).unit}<span class="def-unit">{(d.payload as any).unit}</span>{/if}
+              {#if (d as any).options?.length}
+                <div class="fields-list">
+                  {#each (d as any).options as opt}<span class="field-chip">{opt}</span>{/each}
+                </div>
+              {/if}
+              {#if (d.payload as any).comment}<p class="def-comment">{(d.payload as any).comment}</p>{/if}
+            </div>
+          </div>
+        {/each}
+      </section>
+    {/if}
+
     <!-- Constantes -->
     {#if constants.length > 0}
       <section class="def-section">
@@ -351,7 +378,8 @@
   .def-card-body { padding: calc(10px * var(--font-scale)) calc(12px * var(--font-scale)); display: flex; flex-direction: column; gap: calc(6px * var(--font-scale)); }
 
   .def-type { font-size: calc(10px * var(--font-scale)); padding: 2px 6px; border-radius: 20px; flex-shrink: 0; }
-  .def-type--constant   { background: #E6F1FB; color: #0C447C; }
+  .def-type--variable   { background: #EAF3DE; color: #3B6D11; }
+  .def-vartype { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; }
   .def-type--expression { background: #EEEDFE; color: #3C3489; }
   .def-type--objective  { background: #FAEEDA; color: #854F0B; }
   .def-type--step       { background: #E1F5EE; color: #085041; }

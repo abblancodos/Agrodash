@@ -72,7 +72,7 @@
 .field label { font-size: calc(12px * var(--font-scale)); color: var(--text-secondary); }
 .field.row { flex-direction: row; gap: 10px; align-items: flex-end; }
 .field-grow { flex: 1; display: flex; flex-direction: column; gap: 4px; }
-.field-unit { width: 80px; display: flex; flex-direction: column; gap: 4px; }
+.field-unit { flex: 0 0 auto; min-width: 80px; max-width: 120px; display: flex; flex-direction: column; gap: 4px; }
 .muted { color: var(--text-muted); }
 .field-hint { font-size: calc(10px * var(--font-scale)); color: var(--text-muted); font-weight: 400; display: block; margin-top: 1px; }
 .input-row { display: flex; gap: 6px; align-items: center; }

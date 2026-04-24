@@ -26,7 +26,36 @@
   const entryValues = $derived($experimentStore.entryValues);
   const events = $derived($activeEvents);
 
+  let dropdownOpen = $state(false);
+  let dropdownStyle = $state('');
+  let dropdownBtnEl = $state<HTMLButtonElement | null>(null);
+  let dropdownPanelEl = $state<HTMLDivElement | null>(null);
+
+  function openDropdown() {
+    if (!dropdownBtnEl) return;
+    const rect = dropdownBtnEl.getBoundingClientRect();
+    const panelW = 210;
+    let left = rect.right - panelW;
+    if (left < 8) left = rect.left;
+    const top = rect.bottom + 4;
+    dropdownStyle = `left:${left}px; top:${top}px; width:${panelW}px;`;
+    dropdownOpen = true;
+  }
+
+  function closeDropdown() { dropdownOpen = false; }
+
+  $effect(() => {
+    function handler(e: MouseEvent) {
+      if (!dropdownOpen) return;
+      const t = e.target as Node;
+      if (!dropdownBtnEl?.contains(t) && !dropdownPanelEl?.contains(t)) dropdownOpen = false;
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  });
+
   let addingEntry = $state(false);
+  let draggingOverTrash = $state(false);
   let newRowValues = $state<Record<string, string>>({});
   let saving = $state(false);
   let error = $state('');
@@ -102,8 +131,8 @@
     finally { saving = false; }
   }
 
-  function onDragStart(i: number) { dragCol = i; }
-  function onDragEnd() { dragCol = null; dragOver = null; }
+  function onDragStart(i: number) { dragCol = i; draggingOverTrash = false; }
+  function onDragEnd() { dragCol = null; dragOver = null; draggingOverTrash = false; }
   async function onDrop(targetI: number) {
     if (dragCol === null || dragCol === targetI) return;
     const reordered = [...columns];
@@ -120,7 +149,26 @@
     dragCol = null; dragOver = null;
   }
 
-  function getCellValue(entryId: string, key: string): string {
+  async function removeColumn(i: number) {
+    const exp = $experimentStore.experiment!;
+    const updated = columns
+      .filter((_, idx) => idx !== i)
+      .map((c, idx) => ({ ...c, order: idx }));
+    await fetch(`${API}/api/v1/experiments/${exp.id}/columns`, {
+      method: 'PATCH', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ columns: updated }),
+    });
+    experimentStore.updateColumns(updated);
+    dragCol = null; dragOver = null; draggingOverTrash = false;
+  }
+
+  async function onDropTrash() {
+    if (dragCol === null) return;
+    await removeColumn(dragCol);
+  }
+
+(entryId: string, key: string): string {
     const v = entryValues[entryId]?.[key];
     if (v === null || v === undefined) return '—';
     if (typeof v === 'number') return v.toFixed(6).replace(/\.?0+$/, '');
@@ -178,6 +226,17 @@
     </div>
 
   {:else}
+  <div class="table-outer">
+    {#if dragCol !== null && $canEdit}
+      <div class="trash-zone"
+        class:trash-over={draggingOverTrash}
+        ondragover={(e) => { e.preventDefault(); draggingOverTrash = true; }}
+        ondragleave={() => draggingOverTrash = false}
+        ondrop={onDropTrash}>
+        <span class="trash-icon">{draggingOverTrash ? '🗑️' : '+'}</span>
+        <span class="trash-label">{draggingOverTrash ? 'soltar para quitar columna' : 'arrastrá aquí para quitar'}</span>
+      </div>
+    {/if}
     <div class="table-scroll"><div class="table-wrap">
       <table class="t">
         <thead>
@@ -190,7 +249,7 @@
                   ondragstart={() => onDragStart(i)} ondragend={onDragEnd}
                   ondragover={(e) => { e.preventDefault(); dragOver = i; }}
                   ondrop={() => onDrop(i)}>
-                {def?.label ?? col.key}
+                <span class="th-label">{def?.label ?? col.key}</span>
                 {#if def?.var_type === 'numeric' && (def.payload as any).unit}
                   <span class="unit">({(def.payload as any).unit})</span>
                 {/if}
@@ -200,21 +259,7 @@
             {#if $canEdit}
               <th class="th-add">
                 <div class="add-wrap">
-                  <button class="btn-plus">+</button>
-                  <div class="dropdown">
-                    {#if !hasGroupCol && $groups.length > 0}
-                      <button class="opt" onclick={addGroupColumn}>
-                        <span class="opt-type">grupo</span>grupo de suelo
-                      </button>
-                    {/if}
-                    {#each variables.filter(d => !addedKeys.has(d.key)) as def}
-                      <button class="opt" onclick={() => addColumn(def)}>
-                        <span class="opt-type">{def.var_type ?? def.type}</span>{def.label}
-                      </button>
-                    {:else}
-                      {#if hasGroupCol || $groups.length === 0}<span class="opt-empty">todas agregadas</span>{/if}
-                    {/each}
-                  </div>
+                  <button bind:this={dropdownBtnEl} class="btn-plus" onclick={openDropdown}>+</button>
                 </div>
               </th>
             {/if}
@@ -281,6 +326,7 @@
         </tbody>
       </table>
     </div></div>
+    </div>
 
     {#if $canEdit}
       <div class="entry-actions">
@@ -290,6 +336,8 @@
         <button class="btn-import" onclick={() => showImporter = true}>↑ importar CSV</button>
       </div>
     {/if}
+
+  {/if}
 
   {#if showImporter}
     <div class="overlay" onclick={() => showImporter = false} role="presentation">
@@ -304,6 +352,23 @@
       </div>
     </div>
   {/if}
+
+  <!-- Dropdown de columnas — fixed al viewport -->
+  {#if dropdownOpen}
+    <div bind:this={dropdownPanelEl} class="dropdown-portal" style={dropdownStyle}>
+      {#if !hasGroupCol && $groups.length > 0}
+        <button class="opt" onclick={() => { addGroupColumn(); closeDropdown(); }}>
+          <span class="opt-type">grupo</span>grupo de suelo
+        </button>
+      {/if}
+      {#each variables.filter(d => !addedKeys.has(d.key)) as def}
+        <button class="opt" onclick={() => { addColumn(def); closeDropdown(); }}>
+          <span class="opt-type">{def.var_type ?? def.type}</span>{def.label}
+        </button>
+      {:else}
+        {#if hasGroupCol || $groups.length === 0}<span class="opt-empty">todas agregadas</span>{/if}
+      {/each}
+    </div>
   {/if}
 </div>
 
@@ -318,28 +383,48 @@
   .col-chip { font-size: calc(12px * var(--font-scale)); padding: 4px 10px; border: 0.5px solid var(--border-default); border-radius: 20px; background: none; cursor: pointer; color: var(--text-secondary); }
   .col-chip:hover { background: var(--interactive-hover); }
 
-  .table-scroll { overflow-x: auto; border: 0.5px solid var(--border-subtle); border-radius: 8px; }
+  .table-outer { display: flex; flex-direction: column; gap: 6px; }
+  .table-scroll { overflow-x: auto; border: 0.5px solid var(--border-subtle); border-radius: 8px; overflow-y: visible; }
   .table-wrap { overflow: visible; }
   .t { width: 100%; border-collapse: collapse; font-size: calc(12px * var(--font-scale)); }
   th { background: var(--bg-elevated); padding: calc(8px * var(--font-scale)) calc(10px * var(--font-scale)); text-align: left; font-weight: 500; border-bottom: 0.5px solid var(--border-subtle); white-space: nowrap; }
   .th-ts { color: var(--text-muted); min-width: 110px; }
-  .th-col { color: var(--text-secondary); cursor: grab; user-select: none; }
+  .th-col { color: var(--text-secondary); cursor: grab; user-select: none; max-width: 160px; overflow: hidden; }
+  .th-label { display: inline-block; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
   .th-col.dragging { opacity: 0.5; }
   .th-col.dragover { border-left: 2px solid var(--text-primary); }
   .unit { font-size: calc(10px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; margin-left: 3px; }
   .badge-expr { font-size: calc(10px * var(--font-scale)); padding: 1px 5px; border-radius: 20px; background: #EEEDFE; color: #3C3489; margin-left: 4px; }
-  .th-add { width: 40px; text-align: center; }
+  .th-add { width: 40px; text-align: center; position: relative; }
   .th-act { width: 60px; }
 
+  .dropdown-portal {
+    position: fixed; z-index: 200; background: var(--bg-surface);
+    border: 0.5px solid var(--border-default); border-radius: 8px;
+    padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+    display: flex; flex-direction: column;
+  }
   .add-wrap { position: relative; display: inline-block; }
   .btn-plus { width: 24px; height: 24px; border-radius: 50%; border: 0.5px dashed var(--border-default); background: none; cursor: pointer; font-size: 14px; color: var(--text-muted); }
   .btn-plus:hover { border-color: var(--text-muted); color: var(--text-primary); }
-  .dropdown { display: none; position: absolute; top: 100%; right: 0; z-index: 20; background: var(--bg-surface); border: 0.5px solid var(--border-default); border-radius: 8px; min-width: 200px; padding: 4px; }
-  .add-wrap:hover .dropdown { display: flex; flex-direction: column; }
   .opt { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: none; border: none; cursor: pointer; font-size: calc(12px * var(--font-scale)); color: var(--text-primary); border-radius: 4px; text-align: left; }
   .opt:hover { background: var(--interactive-hover); }
   .opt-type { font-size: calc(10px * var(--font-scale)); padding: 1px 5px; border-radius: 20px; background: var(--bg-elevated); color: var(--text-muted); font-family: 'DM Mono', monospace; }
   .opt-empty { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); padding: 6px 10px; }
+
+  /* Trash drop zone — appears while dragging */
+  .trash-zone {
+    display: flex; align-items: center; gap: 8px;
+    border: 1.5px dashed var(--border-default); border-radius: 8px;
+    padding: 8px 14px; color: var(--text-muted);
+    font-size: calc(12px * var(--font-scale)); transition: all .12s;
+    background: var(--bg-elevated);
+  }
+  .trash-zone.trash-over {
+    border-color: #A32D2D; background: #FCEBEB; color: #A32D2D;
+  }
+  .trash-icon { font-size: 16px; }
+  .trash-label { flex: 1; }
 
   .row td { padding: calc(7px * var(--font-scale)) calc(10px * var(--font-scale)); border-bottom: 0.5px solid var(--border-subtle); vertical-align: middle; }
   .row:last-child td { border-bottom: none; }
