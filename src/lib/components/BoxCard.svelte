@@ -130,6 +130,7 @@
 
   // ── Chart expand ─────────────────────────────────────────────────────────
   let expandedSensorId  = $state<string | null>(null);
+  let hoveredSensorId   = $state<string | null>(null);
   let expandedCorrType  = $state<string | null>(null);
   let csvOpen = $state(false);
 
@@ -191,7 +192,11 @@
     {@const color = sensorColor(stat.sensor_type)}
 
     <div class="sensor-row" class:is-warn={ac === 'warn'} class:is-alert={ac === 'alert'}
+         class:is-hovered={hoveredSensorId === stat.sensor_id}
+         class:is-expanded={expandedSensorId === stat.sensor_id}
          role="button" tabindex="0"
+         onmouseenter={() => hoveredSensorId = stat.sensor_id}
+         onmouseleave={() => hoveredSensorId = null}
          onclick={() => toggleExpand(stat.sensor_id)}
          onkeydown={(e) => e.key === 'Enter' && toggleExpand(stat.sensor_id)}>
       <span class="s-num">#{stat.sensor_number}</span>
@@ -220,6 +225,14 @@
       <span class="align-right ago {relTimeClass(stat.last_seen_at)}">
         {relTime(stat.last_seen_at)}
       </span>
+      <!-- Hint de expandir — visible en hover desktop -->
+      <div class="s-expand-hint" aria-hidden="true">
+        {#if expandedSensorId === stat.sensor_id}
+          <span>▲ cerrar</span>
+        {:else}
+          <span>▼ expandir gráfico</span>
+        {/if}
+      </div>
       <!-- Fila compacta solo visible en mobile -->
       <div class="s-mobile">
         <span class="s-mobile__name" class:warn={ac !== 'normal'}>
@@ -440,10 +453,13 @@
   .pbtn.active { background: var(--accent-bg); color: var(--accent-text); border-color: transparent; }
 
   /* Columnas */
+  .sensor-cols-head {
+    grid-template-columns: 56px 120px 1fr 90px 76px 100px;
+  }
   .sensor-cols-head,
   .sensor-row {
     display: grid;
-    grid-template-columns: 56px 120px 1fr 90px 76px 100px;
+    grid-template-columns: 56px 120px 1fr 90px 76px 100px auto;
     gap: calc(14px * var(--font-scale));
     align-items: center;
     padding: calc(8px * var(--font-scale)) calc(16px * var(--font-scale));
@@ -463,6 +479,29 @@
   }
   .sensor-row:last-child { border-bottom: none; }
   .sensor-row:hover      { background: var(--interactive-hover); }
+  .sensor-row.is-hovered { background: var(--interactive-hover); }
+  .sensor-row.is-expanded { background: var(--bg-elevated); }
+
+  /* Hint de expandir */
+  .s-expand-hint {
+    display: none;
+    font-size: calc(10px * var(--font-scale));
+    color: var(--text-muted);
+    font-family: 'DM Mono', monospace;
+    letter-spacing: .04em;
+    white-space: nowrap;
+    align-self: center;
+    opacity: 0;
+    transition: opacity .15s;
+  }
+  .sensor-row.is-hovered .s-expand-hint {
+    display: flex;
+    opacity: 1;
+  }
+  .sensor-row.is-expanded .s-expand-hint {
+    display: flex;
+    opacity: 0.6;
+  }
   .sensor-row.is-warn    { background: rgba(186,117,23,0.07); }
   .sensor-row.is-alert   { background: rgba(176,48,48,0.07); }
   .sensor-row.corr-sub-row { background: var(--bg-inset); }
