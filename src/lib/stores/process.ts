@@ -177,7 +177,11 @@ function createProcessStore() {
               const newLogs: ProcessLog[] = Array.isArray(payload.new_logs)
                 ? payload.new_logs : [];
               const logs = newLogs.length
-                ? [...newLogs, ...s.logs].slice(0, 500)
+                ? (() => {
+                    const existingIds = new Set(s.logs.map(l => l.id).filter(Boolean));
+                    const fresh = newLogs.filter(l => !l.id || !existingIds.has(l.id));
+                    return [...fresh, ...s.logs].slice(0, 500);
+                  })()
                 : s.logs;
 
               return { ...s, process: proc, logs };

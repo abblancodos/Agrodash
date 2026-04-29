@@ -53,7 +53,7 @@
     <div class="empty">sin eventos registrados</div>
   {:else}
     <div class="event-list">
-      {#each filtered as log (log.id)}
+      {#each filtered as log (log.id ?? (log.ts + log.message))}
         <div class="event-row">
           <span class="ev-ts">{fmtTs(log.ts)}</span>
           <span class="ev-src" title={log.source}>{srcIcon(log.source)}</span>
