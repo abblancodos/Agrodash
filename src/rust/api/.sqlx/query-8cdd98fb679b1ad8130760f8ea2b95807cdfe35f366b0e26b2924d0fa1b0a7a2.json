@@ -1,0 +1,68 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, pipeline_id, ts, raw, filtered, p_diag, decision, actuator\n        FROM process_readings\n        WHERE process_id = $1\n          AND ($2::text IS NULL OR pipeline_id = $2)\n          AND ($3::timestamptz IS NULL OR ts >= $3)\n          AND ($4::timestamptz IS NULL OR ts <= $4)\n        ORDER BY ts DESC\n        LIMIT $5\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "pipeline_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "ts",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "raw",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "filtered",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "p_diag",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "decision",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 7,
+        "name": "actuator",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Timestamptz",
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "8cdd98fb679b1ad8130760f8ea2b95807cdfe35f366b0e26b2924d0fa1b0a7a2"
+}
