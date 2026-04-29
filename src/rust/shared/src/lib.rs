@@ -1,16 +1,26 @@
 // shared/src/lib.rs
 //
 // Tipos compartidos entre agrodash-api y agrodash-agent.
-// Serializable a JSON para el protocolo del socket y para PostgreSQL JSONB.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-// ── Config del proceso ────────────────────────────────────────────────────────
+// ── Config del proceso (multi-pipeline) ──────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessConfig {
-    pub version:               u32,
+    pub version:   u32,
+    pub pipelines: Vec<PipelineConfig>,
+}
+
+// ── Pipeline — un agente por pipeline ────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineConfig {
+    /// Identificador único dentro del proceso. Snake_case. Ej: "fila_1"
+    pub id:                    String,
+    /// Nombre legible. Ej: "Fila 1 — Sector Norte"
+    pub label:                 String,
     pub loop_interval_seconds: f64,
     pub connections:           Connections,
     pub source:                SourceConfig,
@@ -29,20 +39,20 @@ pub struct Connections {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MqttConnection {
-    pub broker_url: String,              // mqtt://host:port
-    pub client_id:  String,              // se interpola {process_id}
-    pub username:   Option<String>,
-    pub password:   Option<String>,
-    pub keepalive_secs: Option<u64>,     // default 30
-    pub qos:        Option<u8>,          // 0 | 1 | 2, default 1
+    pub broker_url:     String,
+    pub client_id:      String,        // se interpola {process_id}_{pipeline_id}
+    pub username:       Option<String>,
+    pub password:       Option<String>,
+    pub keepalive_secs: Option<u64>,
+    pub qos:            Option<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpConnection {
-    pub base_url:        String,
-    pub timeout_secs:    Option<u64>,
-    pub bearer_token:    Option<String>,
-    pub extra_headers:   Option<HashMap<String, String>>,
+    pub base_url:      String,
+    pub timeout_secs:  Option<u64>,
+    pub bearer_token:  Option<String>,
+    pub extra_headers: Option<HashMap<String, String>>,
 }
 
 // ── Source ────────────────────────────────────────────────────────────────────
@@ -55,14 +65,13 @@ pub enum SourceConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PostgresSensorSource {
-    /// Cada entrada es un sensor. El orden define el índice en el vector.
     pub sensors: Vec<SensorEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SensorEntry {
-    pub id:    String,    // UUID del sensor en la tabla sensors
-    pub label: String,    // nombre legible, para logs y UI
+    pub id:    String,
+    pub label: String,
 }
 
 // ── Filter ────────────────────────────────────────────────────────────────────
@@ -70,10 +79,8 @@ pub struct SensorEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilterConfig {
     #[serde(flatten)]
-    pub kind:            FilterKind,
-    /// Muestras mínimas antes de que is_ready() → true.
-    /// Para Kalman además se chequea convergencia de P.
-    pub warmup_samples:  usize,
+    pub kind:           FilterKind,
+    pub warmup_samples: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,14 +95,9 @@ pub enum FilterKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KalmanParams {
-    /// Varianza de proceso por componente.
-    /// Escalar → mismo valor para todas; vec → uno por componente.
     pub Q:                     VecOrScalar,
-    /// Varianza de medición por componente.
     pub R:                     VecOrScalar,
-    /// Covarianza inicial (escalar, se aplica a la diagonal).
     pub P0:                    f64,
-    /// P cae bajo este umbral → convergido.
     pub convergence_threshold: f64,
 }
 
@@ -106,17 +108,14 @@ pub struct MovingAvgParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EwmaParams {
-    /// Factor de suavizado [0,1]. Escalar → mismo para todas las componentes.
     pub alpha: VecOrScalar,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LowpassParams {
-    /// Constante de tiempo RC en segundos.
     pub tau_seconds: VecOrScalar,
 }
 
-/// Permite especificar un valor escalar o uno por componente.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum VecOrScalar {
@@ -149,69 +148,45 @@ pub enum DecisionKind {
     Sprt(SprtParams),
 }
 
-/// Decisión basada en distancia de Mahalanobis al vector objetivo.
-/// Usa P del filtro Kalman si está disponible; si no, identidad escalada.
-///
-///   d² = (x - target)ᵀ · Σ⁻¹ · (x - target)
-///
-/// d > threshold_act   → ActuatorAction::On  (lejos del objetivo)
-/// d < threshold_deact → ActuatorAction::Off (cerca del objetivo)
-/// entre ambos         → Hold (histéresis estadística)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MahalanobisParams {
-    /// Vector objetivo (punto "húmedo suficiente").
     pub target:          Vec<f64>,
-    /// Distancia para activar el actuador.
     pub threshold_act:   f64,
-    /// Distancia para desactivar. Debe ser < threshold_act.
     pub threshold_deact: f64,
-    /// Si true, usa P del Kalman como Σ. Si false, usa identidad × sigma².
     pub use_kalman_P:    bool,
-    /// Solo relevante si use_kalman_P = false.
     pub sigma:           Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HysteresisParams {
-    pub reduction:        Reduction,
-    pub low:              f64,
-    pub high:             f64,
+    pub reduction:         Reduction,
+    pub low:               f64,
+    pub high:              f64,
     pub action_below_low:  ActuatorAction,
     pub action_above_high: ActuatorAction,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SprtParams {
-    pub mu_H0:            f64,
-    pub mu_H1:            f64,
-    pub sigma:            f64,
-    pub alpha:            f64,
-    pub beta:             f64,
-    pub reduction:        Reduction,
-    pub reset_on_action:  bool,
+    pub mu_H0:           f64,
+    pub mu_H1:           f64,
+    pub sigma:           f64,
+    pub alpha:           f64,
+    pub beta:            f64,
+    pub reduction:       Reduction,
+    pub reset_on_action: bool,
 }
 
-/// Cómo reducir un vector a un escalar para la decisión.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Reduction {
     Mean,
     Min,
     Max,
-    /// Componente específica (índice 0-based).
     Component { index: usize },
-    /// Promedio ponderado por 1/P_ii (requiere Kalman).
     WeightedByP,
-    /// Cuántas componentes están por debajo de threshold.
-    CountBelow {
-        threshold: f64,
-        /// Activar si count >= n.
-        min_count: usize,
-    },
-    CountAbove {
-        threshold: f64,
-        min_count: usize,
-    },
+    CountBelow { threshold: f64, min_count: usize },
+    CountAbove { threshold: f64, min_count: usize },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -246,51 +221,44 @@ pub struct MqttActuatorParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpActuatorParams {
-    pub path_on:     String,   // POST a base_url + path_on
-    pub path_off:    String,
-    pub body_on:     Option<serde_json::Value>,
-    pub body_off:    Option<serde_json::Value>,
-    pub method:      Option<String>,  // default POST
+    pub path_on:  String,
+    pub path_off: String,
+    pub body_on:  Option<serde_json::Value>,
+    pub body_off: Option<serde_json::Value>,
+    pub method:   Option<String>,
 }
 
-// ── Estado del agente (persiste en DB, warmstart) ─────────────────────────────
+// ── Estado del agente ─────────────────────────────────────────────────────────
+// Un agente maneja exactamente un pipeline.
+// El API almacena el estado por (process_id, pipeline_id).
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AgentState {
-    pub filter:   FilterState,
-    pub decision: DecisionState,
-    pub actuator: ActuatorState,
-    pub last_raw: Option<Vec<f64>>,
-    pub cycle:    u64,
+    pub pipeline_id: String,
+    pub filter:      FilterState,
+    pub decision:    DecisionState,
+    pub actuator:    ActuatorState,
+    pub last_raw:    Option<Vec<f64>>,
+    pub cycle:       u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FilterState {
-    /// Estimado actual (x_hat para Kalman, valor filtrado para los otros).
-    pub x_hat:       Option<Vec<f64>>,
-    /// Diagonal de P (covarianza). Solo Kalman.
-    pub P_diag:      Option<Vec<f64>>,
-    /// Número de updates aplicados.
-    pub n_updates:   u64,
-    /// Si el filtro ya superó el warmup.
-    pub is_ready:    bool,
-    /// Para moving avg y EWMA: buffer circular serializado.
-    pub buffer:      Option<Vec<Vec<f64>>>,
+    pub x_hat:     Option<Vec<f64>>,
+    pub P_diag:    Option<Vec<f64>>,
+    pub n_updates: u64,
+    pub is_ready:  bool,
+    pub buffer:    Option<Vec<Vec<f64>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DecisionState {
-    /// Estado actual de la histéresis / SPRT.
-    pub hysteresis_state:    Option<ActuatorAction>,
-    /// Log-likelihood ratio acumulado (SPRT).
-    pub log_likelihood:      Option<f64>,
-    /// Última distancia Mahalanobis calculada.
-    pub last_mahalanobis:    Option<f64>,
-    /// Valor reducido del último ciclo.
-    pub last_reduced:        Option<f64>,
-    /// Cuándo cambió de estado por última vez.
-    pub last_change_at:      Option<String>,
-    pub evidence_samples:    u64,
+    pub hysteresis_state:  Option<ActuatorAction>,
+    pub log_likelihood:    Option<f64>,
+    pub last_mahalanobis:  Option<f64>,
+    pub last_reduced:      Option<f64>,
+    pub last_change_at:    Option<String>,
+    pub evidence_samples:  u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -300,17 +268,40 @@ pub struct ActuatorState {
     pub total_on_secs:  f64,
 }
 
-// ── Protocolo del socket API ↔ agente ─────────────────────────────────────────
+// ── Estado completo del proceso (todos los pipelines) ────────────────────────
+// Lo que retorna GET /processes/:id/state
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessFullState {
+    pub process_id: String,
+    pub pipelines:  Vec<PipelineFullState>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineFullState {
+    pub pipeline_id:     String,
+    pub label:           String,
+    pub is_ready:        bool,
+    pub override_active: bool,
+    pub sensor_labels:   Vec<String>,
+    pub filter:          FilterState,
+    pub decision:        DecisionState,
+    pub actuator:        ActuatorState,
+    pub last_raw:        Option<Vec<f64>>,
+    pub cycle:           u64,
+}
+
+// ── Protocolo socket API ↔ agente ─────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum AgentCommand {
     GetState,
     GetConfig,
-    SetConfig    { config: ProcessConfig },
+    SetConfig    { config: PipelineConfig },
     Override     { action: ActuatorAction },
     ClearOverride,
-    Checkpoint,   // forzar write de estado a DB
+    Checkpoint,
     Stop,
 }
 
@@ -336,16 +327,17 @@ impl AgentResponse {
     }
 }
 
-/// Estado completo que retorna get_state.
+// ── FullAgentState — lo que retorna get_state al socket ───────────────────────
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullAgentState {
-    pub process_id:     String,
-    pub cycle:          u64,
-    pub is_ready:       bool,
+    pub pipeline_id:     String,
+    pub cycle:           u64,
+    pub is_ready:        bool,
     pub override_active: bool,
-    pub filter:         FilterState,
-    pub decision:       DecisionState,
-    pub actuator:       ActuatorState,
-    pub last_raw:       Option<Vec<f64>>,
-    pub sensor_labels:  Vec<String>,
+    pub filter:          FilterState,
+    pub decision:        DecisionState,
+    pub actuator:        ActuatorState,
+    pub last_raw:        Option<Vec<f64>>,
+    pub sensor_labels:   Vec<String>,
 }

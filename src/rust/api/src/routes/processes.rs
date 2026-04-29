@@ -638,35 +638,45 @@ pub async fn get_config(
 
 pub async fn get_agent_state(
     State(pool): State<PgPool>,
-    Path(process_id): Path<Uuid>,
+    Path((process_id, pipeline_id)): Path<(Uuid, String)>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let row = sqlx::query!(
-        "SELECT last_state FROM processes WHERE id = $1",
-        process_id
+        r#"
+        SELECT state FROM process_pipeline_states
+        WHERE process_id = $1 AND pipeline_id = $2
+        "#,
+        process_id, pipeline_id,
     )
     .fetch_optional(&pool)
     .await
-    .map_err(err)?
-    .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "No encontrado"}))))?;
+    .map_err(err)?;
 
-    Ok(Json(row.last_state.unwrap_or(json!({}))))
+    Ok(Json(row.map(|r| r.state).unwrap_or(json!({}))))
 }
 
 pub async fn post_agent_state(
     State(pool): State<PgPool>,
-    Path(process_id): Path<Uuid>,
+    Path((process_id, pipeline_id)): Path<(Uuid, String)>,
     Json(body): Json<Value>,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    // Upsert estado del pipeline
     sqlx::query!(
         r#"
-        UPDATE processes
-        SET last_state   = $1,
-            last_seen_at = now(),
-            status       = 'running',
-            updated_at   = now()
-        WHERE id = $2
+        INSERT INTO process_pipeline_states (process_id, pipeline_id, state, updated_at)
+        VALUES ($1, $2, $3, now())
+        ON CONFLICT (process_id, pipeline_id)
+        DO UPDATE SET state = $3, updated_at = now()
         "#,
-        body, process_id,
+        process_id, pipeline_id, body,
+    )
+    .execute(&pool)
+    .await
+    .map_err(err)?;
+
+    // Actualizar last_seen_at del proceso
+    sqlx::query!(
+        "UPDATE processes SET last_seen_at = now(), status = 'running', updated_at = now() WHERE id = $1",
+        process_id,
     )
     .execute(&pool)
     .await
@@ -739,4 +749,56 @@ pub async fn update_process(
     .map_err(err)?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ── GET /processes/:id/readings ───────────────────────────────────────────────
+// Historial de lecturas del agente para graficar.
+
+#[derive(Deserialize)]
+pub struct ReadingsQuery {
+    pub limit:       Option<i64>,
+    pub since:       Option<chrono::DateTime<chrono::Utc>>,
+    pub until:       Option<chrono::DateTime<chrono::Utc>>,
+    pub pipeline_id: Option<String>,
+}
+
+pub async fn get_readings(
+    State(pool): State<PgPool>,
+    claims: Claims,
+    Path(process_id): Path<Uuid>,
+    Query(q): Query<ReadingsQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_process_role(&pool, process_id, claims.sub, "viewer").await?;
+
+    let limit = q.limit.unwrap_or(500).min(2000);
+
+    let rows = sqlx::query!(
+        r#"
+        SELECT id, pipeline_id, ts, raw, filtered, p_diag, decision, actuator
+        FROM process_readings
+        WHERE process_id = $1
+          AND ($2::text IS NULL OR pipeline_id = $2)
+          AND ($3::timestamptz IS NULL OR ts >= $3)
+          AND ($4::timestamptz IS NULL OR ts <= $4)
+        ORDER BY ts DESC
+        LIMIT $5
+        "#,
+        process_id, q.pipeline_id, q.since, q.until, limit,
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(err)?;
+
+    let readings: Vec<Value> = rows.iter().map(|r| json!({
+        "id":          r.id,
+        "pipeline_id": r.pipeline_id,
+        "ts":          r.ts,
+        "raw":         r.raw,
+        "filtered":    r.filtered,
+        "p_diag":      r.p_diag,
+        "decision":    r.decision,
+        "actuator":    r.actuator,
+    })).collect();
+
+    Ok(Json(json!({ "readings": readings })))
 }

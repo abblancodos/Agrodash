@@ -214,6 +214,8 @@ async fn main() {
             post(routes::processes::send_command))
         .route("/api/v1/processes/:id/logs",
             get(routes::processes::get_logs))
+        .route("/api/v1/processes/:id/readings",
+            get(routes::processes::get_readings))
         .route("/api/v1/processes/:id/logs/tail",
             get(routes::processes::tail_control_log))
         .route("/api/v1/processes/:id/valve-events",
@@ -225,7 +227,7 @@ async fn main() {
             delete(routes::processes::remove_collaborator))
         .route("/api/v1/processes/:id/config",
             get(routes::processes::get_config))
-        .route("/api/v1/processes/:id/agent-state",
+        .route("/api/v1/processes/:id/agent-state/:pipeline_id",
             get(routes::processes::get_agent_state)
             .post(routes::processes::post_agent_state))
         .route("/api/v1/processes/:id/agent-error",
