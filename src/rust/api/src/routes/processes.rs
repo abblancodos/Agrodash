@@ -702,3 +702,41 @@ pub async fn post_agent_error(
 
     Ok(StatusCode::NO_CONTENT)
 }
+
+// ── PATCH /processes/:id ──────────────────────────────────────────────────────
+// Actualiza config, nombre, descripción de un proceso.
+
+#[derive(Deserialize)]
+pub struct UpdateProcessRequest {
+    pub name:        Option<String>,
+    pub description: Option<String>,
+    pub config:      Option<Value>,
+    pub status:      Option<String>,
+}
+
+pub async fn update_process(
+    State(pool): State<PgPool>,
+    claims: Claims,
+    Path(process_id): Path<Uuid>,
+    Json(body): Json<UpdateProcessRequest>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    require_process_role(&pool, process_id, claims.sub, "admin").await?;
+
+    sqlx::query!(
+        r#"
+        UPDATE processes SET
+            name        = COALESCE($1, name),
+            description = COALESCE($2, description),
+            config      = COALESCE($3, config),
+            status      = COALESCE($4, status),
+            updated_at  = now()
+        WHERE id = $5
+        "#,
+        body.name, body.description, body.config, body.status, process_id,
+    )
+    .execute(&pool)
+    .await
+    .map_err(err)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
