@@ -1,7 +1,7 @@
 // agent/src/nodes/source.rs
 
 use async_trait::async_trait;
-use agrodash_shared::{NodeState, Signal, NodeAction, PostgresSensorConfig};
+use agrodash_shared::{NodeState, Signal, PostgresSensorConfig};
 use anyhow::Result;
 use sqlx::PgPool;
 use super::NodeInstance;

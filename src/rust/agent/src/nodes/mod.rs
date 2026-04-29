@@ -2,18 +2,11 @@
 //
 // Trait NodeInstance y factory para construir nodos desde NodeConfig.
 
-use std::collections::HashMap;
 use anyhow::Result;
 use async_trait::async_trait;
 use agrodash_shared::{
     NodeConfig, NodeKind, NodeState, Signal, NodeAction,
-    SharedConnections,
-    KalmanConfig, MovingAvgConfig, EwmaConfig, LowpassConfig,
-    MahalanobisConfig, HysteresisConfig,
-    PostgresSensorConfig,
-    MqttActuatorConfig, HttpActuatorConfig,
-    ConnectionRef, MqttConnection,
-    VecOrScalar,
+    SharedConnections, ConnectionRef, MqttConnection,
 };
 use sqlx::PgPool;
 
@@ -26,7 +19,7 @@ pub mod utils;
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
 #[async_trait]
-pub trait NodeInstance: Send {
+pub trait NodeInstance: Send + Sync {
     /// Ejecutar el nodo con las señales de entrada.
     async fn execute(
         &mut self,

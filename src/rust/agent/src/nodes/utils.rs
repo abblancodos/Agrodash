@@ -1,7 +1,7 @@
 // agent/src/nodes/utils.rs
 
 use async_trait::async_trait;
-use agrodash_shared::{NodeState, Signal, NodeAction, VecOrScalar};
+use agrodash_shared::{NodeState, Signal, VecOrScalar};
 use anyhow::Result;
 use sqlx::PgPool;
 use super::{NodeInstance, expect_vector};

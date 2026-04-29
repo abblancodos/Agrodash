@@ -222,7 +222,7 @@ async fn dispatch(cmd: AgentCommand, shared: &AgentShared, ctx: &RunCtx) -> Agen
             let cfg = shared.process_cfg.read().await.clone();
             AgentResponse::ok(cfg)
         }
-        AgentCommand::SetConfig { config } => {
+        AgentCommand::SetConfig { config: _ } => {
             // Reconstruir grafo con nuevo config
             AgentResponse::ok(serde_json::json!({"msg": "config actualizado, efectivo en próximo ciclo"}))
         }

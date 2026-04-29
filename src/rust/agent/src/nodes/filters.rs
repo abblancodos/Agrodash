@@ -1,7 +1,7 @@
 // agent/src/nodes/filters.rs
 
 use async_trait::async_trait;
-use agrodash_shared::{NodeState, Signal, NodeAction, KalmanConfig, MovingAvgConfig, EwmaConfig, LowpassConfig, VecOrScalar};
+use agrodash_shared::{NodeState, Signal, KalmanConfig, MovingAvgConfig, EwmaConfig, LowpassConfig, VecOrScalar};
 use anyhow::Result;
 use sqlx::PgPool;
 use std::collections::VecDeque;

@@ -4,14 +4,13 @@
 // Soporta fan-in (múltiples entradas a un nodo) y
 // fan-out (una salida a múltiples nodos).
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use anyhow::{Context, Result};
 use agrodash_shared::{
-    NodeConfig, EdgeConfig, NodeKind, Signal, NodeAction,
+    NodeConfig, EdgeConfig, Signal, NodeAction,
     NodeState, SignalSnapshot, AgentState,
 };
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use crate::nodes::{self, NodeInstance};
 
