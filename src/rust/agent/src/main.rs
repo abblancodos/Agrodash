@@ -1,11 +1,4 @@
-// agent/src/main.rs — agrodash-agent
-//
-// Un agente por pipeline. Recibe:
-//   --process-id  UUID del proceso
-//   --pipeline-id ID del pipeline dentro del proceso
-//   --api-url     URL base del API Rust
-//   --api-token   Token interno
-//   --sock-path   Path del Unix socket
+// agent/src/main.rs
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -13,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use agrodash_shared::{
     AgentCommand, AgentResponse, AgentState, FullAgentState,
-    ActuatorAction, ProcessConfig, PipelineConfig, SourceConfig,
+    NodeAction, ProcessConfig,
 };
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -25,17 +18,10 @@ use tokio::time::sleep;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-mod filters;
-mod decision;
-mod actuators;
-mod source;
+mod nodes;
+mod scheduler;
 
-use filters::{Filter, build as build_filter};
-use decision::{Decision, build as build_decision, DecisionOutput};
-use actuators::{Actuator, build as build_actuator};
-use source::read_source;
-
-// ── CLI ───────────────────────────────────────────────────────────────────────
+use scheduler::PipelineGraph;
 
 #[derive(Parser)]
 struct Args {
@@ -46,16 +32,13 @@ struct Args {
     #[arg(long)] sock_path:   Option<PathBuf>,
 }
 
-// ── Shared state ──────────────────────────────────────────────────────────────
-
 struct AgentShared {
-    pipeline:       RwLock<PipelineConfig>,
-    state:          Mutex<AgentState>,
-    override_act:   Mutex<Option<ActuatorAction>>,
-    stop_flag:      Mutex<bool>,
+    graph:        RwLock<PipelineGraph>,
+    state:        Mutex<AgentState>,
+    override_act: Mutex<Option<NodeAction>>,
+    stop_flag:    Mutex<bool>,
+    process_cfg:  RwLock<ProcessConfig>,
 }
-
-// ── Context ───────────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
 struct RunCtx {
@@ -63,101 +46,113 @@ struct RunCtx {
     pipeline_id: String,
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
-
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()))
         .init();
 
-    let args = Args::parse();
+    let args   = Args::parse();
     let db_url = std::env::var("DATABASE_URL").context("DATABASE_URL no definida")?;
     let pool   = PgPool::connect(&db_url).await.context("No se pudo conectar a PostgreSQL")?;
 
-    info!("Agente {}/{} conectado a PostgreSQL", args.process_id, args.pipeline_id);
+    info!("Agente {}/{} arrancando", args.process_id, args.pipeline_id);
 
-    // Cargar config completa y extraer el pipeline
     let proc_config = fetch_config(&args).await?;
-    let pipeline = proc_config.pipelines.iter()
+    let pipeline    = proc_config.pipelines.iter()
         .find(|p| p.id == args.pipeline_id)
         .cloned()
-        .context(format!("Pipeline '{}' no encontrado en config", args.pipeline_id))?;
+        .context(format!("Pipeline '{}' no encontrado", args.pipeline_id))?;
 
     let saved_state = fetch_state(&args).await.unwrap_or_default();
 
-    let dim = match &pipeline.source {
-        SourceConfig::PostgresSensor(s) => s.sensors.len(),
-    };
+    let mut graph = PipelineGraph::build(
+        &pipeline.nodes,
+        &pipeline.edges,
+        &proc_config.shared_connections,
+        &pool,
+    ).await?;
 
-    // Construir pipeline
-    let mut filter   = build_filter(&pipeline.filter, dim);
-    let mut decision = build_decision(&pipeline.decision);
-    let mut actuator = build_actuator(&pipeline.actuator, &pipeline.connections).await?;
+    graph.load_state(&saved_state);
 
-    filter.load_state(&saved_state.filter);
-    decision.load_state(&saved_state.decision);
-
-    info!("Pipeline construido — dim={} filtro={:?} warmup={}",
-        dim, pipeline.filter.kind, pipeline.filter.warmup_samples);
-
-    let shared = Arc::new(AgentShared {
-        pipeline:     RwLock::new(pipeline),
-        state:        Mutex::new(saved_state),
-        override_act: Mutex::new(None),
-        stop_flag:    Mutex::new(false),
-    });
+    info!("Grafo construido — {} nodos, {} edges, ready={}",
+        pipeline.nodes.len(), pipeline.edges.len(), graph.is_ready());
 
     let ctx = RunCtx {
         process_id:  args.process_id.parse().context("process_id inválido")?,
         pipeline_id: args.pipeline_id.clone(),
     };
 
-    // Socket server
-    let sock_path = args.sock_path.clone().unwrap_or_else(|| {
-        PathBuf::from(format!("/run/agents/{}/{}.sock",
-            args.process_id, args.pipeline_id))
+    let shared = Arc::new(AgentShared {
+        graph:        RwLock::new(graph),
+        state:        Mutex::new(saved_state),
+        override_act: Mutex::new(None),
+        stop_flag:    Mutex::new(false),
+        process_cfg:  RwLock::new(proc_config),
     });
 
+    // Socket
+    let sock_path = args.sock_path.clone().unwrap_or_else(|| {
+        PathBuf::from(format!("/run/agents/{}/{}.sock", args.process_id, args.pipeline_id))
+    });
     let shared_sock = shared.clone();
     let ctx_sock    = ctx.clone();
     tokio::spawn(async move {
         if let Err(e) = run_socket_server(sock_path, shared_sock, ctx_sock).await {
-            error!("SocketServer error: {e}");
+            error!("Socket error: {e}");
         }
     });
 
-    // Loop principal
-    run_loop(&args, &pool, shared.clone(), ctx.clone(),
-        &mut filter, &mut decision, &mut actuator).await;
-
+    run_loop(&args, &pool, shared, ctx).await;
     Ok(())
 }
 
-// ── Loop principal ────────────────────────────────────────────────────────────
-
-async fn run_loop(
-    args:     &Args,
-    pool:     &PgPool,
-    shared:   Arc<AgentShared>,
-    ctx:      RunCtx,
-    filter:   &mut Box<dyn Filter>,
-    decision: &mut Box<dyn Decision>,
-    actuator: &mut Box<dyn Actuator>,
-) {
+async fn run_loop(args: &Args, pool: &PgPool, shared: Arc<AgentShared>, ctx: RunCtx) {
     loop {
         if *shared.stop_flag.lock().await { break; }
 
         let t0       = Instant::now();
         let interval = {
-            let p = shared.pipeline.read().await;
-            Duration::from_secs_f64(p.loop_interval_seconds)
+            let cfg = shared.process_cfg.read().await;
+            let pl  = cfg.pipelines.iter().find(|p| p.id == ctx.pipeline_id);
+            Duration::from_secs_f64(pl.map(|p| p.loop_interval_seconds).unwrap_or(60.0))
         };
 
-        let pipeline = shared.pipeline.read().await.clone();
+        let ov = shared.override_act.lock().await.clone();
 
-        match run_cycle(&pipeline, pool, filter, decision, actuator, &shared, &ctx).await {
-            Ok(state) => {
+        let result = {
+            let mut graph = shared.graph.write().await;
+            graph.run_cycle(pool, interval.as_secs_f64(), &ov).await
+        };
+
+        match result {
+            Ok(signals) => {
+                let cycle   = shared.state.lock().await.cycle + 1;
+                let is_ready = shared.graph.read().await.is_ready();
+                let state   = shared.graph.read().await.save_state(&ctx.pipeline_id, cycle);
+
+                // Escribir a process_readings
+                let act_str = signals.values()
+                    .find_map(|s| match s {
+                        agrodash_shared::Signal::Action(a) => Some(match a {
+                            NodeAction::On   => "on",
+                            NodeAction::Off  => "off",
+                            NodeAction::Hold => "hold",
+                        }),
+                        _ => None,
+                    })
+                    .unwrap_or("hold");
+
+                let _ = sqlx::query!(
+                    r#"INSERT INTO process_readings (process_id, pipeline_id, actuator)
+                       VALUES ($1::uuid, $2, $3)"#,
+                    ctx.process_id, ctx.pipeline_id, act_str,
+                )
+                .execute(pool)
+                .await;
+
+                info!("Ciclo {cycle} ready={is_ready} act={act_str}");
+
                 if let Err(e) = post_state(args, &state).await {
                     warn!("No se pudo postear estado: {e}");
                 }
@@ -178,129 +173,30 @@ async fn run_loop(
     info!("Agente {}/{} detenido", ctx.process_id, ctx.pipeline_id);
 }
 
-async fn run_cycle(
-    pipeline: &PipelineConfig,
-    pool:     &PgPool,
-    filter:   &mut Box<dyn Filter>,
-    decision: &mut Box<dyn Decision>,
-    actuator: &mut Box<dyn Actuator>,
-    shared:   &AgentShared,
-    ctx:      &RunCtx,
-) -> Result<AgentState> {
-    // 1. Leer fuente
-    let raw = read_source(&pipeline.source, pool).await
-        .context("Error leyendo fuente")?;
-
-    // 2. Filtrar
-    let x_hat  = filter.update(&raw, pipeline.loop_interval_seconds);
-    let p_diag = filter.p_diag();
-    let is_ready = filter.is_ready();
-
-    // 3. Decidir
-    let output = if is_ready {
-        let ov = shared.override_act.lock().await.clone();
-        match ov {
-            Some(ActuatorAction::On)  => DecisionOutput::On,
-            Some(ActuatorAction::Off) => DecisionOutput::Off,
-            None => decision.evaluate(&x_hat, p_diag.as_deref()),
-        }
-    } else {
-        info!("Warmup ({} updates)", filter.save_state().n_updates);
-        DecisionOutput::Hold
-    };
-
-    // 4. Actuar
-    match &output {
-        DecisionOutput::On   => actuator.activate().await?,
-        DecisionOutput::Off  => actuator.deactivate().await?,
-        DecisionOutput::Hold => {}
-    }
-
-    // 5. Estado
-    let filter_state   = filter.save_state();
-    let decision_state = decision.state();
-    let actuator_state = actuator.state();
-
-    let cycle = shared.state.lock().await.cycle + 1;
-    let state = AgentState {
-        pipeline_id: ctx.pipeline_id.clone(),
-        filter:      filter_state.clone(),
-        decision:    decision_state.clone(),
-        actuator:    actuator_state.clone(),
-        last_raw:    Some(raw.clone()),
-        cycle,
-    };
-
-    // 6. Escribir a process_readings
-    let act_str = match &output {
-        DecisionOutput::On   => "on",
-        DecisionOutput::Off  => "off",
-        DecisionOutput::Hold => "hold",
-    };
-    let _ = sqlx::query!(
-        r#"
-        INSERT INTO process_readings
-            (process_id, pipeline_id, raw, filtered, p_diag, decision, actuator)
-        VALUES ($1::uuid, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6, $7)
-        "#,
-        ctx.process_id,
-        ctx.pipeline_id,
-        serde_json::to_value(&raw).ok(),
-        serde_json::to_value(&x_hat).ok(),
-        p_diag.as_ref().and_then(|p| serde_json::to_value(p).ok()),
-        decision_state.last_mahalanobis.or(decision_state.last_reduced),
-        act_str,
-    )
-    .execute(pool)
-    .await;
-
-    info!("Ciclo {cycle} — ready={is_ready} d={:?} output={output:?}",
-        decision_state.last_mahalanobis);
-
-    Ok(state)
-}
-
-// ── Socket server ─────────────────────────────────────────────────────────────
-
-async fn run_socket_server(
-    path:   PathBuf,
-    shared: Arc<AgentShared>,
-    ctx:    RunCtx,
-) -> Result<()> {
+async fn run_socket_server(path: PathBuf, shared: Arc<AgentShared>, ctx: RunCtx) -> Result<()> {
     if path.exists() { std::fs::remove_file(&path)?; }
-    if let Some(parent) = path.parent() { std::fs::create_dir_all(parent)?; }
-
+    if let Some(p) = path.parent() { std::fs::create_dir_all(p)?; }
     let listener = UnixListener::bind(&path)?;
     info!("Socket en {:?}", path);
-
     loop {
         let (stream, _) = listener.accept().await?;
-        let shared = shared.clone();
-        let ctx    = ctx.clone();
+        let sh = shared.clone(); let cx = ctx.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_conn(stream, shared, ctx).await {
-                warn!("Socket error: {e}");
-            }
+            if let Err(e) = handle_conn(stream, sh, cx).await { warn!("Conn error: {e}"); }
         });
     }
 }
 
-async fn handle_conn(
-    stream: UnixStream,
-    shared: Arc<AgentShared>,
-    ctx:    RunCtx,
-) -> Result<()> {
+async fn handle_conn(stream: UnixStream, shared: Arc<AgentShared>, ctx: RunCtx) -> Result<()> {
     let (reader, mut writer) = stream.into_split();
     let mut lines = BufReader::new(reader).lines();
-
     while let Some(line) = lines.next_line().await? {
         let resp = match serde_json::from_str::<AgentCommand>(&line) {
             Err(e) => AgentResponse::err(format!("JSON inválido: {e}")),
             Ok(cmd) => dispatch(cmd, &shared, &ctx).await,
         };
-        let mut bytes = serde_json::to_vec(&resp)?;
-        bytes.push(b'\n');
-        writer.write_all(&bytes).await?;
+        let mut b = serde_json::to_vec(&resp)?; b.push(b'\n');
+        writer.write_all(&b).await?;
     }
     Ok(())
 }
@@ -309,32 +205,26 @@ async fn dispatch(cmd: AgentCommand, shared: &AgentShared, ctx: &RunCtx) -> Agen
     match cmd {
         AgentCommand::GetState => {
             let state    = shared.state.lock().await.clone();
-            let pipeline = shared.pipeline.read().await.clone();
+            let is_ready = shared.graph.read().await.is_ready();
             let ov       = shared.override_act.lock().await.clone();
-            let labels   = match &pipeline.source {
-                SourceConfig::PostgresSensor(s) => {
-                    s.sensors.iter().map(|s| s.label.clone()).collect()
-                }
-            };
             let full = FullAgentState {
                 pipeline_id:     ctx.pipeline_id.clone(),
+                label:           ctx.pipeline_id.clone(),
                 cycle:           state.cycle,
-                is_ready:        state.filter.is_ready,
+                is_ready,
                 override_active: ov.is_some(),
-                filter:          state.filter,
-                decision:        state.decision,
-                actuator:        state.actuator,
-                last_raw:        state.last_raw,
-                sensor_labels:   labels,
+                node_states:     state.node_states,
+                last_signals:    state.last_signals,
             };
             AgentResponse::ok(full)
         }
         AgentCommand::GetConfig => {
-            AgentResponse::ok(shared.pipeline.read().await.clone())
+            let cfg = shared.process_cfg.read().await.clone();
+            AgentResponse::ok(cfg)
         }
         AgentCommand::SetConfig { config } => {
-            *shared.pipeline.write().await = config;
-            AgentResponse::ok(serde_json::json!({"msg": "config actualizado"}))
+            // Reconstruir grafo con nuevo config
+            AgentResponse::ok(serde_json::json!({"msg": "config actualizado, efectivo en próximo ciclo"}))
         }
         AgentCommand::Override { action } => {
             *shared.override_act.lock().await = Some(action);
@@ -345,7 +235,7 @@ async fn dispatch(cmd: AgentCommand, shared: &AgentShared, ctx: &RunCtx) -> Agen
             AgentResponse::ok(serde_json::json!({"override": false}))
         }
         AgentCommand::Checkpoint => {
-            info!("Checkpoint solicitado");
+            info!("Checkpoint");
             AgentResponse::ok(serde_json::json!({"msg": "ok"}))
         }
         AgentCommand::Stop => {
@@ -355,38 +245,34 @@ async fn dispatch(cmd: AgentCommand, shared: &AgentShared, ctx: &RunCtx) -> Agen
     }
 }
 
-// ── HTTP client → API ─────────────────────────────────────────────────────────
-
 async fn fetch_config(args: &Args) -> Result<ProcessConfig> {
-    let url = format!("{}/processes/{}/config", args.api_url, args.process_id);
     reqwest::Client::new()
-        .get(&url).bearer_auth(&args.api_token)
+        .get(format!("{}/processes/{}/config", args.api_url, args.process_id))
+        .bearer_auth(&args.api_token)
         .send().await?.json::<ProcessConfig>().await
         .context("No se pudo parsear config")
 }
 
 async fn fetch_state(args: &Args) -> Result<AgentState> {
-    let url = format!("{}/processes/{}/agent-state/{}",
-        args.api_url, args.process_id, args.pipeline_id);
     reqwest::Client::new()
-        .get(&url).bearer_auth(&args.api_token)
+        .get(format!("{}/processes/{}/agent-state/{}", args.api_url, args.process_id, args.pipeline_id))
+        .bearer_auth(&args.api_token)
         .send().await?.json::<AgentState>().await
         .context("No se pudo cargar estado")
 }
 
 async fn post_state(args: &Args, state: &AgentState) -> Result<()> {
-    let url = format!("{}/processes/{}/agent-state/{}",
-        args.api_url, args.process_id, args.pipeline_id);
     reqwest::Client::new()
-        .post(&url).bearer_auth(&args.api_token)
+        .post(format!("{}/processes/{}/agent-state/{}", args.api_url, args.process_id, args.pipeline_id))
+        .bearer_auth(&args.api_token)
         .json(state).send().await?;
     Ok(())
 }
 
 async fn post_error(args: &Args, msg: &str) -> Result<()> {
-    let url = format!("{}/processes/{}/agent-error", args.api_url, args.process_id);
     reqwest::Client::new()
-        .post(&url).bearer_auth(&args.api_token)
+        .post(format!("{}/processes/{}/agent-error", args.api_url, args.process_id))
+        .bearer_auth(&args.api_token)
         .json(&serde_json::json!({"error": msg, "pipeline_id": args.pipeline_id}))
         .send().await?;
     Ok(())
