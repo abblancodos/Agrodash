@@ -87,7 +87,7 @@ jobs:
         run: cargo install sqlx-cli --no-default-features --features postgres
 
       - name: sqlx prepare
-        working-directory: src/rust
+        working-directory: src/rust/api
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: cargo sqlx prepare
@@ -96,17 +96,17 @@ jobs:
         run: |
           git config user.email "ci@agrodash"
           git config user.name "CI Bot"
-          git add src/rust/.sqlx
+          git add src/rust/api/.sqlx
           git diff --cached --quiet || git commit -m "chore: update sqlx cache [skip ci]"
           git push --force-with-lease
 
-      - name: Build release binary
+      - name: Build release binaries
         working-directory: src/rust
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: cargo build --release
 
-      - name: Deploy binary
+      - name: Deploy API binary
         run: |
           docker rm -f agrodash-api-tmp 2>/dev/null || true
           docker run -d --name agrodash-api-tmp \
@@ -115,5 +115,16 @@ jobs:
           docker cp src/rust/target/release/agrodash-api agrodash-api-tmp:/output/
           docker rm -f agrodash-api-tmp
 
+      - name: Deploy Agent binary
+        run: |
+          docker run -d --name agrodash-agent-tmp \
+            -v /home/embebidos/.server-lab/agrodash/api:/output \
+            alpine sleep 30
+          docker cp src/rust/target/release/agrodash-agent agrodash-agent-tmp:/output/
+          docker rm -f agrodash-agent-tmp
+
       - name: Restart API container
-        run: docker restart server-lab-api-rust-agrodash-1
+        run: |
+          docker kill --signal=SIGTERM server-lab-api-rust-agrodash-1 2>/dev/null || true
+          sleep 6
+          docker restart server-lab-api-rust-agrodash-1

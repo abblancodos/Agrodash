@@ -4,7 +4,7 @@ pub mod experiment_features;
 pub mod experiments;
 pub mod invites;
 pub mod oauth;
+pub mod processes;
 pub mod readings;
 pub mod seed;
 pub mod stats;
-pub mod processes;
