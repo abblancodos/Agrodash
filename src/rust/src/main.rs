@@ -198,6 +198,32 @@ async fn main() {
         .route("/api/v1/scripts/validate",
             post(routes::experiments::validate_script))
 
+        //── Processes ──────────────────────────────────────────────── 
+        
+        .route("/api/v1/processes",
+            get(routes::processes::list_processes)
+            .post(routes::processes::create_process))
+        .route("/api/v1/processes/:id",
+            get(routes::processes::get_process))
+        .route("/api/v1/processes/:id/state",
+            get(routes::processes::get_state))
+        .route("/api/v1/processes/:id/stream",
+            get(routes::processes::stream_state))
+        .route("/api/v1/processes/:id/command",
+            post(routes::processes::send_command))
+        .route("/api/v1/processes/:id/logs",
+            get(routes::processes::get_logs))
+        .route("/api/v1/processes/:id/logs/tail",
+            get(routes::processes::tail_control_log))
+        .route("/api/v1/processes/:id/valve-events",
+            get(routes::processes::get_valve_events))
+        .route("/api/v1/processes/:id/collaborators",
+            get(routes::processes::list_collaborators)
+            .post(routes::processes::add_collaborator))
+        .route("/api/v1/processes/:id/collaborators/:uid",
+            delete(routes::processes::remove_collaborator))
+
+
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(pool);
