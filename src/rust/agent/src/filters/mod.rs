@@ -1,7 +1,7 @@
 // agent/src/filters/mod.rs
 
 use agrodash_shared::{
-    FilterConfig, FilterKind, FilterState, KalmanParams, VecOrScalar,
+    FilterConfig, FilterKind, FilterState,
 };
 
 pub mod kalman;

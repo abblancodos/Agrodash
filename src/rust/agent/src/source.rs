@@ -22,7 +22,7 @@ pub async fn read_source(cfg: &SourceConfig, pool: &PgPool) -> Result<Vec<f64>> 
                     SELECT value
                     FROM readings
                     WHERE sensor_id = $1
-                    ORDER BY recorded_at DESC
+                    ORDER BY created_at DESC
                     LIMIT 1
                     "#,
                     sensor_id,
