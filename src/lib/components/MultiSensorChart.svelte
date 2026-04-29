@@ -96,6 +96,8 @@
     if (!canvas) return;
     await registerZoom();
 
+const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
     // Shared time axis — union of all buckets, sorted
     const allTimes = [...new Set(datasets.flatMap(d => d.readings.map(r => r.bucket)))].sort();
 
@@ -119,12 +121,18 @@
       };
     });
 
-    const labels = allTimes.map(t =>
-      new Date(t + 'Z').toLocaleString('es-CR', {
-        day: '2-digit', month: '2-digit', year: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit',
-      })
-    );
+    const labels = allTimes.map(t => {
+      const d = new Date(t + 'Z');
+      const hours = (allTimes.length > 1
+        ? new Date(allTimes[allTimes.length-1]+'Z').getTime() - new Date(allTimes[0]+'Z').getTime()
+        : 0) / 3_600_000;
+      if (hours <= 24)
+        return d.toLocaleTimeString('es-CR', { hour:'2-digit', minute:'2-digit', hour12:false, timeZone: userTz });
+      if (hours <= 7 * 24)
+        return d.toLocaleDateString('es-CR', { day:'2-digit', month:'short', timeZone: userTz }) + ' ' +
+               d.toLocaleTimeString('es-CR', { hour:'2-digit', minute:'2-digit', hour12:false, timeZone: userTz });
+      return d.toLocaleDateString('es-CR', { day:'2-digit', month:'short', timeZone: userTz });
+    });
 
     if (chart) {
       chart.data.labels = labels;

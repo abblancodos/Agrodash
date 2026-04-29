@@ -36,6 +36,8 @@
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }
 
+  const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
   /** Formatea un timestamp según el rango total para el eje X */
   function formatLabel(isoStr: string, fromDate: Date, toDate: Date): string {
     const d = new Date(isoStr.endsWith('Z') ? isoStr : isoStr + 'Z');
@@ -149,7 +151,7 @@
           const last = await fetchLastReading(sensorId);
           if (last) {
             lastValue = last.value;
-            lastTimestamp = new Date(last.bucket + 'Z').toLocaleString('es-CR', {
+            lastTimestamp = new Date(last.bucket + 'Z').toLocaleString('es-CR', { timeZone: userTz,
               day: '2-digit', month: '2-digit', year: '2-digit',
               hour: '2-digit', minute: '2-digit',
             });

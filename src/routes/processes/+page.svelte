@@ -105,12 +105,12 @@
       {#if newError}<div class="form-err">{newError}</div>{/if}
       <div class="form-grid">
         <div class="field">
-          <label>nombre</label>
-          <input bind:value={newName} placeholder="Riego Invernadero" />
+          <label for="proc-name">nombre</label>
+          <input id="proc-name" bind:value={newName} placeholder="Riego Invernadero" />
         </div>
         <div class="field">
-          <label>descripción <span class="opt">(opcional)</span></label>
-          <input bind:value={newDesc} placeholder="Control de 6 líneas" />
+          <label for="proc-desc">descripción <span class="opt">(opcional)</span></label>
+          <input id="proc-desc" bind:value={newDesc} placeholder="Control de 6 líneas" />
         </div>
       </div>
       <div class="form-actions">

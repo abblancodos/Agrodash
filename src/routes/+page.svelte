@@ -425,7 +425,7 @@
         <div class="analysis">
           <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px">
             Estadísticas pre-calculadas · última actualización del worker:
-            {stats ? new Date(stats.computed_at).toLocaleTimeString('es-CR') : '—'}
+            {stats ? new Date(stats.computed_at).toLocaleTimeString('es-CR', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }) : '—'}
           </p>
           <div class="data-table">
             <div class="dt-head">

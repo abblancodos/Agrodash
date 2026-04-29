@@ -341,9 +341,7 @@
       </div>
 
       {#if corrExpanded}
-        <!-- todos los sensores del grupo como filas individuales -->
-        {#if true}
-          {#each group.sensors as s (s.sensor_id)}
+        {#each group.sensors as s (s.sensor_id)}
             <div class="sensor-row corr-sub-row"
                  role="button" tabindex="0"
                  class:is-expanded={expandedSensorId === s.sensor_id}
@@ -384,7 +382,7 @@
                   from={localFrom} to={localTo} points={300} spark={false} {color} />
               </div>
             {/if}
-          {/each}
+        {/each}
       {/if}
     {/each}
   {/if}
