@@ -179,6 +179,13 @@
         <path d="M3 4h10M3 8h7M3 12h5"/><circle cx="13" cy="11" r="2.5"/><line x1="15" y1="13" x2="16" y2="14"/>
       </svg>
     </a>
+    <a href="/processes" class="mode-btn mode-btn--link" title="procesos">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="1" y="3" width="14" height="10" rx="1.5"/>
+        <circle cx="5" cy="8" r="1.5"/>
+        <path d="M8 8h4M8 5.5h4M8 10.5h3"/>
+      </svg>
+    </a>
   </nav>
 
   <!-- Main ───────────────────────────────────────────────────────────────── -->
@@ -502,6 +509,16 @@
         </svg>
       </div>
       <span class="bnav-label">experimentos</span>
+    </a>
+    <a href="/processes" class="bnav-btn" title="procesos">
+      <div class="bnav-icon">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="1" y="3" width="14" height="10" rx="1.5"/>
+          <circle cx="5" cy="8" r="1.5"/>
+          <path d="M8 8h4M8 5.5h4M8 10.5h3"/>
+        </svg>
+      </div>
+      <span class="bnav-label">procesos</span>
     </a>
   </nav>
 
