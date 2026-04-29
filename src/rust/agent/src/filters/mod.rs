@@ -42,7 +42,7 @@ pub trait Filter: Send {
 pub fn build(cfg: &FilterConfig, dim: usize) -> Box<dyn Filter> {
     match &cfg.kind {
         FilterKind::Kalman(p) => {
-            let mut f = KalmanFilter::new(dim, p, cfg.warmup_samples);
+            let f = KalmanFilter::new(dim, p, cfg.warmup_samples);
             Box::new(f)
         }
         FilterKind::MovingAvg(p) => {

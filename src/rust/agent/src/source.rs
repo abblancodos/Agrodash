@@ -19,7 +19,7 @@ pub async fn read_source(cfg: &SourceConfig, pool: &PgPool) -> Result<Vec<f64>> 
             for (i, sensor_id) in ids.iter().enumerate() {
                 let row = sqlx::query!(
                     r#"
-                    SELECT value
+                    SELECT value::float8 AS "value!: f64"
                     FROM readings
                     WHERE sensor_id = $1
                     ORDER BY created_at DESC
