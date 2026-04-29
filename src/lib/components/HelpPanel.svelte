@@ -92,7 +92,7 @@
             <div class="term__def">
               Qué tan parecido se comportan dos sensores para la misma variable.
               De <strong>−1</strong> (opuestos) a <strong>+1</strong> (idénticos).
-              Con <strong>r ≥ 0.85</strong> los sensores se agrupan al final de la card — información redundante.
+              Con <strong>r ≥ 0.90</strong> los sensores se agrupan al final de la card — información redundante.
             </div>
             <div class="term__formula">r = Σ(xᵢ−x̄)(yᵢ−ȳ) / √[Σ(xᵢ−x̄)² · Σ(yᵢ−ȳ)²]</div>
           </div>

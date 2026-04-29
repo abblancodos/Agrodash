@@ -22,7 +22,7 @@ pub async fn get_stats(
     State(pool): State<PgPool>,
     Query(params): Query<StatsQuery>,
 ) -> Result<Json<StatsResponse>, (StatusCode, String)> {
-    let corr_threshold = params.corr_threshold.unwrap_or(0.85);
+    let corr_threshold = params.corr_threshold.unwrap_or(0.9);
 
     // sqlx no puede manejar Option<Uuid> como parámetro en query_as! con
     // columnas UUID no-nullable. Resolvemos con query! + mapeo manual,

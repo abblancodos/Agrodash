@@ -13,7 +13,7 @@ export interface Preferences {
 }
 
 export const FONT_SCALES: Record<FontScale, number> = {
-  sm: 0.85,
+  sm: 0.9,
   md: 1.0,
   lg: 1.2,
 };

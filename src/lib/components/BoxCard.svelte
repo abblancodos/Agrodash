@@ -274,7 +274,7 @@
   <!-- Sección correlacionada ──────────────────────────────────────────────── -->
   {#if corrGroups().length > 0}
     <div class="corr-label">
-      variables correlacionadas entre sensores de esta caja (r ≥ 0.85)
+      variables correlacionadas entre sensores de esta caja (r ≥ 0.90)
     </div>
 
     {#each corrGroups() as group}
@@ -341,38 +341,36 @@
       </div>
 
       {#if corrExpanded}
-        {#if isPerfect}
-          <!-- r≈1: una sola gráfica -->
-          <div class="sensor-expanded">
-            <SensorChart
-              sensorId={group.sensors[0].sensor_id}
-              sensorType={group.type}
-              from={localFrom}
-              to={localTo}
-              points={300}
-              spark={false}
-              {color}
-            />
-          </div>
-        {:else}
-          <!-- r 0.85–0.99: mínimo y máximo como filas separadas -->
-          {@const sorted = [...group.sensors].sort((a, b) => (a.last_value ?? 0) - (b.last_value ?? 0))}
-          {#each [sorted[0], sorted[sorted.length - 1]] as s, i}
-            <div class="sensor-row corr-sub-row">
+        <!-- todos los sensores del grupo como filas individuales -->
+        {#if true}
+          {#each group.sensors as s (s.sensor_id)}
+            <div class="sensor-row corr-sub-row"
+                 role="button" tabindex="0"
+                 class:is-expanded={expandedSensorId === s.sensor_id}
+                 onmouseenter={() => hoveredSensorId = s.sensor_id}
+                 onmouseleave={() => hoveredSensorId = null}
+                 onclick={() => expandedSensorId = expandedSensorId === s.sensor_id ? null : s.sensor_id}
+                 onkeydown={(e) => e.key === 'Enter' && (expandedSensorId = expandedSensorId === s.sensor_id ? null : s.sensor_id)}>
               <span class="s-num" style="color:var(--text-muted)">#{s.sensor_number}</span>
-              <span class="s-type">{i === 0 ? 'mín' : 'máx'}</span>
+              <span class="s-type">{normaliseSensorLabel(group.type)}</span>
               <div class="s-spark">
                 <SensorChart sensorId={s.sensor_id} sensorType={group.type}
                   from={localFrom} to={localTo} points={50} spark={true} {color} />
               </div>
               <span class="s-val align-right">{formatValue(s.last_value, group.type)}</span>
-              <span class="align-right"></span>
+              <span class="align-right">
+                {#if (s.anomaly_score ?? 0) >= 3}
+                  <span class="badge badge-alert">{s.anomaly_score?.toFixed(1)}σ</span>
+                {:else if (s.anomaly_score ?? 0) >= 1.5}
+                  <span class="badge badge-warn">{s.anomaly_score?.toFixed(1)}σ</span>
+                {/if}
+              </span>
               <span class="align-right ago {relTimeClass(s.last_seen_at)}">{relTime(s.last_seen_at)}</span>
               <!-- Mobile -->
               <div class="s-mobile">
                 <span class="s-mobile__name">
                   {normaliseSensorLabel(group.type)}
-                  <span class="s-mobile__num">{i === 0 ? 'mín' : 'máx'} · #{s.sensor_number}</span>
+                  <span class="s-mobile__num">#{s.sensor_number}</span>
                 </span>
                 <span class="s-mobile__meta">
                   <span class="s-mobile__val">{formatValue(s.last_value, group.type)}</span>
@@ -380,12 +378,13 @@
                 </span>
               </div>
             </div>
-            <div class="sensor-expanded">
-              <SensorChart sensorId={s.sensor_id} sensorType={group.type}
-                from={localFrom} to={localTo} points={300} spark={false} {color} />
-            </div>
+            {#if expandedSensorId === s.sensor_id}
+              <div class="sensor-expanded">
+                <SensorChart sensorId={s.sensor_id} sensorType={group.type}
+                  from={localFrom} to={localTo} points={300} spark={false} {color} />
+              </div>
+            {/if}
           {/each}
-        {/if}
       {/if}
     {/each}
   {/if}
@@ -504,12 +503,19 @@
   }
   .sensor-row.is-warn    { background: rgba(186,117,23,0.07); }
   .sensor-row.is-alert   { background: rgba(176,48,48,0.07); }
-  .sensor-row.corr-sub-row { background: var(--bg-inset); }
+  .sensor-row.corr-sub-row {
+    background: var(--bg-inset);
+    cursor: pointer;
+    border-left: 2px solid var(--border-subtle);
+    padding-left: calc(18px * var(--font-scale));
+  }
+  .sensor-row.corr-sub-row:hover { background: color-mix(in srgb, var(--bg-inset) 70%, var(--interactive-hover) 30%); }
+  .sensor-row.corr-sub-row.is-expanded { background: color-mix(in srgb, var(--bg-inset) 60%, var(--interactive-hover) 40%); }
   .sensor-row.corr-group {
     background: var(--bg-elevated);
-    cursor: default;
+    cursor: pointer;
   }
-  .sensor-row.corr-group:hover { background: var(--bg-elevated); }
+  .sensor-row.corr-group:hover { background: color-mix(in srgb, var(--bg-elevated) 80%, var(--interactive-hover) 20%); }
 
   .s-num  { font-size: calc(14px * var(--font-scale)); color: var(--text-muted); }
   .s-type { font-size: calc(14px * var(--font-scale)); color: var(--text-secondary); }

@@ -11,6 +11,27 @@
 
   // ── Rango de tiempo ───────────────────────────────────────────────────────
 
+  // ── Zona horaria del navegador ───────────────────────────────────────────
+  const userTz   = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tzOffset = (() => {
+    // Mostrar offset legible, ej: "UTC-6" o "UTC+2"
+    const off = -new Date().getTimezoneOffset();
+    const h   = Math.floor(Math.abs(off) / 60);
+    const m   = Math.abs(off) % 60;
+    const sign = off >= 0 ? '+' : '-';
+    return m ? `UTC${sign}${h}:${String(m).padStart(2,'0')}` : `UTC${sign}${h}`;
+  })();
+
+  // Convierte un bucket UTC de la API a hora local del navegador
+  function bucketToLocal(bucket: string): string {
+    return new Date(bucket + 'Z').toLocaleString('sv-SE', {
+      timeZone: userTz,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    }).replace('T', ' ');
+  }
+
   const PRESETS = [
     { label: '1 día',    hours: 24  },
     { label: '1 semana', hours: 168 },
@@ -20,7 +41,9 @@
   let activePreset = $state<string | null>('1 día');
 
   function fmt(d: Date): string {
-    return d.toISOString().slice(0, 16);
+    // Mostrar hora local en el picker (no UTC)
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+      .toISOString().slice(0, 16);
   }
 
   let toDate   = $state(fmt(new Date()));
@@ -109,14 +132,14 @@
       const tsMap = new Map<string, Record<string, number | null>>();
       for (const { sensor, data } of allReadings) {
         for (const r of data) {
-          const ts = r.bucket.slice(0, 16).replace('T', ' ');
+          const ts = bucketToLocal(r.bucket);
           if (!tsMap.has(ts)) tsMap.set(ts, {});
           tsMap.get(ts)![sensor.id] = r.value;
         }
       }
 
       const header = [
-        'timestamp',
+        `timestamp (${userTz}, ${tzOffset})`,
         ...sensors.map(s => `${normaliseSensorLabel(s.type)}_#${s.sensor_number}`),
       ].join(',');
 
@@ -176,6 +199,10 @@
       {/each}
     </div>
 
+    <div class="tz-note">
+      <span class="tz-icon">🕐</span>
+      <span>hora local del navegador — <strong>{userTz}</strong> ({tzOffset})</span>
+    </div>
     <div class="date-row">
       <div class="date-field">
         <label class="field-label" for="csv-from">desde</label>
@@ -437,6 +464,18 @@
     cursor: pointer; letter-spacing: .06em; transition: all .12s;
   }
   .cancel-btn:hover { background: var(--interactive-hover); color: var(--text-secondary); }
+
+  /* ── Timezone note ───────────────────────────────────────────────────── */
+  .tz-note {
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 calc(16px * var(--font-scale)) calc(8px * var(--font-scale));
+    font-size: calc(12px * var(--font-scale));
+    color: var(--text-muted);
+    font-family: 'DM Mono', monospace;
+    letter-spacing: .03em;
+  }
+  .tz-note strong { color: var(--text-secondary); font-weight: 500; }
+  .tz-icon { font-size: calc(13px * var(--font-scale)); }
 
   @media (max-width: 640px) {
     .panel { width: calc(100vw - 20px); max-height: 85vh; }

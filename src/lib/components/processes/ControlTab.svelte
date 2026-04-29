@@ -1,307 +1,317 @@
 <!-- src/lib/components/processes/ControlTab.svelte -->
 <script lang="ts">
-  import { processStore, canOperate, canAdmin, processState } from '$lib/stores/process';
+  import { processStore, canOperate, type ProcessReading } from '$lib/stores/process';
 
   let { processId }: { processId: string } = $props();
 
-  let cmdError  = $state('');
-  let cmdBusy   = $state<string | null>(null);   // key del botón activo
+  const proc     = $derived($processStore.process);
+  const pipelines = $derived(proc?.config?.pipelines ?? []);
+  const states   = $derived($processStore.pipelineStates);
 
-  const state    = $derived($processState);
-  const lineas   = $derived(state ? Object.entries(state.estado_lineas).sort() : []);
-  const kalman   = $derived(state?.kalman);
-  const overrides = $derived(state?.overrides ?? {});
+  let expanded   = $state<string | null>(null);
+  let readings   = $state<Record<string, ProcessReading[]>>({});
+  let rdLoading  = $state<Record<string, boolean>>({});
+  let ovBusy     = $state<string | null>(null);
+  let ovError    = $state('');
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
+  const COLORS = ['#4a90d9','#3da85a','#e07b54','#7c6fcd','#e8a838','#d47cb0','#78c4b8','#8a9bb0'];
 
-  function valveMode(linea: string): 'override-on' | 'override-off' | 'auto' {
-    const ov = overrides[linea];
-    if (ov === true)  return 'override-on';
-    if (ov === false) return 'override-off';
-    return 'auto';
+  function toggleExpand(id: string) {
+    if (expanded === id) { expanded = null; return; }
+    expanded = id;
+    if (!readings[id]) loadReadings(id);
   }
 
-  function humedad(linea: string): string {
-    const idx = parseInt(linea) - 1;
-    const v = state?.calibrado?.[String(idx + 1)];
-    if (v == null) return '—';
-    return (v * 100).toFixed(1) + '%';
-  }
-
-  function humedadRaw(linea: string): string {
-    const idx = parseInt(linea) - 1;
-    const v = state?.campbell_crudo?.[String(idx + 1)];
-    if (v == null) return '—';
-    return (v * 100).toFixed(1) + '%';
-  }
-
-  function kalmanHat(linea: string): string {
-    const idx = parseInt(linea) - 1;
-    const v = kalman?.x_hat?.[idx];
-    if (v == null) return '—';
-    return (v * 100).toFixed(2) + '%';
-  }
-
-  function rango(linea: string): [number, number] | null {
-    return state?.rangos_linea?.[linea] ?? null;
-  }
-
-  function gaugePercent(linea: string): number {
-    const r = rango(linea);
-    if (!r) return 0;
-    const idx = parseInt(linea) - 1;
-    const v = kalman?.x_hat?.[idx] ?? state?.calibrado?.[String(idx + 1)] ?? 0;
-    const [min, max] = r;
-    const range = (max - min) * 2;
-    return Math.min(100, Math.max(0, ((v - (min - range * 0.2)) / (range * 1.4)) * 100));
-  }
-
-  function gaugeColor(linea: string): string {
-    const r = rango(linea);
-    if (!r) return '#8a9bb0';
-    const idx = parseInt(linea) - 1;
-    const v = kalman?.x_hat?.[idx] ?? state?.calibrado?.[String(idx + 1)] ?? 0;
-    const [min, max] = r;
-    if (v < min) return '#4a90d9';     // seco — regar
-    if (v > max) return '#e07b54';     // húmedo — no regar
-    return '#3da85a';                  // en rango
-  }
-
-  // ── Comandos ───────────────────────────────────────────────────────────────
-
-  async function setOverride(linea: string, estado: boolean) {
-    cmdBusy = `valve-${linea}-${estado}`; cmdError = '';
+  async function loadReadings(pipelineId: string) {
+    rdLoading = { ...rdLoading, [pipelineId]: true };
     try {
-      await processStore.command(processId, { cmd: 'valve_override', linea, estado });
-    } catch (e: any) { cmdError = e.message; }
-    finally { cmdBusy = null; }
+      const data = await processStore.fetchReadings(processId, pipelineId, 2, 200);
+      readings = { ...readings, [pipelineId]: data };
+    } catch {}
+    finally { rdLoading = { ...rdLoading, [pipelineId]: false }; }
   }
 
-  async function clearOverride(linea: string | null) {
-    cmdBusy = linea ? `clear-${linea}` : 'clear-all'; cmdError = '';
+  async function sendOverride(pipelineId: string, action: 'on' | 'off' | 'clear') {
+    ovBusy = `${pipelineId}-${action}`; ovError = '';
     try {
-      await processStore.command(processId, linea ? { cmd: 'clear_override', linea } : { cmd: 'clear_override' });
-    } catch (e: any) { cmdError = e.message; }
-    finally { cmdBusy = null; }
+      const cmd = action === 'clear'
+        ? { cmd: 'ClearOverride', pipeline_id: pipelineId }
+        : { cmd: 'Override', action, pipeline_id: pipelineId };
+      await processStore.command(processId, cmd);
+      await processStore.refreshPipelineState(processId, pipelineId);
+    } catch (e: any) { ovError = e.message; }
+    finally { ovBusy = null; }
   }
 
-  async function overrideAll(estado: boolean) {
-    cmdBusy = `all-${estado}`; cmdError = '';
-    try {
-      await processStore.command(processId, { cmd: 'valve_override_all', estado });
-    } catch (e: any) { cmdError = e.message; }
-    finally { cmdBusy = null; }
+  // ── Helpers de estado ─────────────────────────────────────────────────────
+  function getActuatorState(pipelineId: string): string | null {
+    const s = states[pipelineId];
+    if (!s) return null;
+    const actNode = Object.values(s.node_states ?? {})
+      .find(n => n.node_type === 'mqtt_actuator' || n.node_type === 'http_actuator');
+    return actNode?.data?.last_action ?? null;
   }
+
+  function getFilteredValues(pipelineId: string): number[] | null {
+    const s = states[pipelineId];
+    if (!s) return null;
+    const kalman = Object.values(s.node_states ?? {})
+      .find(n => n.node_type === 'kalman');
+    if (kalman?.data?.x) return kalman.data.x;
+    const filt = Object.values(s.node_states ?? {})
+      .find(n => ['moving_avg','ewma','lowpass'].includes(n.node_type));
+    return filt?.data?.y ?? filt?.data?.x_hat ?? null;
+  }
+
+  function getLabels(pipelineId: string): string[] {
+    const pl = pipelines.find((p: any) => p.id === pipelineId);
+    if (!pl) return [];
+    const src = pl.nodes.find((n: any) => n.type === 'postgres_sensor');
+    return src?.sensors?.map((s: any) => s.label) ?? [];
+  }
+
+  function getMahalanobis(pipelineId: string): number | null {
+    const s = states[pipelineId];
+    if (!s) return null;
+    const dec = Object.values(s.node_states ?? {})
+      .find(n => n.node_type === 'mahalanobis');
+    return dec?.data?.last_d ?? null;
+  }
+
+  function isReady(pipelineId: string): boolean {
+    return states[pipelineId]?.is_ready ?? false;
+  }
+
+  // ── Mini SVG chart ────────────────────────────────────────────────────────
+  function buildMiniChart(pipelineId: string): string | null {
+    const data = readings[pipelineId];
+    if (!data?.length) return null;
+    const W = 300; const H = 60;
+    const allVals = data.flatMap(r => r.filtered ?? r.raw ?? []);
+    if (!allVals.length) return null;
+    const minV = Math.min(...allVals);
+    const maxV = Math.max(...allVals);
+    const rv = maxV - minV || 1;
+    const minT = new Date(data[0].ts).getTime();
+    const maxT = new Date(data[data.length-1].ts).getTime();
+    const rt = maxT - minT || 1;
+    const n = data[0].filtered?.length ?? data[0].raw?.length ?? 0;
+    const paths = Array.from({length: n}, (_, i) => {
+      let d = '';
+      for (const r of data) {
+        const v = (r.filtered ?? r.raw)?.[i];
+        if (v == null) continue;
+        const x = ((new Date(r.ts).getTime() - minT) / rt) * W;
+        const y = H - ((v - minV) / rv) * H;
+        d += d ? ` L${x.toFixed(1)},${y.toFixed(1)}` : `M${x.toFixed(1)},${y.toFixed(1)}`;
+      }
+      return `<path d="${d}" stroke="${COLORS[i % COLORS.length]}" stroke-width="1.5" fill="none"/>`;
+    });
+    return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:60px">${paths.join('')}</svg>`;
+  }
+
+  // ── Contadores globales ───────────────────────────────────────────────────
+  const activeCount = $derived(
+    pipelines.filter((p: any) => getActuatorState(p.id) === 'on').length
+  );
+  const readyCount = $derived(
+    pipelines.filter((p: any) => isReady(p.id)).length
+  );
 </script>
 
 <div class="ctrl">
-  {#if !state}
-    <div class="no-state">
-      <div class="spinner"></div>
-      <span>esperando datos del control...</span>
+
+  <!-- Barra global -->
+  <div class="global-bar">
+    <div class="global-stats">
+      <span class="gs-item">
+        <span class="gs-num" style="color:#3da85a">{activeCount}</span>
+        <span class="gs-label">activos</span>
+      </span>
+      <span class="gs-sep">·</span>
+      <span class="gs-item">
+        <span class="gs-num">{readyCount}/{pipelines.length}</span>
+        <span class="gs-label">listos</span>
+      </span>
+    </div>
+    {#if ovError}
+      <span class="ov-err">{ovError}</span>
+    {/if}
+  </div>
+
+  {#if pipelines.length === 0}
+    <div class="empty">
+      Sin pipelines configurados. Ir al tab <strong>configurar</strong> para agregar pipelines.
     </div>
 
   {:else}
+    <!-- Grid de cards -->
+    <div class="pipeline-list">
+      {#each pipelines as pl (pl.id)}
+        {@const actState  = getActuatorState(pl.id)}
+        {@const vals      = getFilteredValues(pl.id)}
+        {@const labels    = getLabels(pl.id)}
+        {@const ready     = isReady(pl.id)}
+        {@const mah       = getMahalanobis(pl.id)}
+        {@const isExpanded = expanded === pl.id}
+        {@const isOn      = actState === 'on'}
 
-    <!-- Kalman header -->
-    <div class="kalman-bar">
-      <div class="kalman-info">
-        <span class="kalman-label">Filtro Kalman</span>
-        <span class="kalman-badge" class:conv={kalman?.convergido}>
-          {kalman?.convergido ? '✓ convergido' : '⟳ convergiendo'}
-        </span>
-        {#if kalman?.n_updates != null}
-          <span class="kalman-meta">{kalman.n_updates} ciclos</span>
-        {/if}
-      </div>
-      {#if $canOperate}
-        <div class="bulk-actions">
-          <button class="btn-bulk btn-bulk--on"
-            disabled={!!cmdBusy}
-            onclick={() => overrideAll(true)}>
-            ▶ todas ON
+        <div class="pipeline-card" class:valve-on={isOn} class:expanded={isExpanded}>
+
+          <!-- Cabecera — siempre visible, click para expandir -->
+          <button class="card-header" onclick={() => toggleExpand(pl.id)}>
+            <div class="ch-left">
+              <span class="chevron" class:open={isExpanded}>▶</span>
+              <span class="pl-label">{pl.label}</span>
+              {#if !ready}
+                <span class="badge badge-warmup">warmup</span>
+              {/if}
+            </div>
+            <div class="ch-right">
+              {#if vals?.length}
+                <span class="val-preview" style="color:{COLORS[0]}">
+                  {vals[0].toFixed(3)}
+                </span>
+              {/if}
+              <span class="act-indicator" class:on={isOn} class:off={actState === 'off'}>
+                {actState?.toUpperCase() ?? '—'}
+              </span>
+            </div>
           </button>
-          <button class="btn-bulk btn-bulk--off"
-            disabled={!!cmdBusy}
-            onclick={() => overrideAll(false)}>
-            ■ todas OFF
-          </button>
-          <button class="btn-bulk"
-            disabled={!!cmdBusy}
-            onclick={() => clearOverride(null)}>
-            ↺ modo auto
-          </button>
-        </div>
-      {/if}
-    </div>
 
-    {#if cmdError}
-      <div class="cmd-err">{cmdError}</div>
-    {/if}
+          <!-- Detalle expandido -->
+          {#if isExpanded}
+            <div class="card-detail">
 
-    <!-- Grid de líneas -->
-    <div class="lineas-grid">
-      {#each lineas as [linea, estado]}
-        {@const mode    = valveMode(linea)}
-        {@const r       = rango(linea)}
-        {@const pct     = gaugePercent(linea)}
-        {@const color   = gaugeColor(linea)}
-        {@const valOn   = estado === 'on'}
-
-        <div class="linea-card" class:valve-on={valOn} class:override={mode !== 'auto'}>
-
-          <div class="linea-head">
-            <span class="linea-num">Línea {linea}</span>
-            <span class="mode-badge mode-badge--{mode}">
-              {mode === 'auto' ? 'auto' : mode === 'override-on' ? 'override ON' : 'override OFF'}
-            </span>
-          </div>
-
-          <!-- Gauge de humedad -->
-          <div class="gauge-wrap">
-            <div class="gauge-track">
-              {#if r}
-                <!-- Zona objetivo -->
-                {@const trackRange = (r[1] - r[0]) * 2 * 1.4}
-                {@const minPx = ((r[0] - (r[0] - trackRange * 0.2)) / (trackRange)) * 100}
-                {@const maxPx = ((r[1] - (r[0] - trackRange * 0.2)) / (trackRange)) * 100}
-                <div class="gauge-target"
-                  style="left:{minPx}%; width:{maxPx - minPx}%">
+              <!-- Valores actuales por sensor -->
+              {#if vals?.length}
+                <div class="vals-grid">
+                  {#each vals as v, i (i)}
+                    <div class="val-item">
+                      <span class="val-label" style="color:{COLORS[i % COLORS.length]}">
+                        {labels[i] ?? `s${i+1}`}
+                      </span>
+                      <span class="val-num">{v.toFixed(4)}</span>
+                    </div>
+                  {/each}
                 </div>
               {/if}
-              <div class="gauge-fill" style="width:{pct}%; background:{color}"></div>
-            </div>
-          </div>
 
-          <!-- Valores -->
-          <div class="linea-vals">
-            <div class="val-item">
-              <span class="val-label">Kalman</span>
-              <span class="val-num" style="color:{color}">{kalmanHat(linea)}</span>
-            </div>
-            <div class="val-item">
-              <span class="val-label">calibrado</span>
-              <span class="val-num">{humedad(linea)}</span>
-            </div>
-            <div class="val-item">
-              <span class="val-label">crudo</span>
-              <span class="val-num muted">{humedadRaw(linea)}</span>
-            </div>
-            {#if r}
-              <div class="val-item">
-                <span class="val-label">rango</span>
-                <span class="val-num muted">{(r[0]*100).toFixed(1)}–{(r[1]*100).toFixed(1)}%</span>
-              </div>
-            {/if}
-          </div>
-
-          <!-- Válvula -->
-          <div class="valve-row">
-            <div class="valve-indicator" class:on={valOn}>
-              <span class="valve-dot"></span>
-              <span class="valve-label">{valOn ? 'ABIERTA' : 'CERRADA'}</span>
-            </div>
-            {#if $canOperate}
-              <div class="valve-btns">
-                {#if mode !== 'auto'}
-                  <button class="vbtn vbtn--auto"
-                    disabled={cmdBusy === `clear-${linea}`}
-                    onclick={() => clearOverride(linea)}>
-                    ↺ auto
-                  </button>
+              <!-- Stats de decisión -->
+              <div class="decision-row">
+                {#if mah != null}
+                  <span class="ds-item">
+                    <span class="ds-label">d Mahalanobis</span>
+                    <span class="ds-val mono">{mah.toFixed(3)}</span>
+                  </span>
                 {/if}
-                <button class="vbtn vbtn--on"
-                  class:active={mode === 'override-on'}
-                  disabled={!!cmdBusy}
-                  onclick={() => setOverride(linea, true)}>
-                  ON
-                </button>
-                <button class="vbtn vbtn--off"
-                  class:active={mode === 'override-off'}
-                  disabled={!!cmdBusy}
-                  onclick={() => setOverride(linea, false)}>
-                  OFF
-                </button>
+                {#if states[pl.id]?.cycle}
+                  <span class="ds-item">
+                    <span class="ds-label">ciclo</span>
+                    <span class="ds-val mono">{states[pl.id].cycle}</span>
+                  </span>
+                {/if}
               </div>
-            {/if}
-          </div>
 
+              <!-- Mini chart -->
+              {#if rdLoading[pl.id]}
+                <div class="chart-loading">cargando chart...</div>
+              {:else}
+                {@const svg = buildMiniChart(pl.id)}
+                {#if svg}
+                  <div class="mini-chart">
+                    {@html svg}
+                  </div>
+                {/if}
+              {/if}
+
+              <!-- Override -->
+              {#if $canOperate}
+                <div class="override-row">
+                  <span class="ov-label">override</span>
+                  <button class="ovbtn ovbtn--on"
+                    disabled={ovBusy !== null}
+                    onclick={() => sendOverride(pl.id, 'on')}>ON</button>
+                  <button class="ovbtn ovbtn--off"
+                    disabled={ovBusy !== null}
+                    onclick={() => sendOverride(pl.id, 'off')}>OFF</button>
+                  <button class="ovbtn ovbtn--auto"
+                    disabled={ovBusy !== null}
+                    onclick={() => sendOverride(pl.id, 'clear')}>↺ auto</button>
+                  {#if states[pl.id]?.override_active}
+                    <span class="ov-active-badge">override activo</span>
+                  {/if}
+                </div>
+              {/if}
+
+            </div>
+          {/if}
         </div>
       {/each}
     </div>
-
   {/if}
+
 </div>
 
 <style>
-  .ctrl { display: flex; flex-direction: column; gap: calc(16px * var(--font-scale)); }
+  .ctrl { display: flex; flex-direction: column; gap: calc(12px * var(--font-scale)); }
 
-  .no-state { display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: calc(13px * var(--font-scale)); padding: 40px 0; }
-  .spinner { width: 16px; height: 16px; border: 2px solid var(--border-subtle); border-top-color: var(--text-muted); border-radius: 50%; animation: spin .8s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  .global-bar { display: flex; align-items: center; justify-content: space-between; padding: calc(8px * var(--font-scale)) calc(14px * var(--font-scale)); background: var(--bg-elevated); border-radius: 8px; border: 0.5px solid var(--border-subtle); }
+  .global-stats { display: flex; align-items: center; gap: 10px; }
+  .gs-item { display: flex; align-items: baseline; gap: 4px; }
+  .gs-num { font-size: calc(16px * var(--font-scale)); font-weight: 600; font-family: 'DM Mono', monospace; color: var(--text-primary); }
+  .gs-label { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); }
+  .gs-sep { color: var(--border-default); }
+  .ov-err { font-size: calc(12px * var(--font-scale)); color: var(--error-color); }
 
-  /* Kalman bar */
-  .kalman-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: calc(10px * var(--font-scale)) calc(14px * var(--font-scale)); background: var(--bg-elevated); border-radius: 8px; border: 0.5px solid var(--border-subtle); }
-  .kalman-info { display: flex; align-items: center; gap: 10px; }
-  .kalman-label { font-size: calc(12px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; letter-spacing: .04em; }
-  .kalman-badge { font-size: calc(11px * var(--font-scale)); padding: 2px 8px; border-radius: 10px; background: var(--bg-inset); color: var(--text-muted); font-family: 'DM Mono', monospace; }
-  .kalman-badge.conv { background: #EAF3DE; color: #3B6D11; }
-  .kalman-meta { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); }
+  .empty { color: var(--text-muted); font-size: calc(13px * var(--font-scale)); padding: 32px 0; text-align: center; line-height: 1.6; }
 
-  .bulk-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-  .btn-bulk { padding: calc(5px * var(--font-scale)) calc(10px * var(--font-scale)); border: 0.5px solid var(--border-default); border-radius: 6px; background: none; cursor: pointer; font-size: calc(11px * var(--font-scale)); color: var(--text-secondary); font-family: 'DM Mono', monospace; }
-  .btn-bulk:hover { background: var(--interactive-hover); }
-  .btn-bulk:disabled { opacity: 0.4; cursor: default; }
-  .btn-bulk--on  { border-color: #3da85a44; color: #3da85a; }
-  .btn-bulk--off { border-color: #e0545444; color: #e05454; }
+  /* Lista de pipelines */
+  .pipeline-list { display: flex; flex-direction: column; gap: calc(6px * var(--font-scale)); }
 
-  .cmd-err { background: var(--error-bg); color: var(--error-color); padding: 8px 12px; border-radius: 6px; font-size: calc(12px * var(--font-scale)); }
+  .pipeline-card { background: var(--bg-surface); border: 0.5px solid var(--border-default); border-radius: 10px; overflow: hidden; transition: border-color .15s; }
+  .pipeline-card.valve-on { border-color: #3da85a66; }
+  .pipeline-card.expanded { border-color: var(--text-primary); }
 
-  /* Grid de líneas */
-  .lineas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: calc(12px * var(--font-scale)); }
+  /* Header */
+  .card-header { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: calc(12px * var(--font-scale)) calc(14px * var(--font-scale)); background: none; border: none; cursor: pointer; text-align: left; transition: background .1s; }
+  .card-header:hover { background: var(--interactive-hover); }
+  .ch-left { display: flex; align-items: center; gap: calc(8px * var(--font-scale)); }
+  .ch-right { display: flex; align-items: center; gap: calc(10px * var(--font-scale)); }
+  .chevron { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); transition: transform .15s; display: inline-block; flex-shrink: 0; }
+  .chevron.open { transform: rotate(90deg); }
+  .pl-label { font-size: calc(14px * var(--font-scale)); font-weight: 500; color: var(--text-primary); }
 
-  .linea-card { display: flex; flex-direction: column; gap: calc(10px * var(--font-scale)); padding: calc(14px * var(--font-scale)); background: var(--bg-surface); border: 0.5px solid var(--border-default); border-radius: 10px; transition: border-color .15s; }
-  .linea-card.valve-on  { border-color: #3da85a66; background: #EAF3DE0A; }
-  .linea-card.override  { border-style: dashed; }
+  .badge-warmup { font-size: calc(10px * var(--font-scale)); padding: 1px 7px; border-radius: 10px; background: var(--bg-inset); color: var(--text-muted); font-family: 'DM Mono', monospace; }
 
-  .linea-head { display: flex; align-items: center; justify-content: space-between; }
-  .linea-num  { font-size: calc(13px * var(--font-scale)); font-weight: 500; color: var(--text-primary); font-family: 'DM Mono', monospace; }
-  .mode-badge { font-size: calc(10px * var(--font-scale)); padding: 1px 7px; border-radius: 10px; font-family: 'DM Mono', monospace; }
-  .mode-badge--auto         { background: var(--bg-elevated); color: var(--text-muted); }
-  .mode-badge--override-on  { background: #EAF3DE; color: #3B6D11; }
-  .mode-badge--override-off { background: #FCEBEB; color: #A32D2D; }
+  .val-preview { font-size: calc(14px * var(--font-scale)); font-family: 'DM Mono', monospace; font-weight: 500; }
+  .act-indicator { font-size: calc(11px * var(--font-scale)); font-family: 'DM Mono', monospace; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: var(--bg-inset); color: var(--text-muted); }
+  .act-indicator.on  { background: #EAF3DE; color: #3B6D11; }
+  .act-indicator.off { background: #FCEBEB; color: #A32D2D; }
 
-  /* Gauge */
-  .gauge-wrap { padding: 0 2px; }
-  .gauge-track { height: 8px; background: var(--bg-elevated); border-radius: 4px; position: relative; overflow: hidden; }
-  .gauge-target { position: absolute; top: 0; bottom: 0; background: rgba(74,154,98,0.2); }
-  .gauge-fill   { height: 100%; border-radius: 4px; transition: width .4s ease, background .4s; }
+  /* Detalle */
+  .card-detail { padding: calc(12px * var(--font-scale)) calc(14px * var(--font-scale)); border-top: 0.5px solid var(--border-subtle); display: flex; flex-direction: column; gap: calc(10px * var(--font-scale)); }
 
-  /* Valores */
-  .linea-vals { display: grid; grid-template-columns: 1fr 1fr; gap: 4px calc(12px * var(--font-scale)); }
-  .val-item { display: flex; flex-direction: column; gap: 1px; }
-  .val-label { font-size: calc(10px * var(--font-scale)); color: var(--text-muted); letter-spacing: .04em; }
-  .val-num { font-size: calc(13px * var(--font-scale)); font-family: 'DM Mono', monospace; font-weight: 500; color: var(--text-primary); }
-  .val-num.muted { color: var(--text-muted); font-weight: 400; }
+  .vals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: calc(6px * var(--font-scale)); }
+  .val-item { display: flex; flex-direction: column; gap: 2px; }
+  .val-label { font-size: calc(10px * var(--font-scale)); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .val-num { font-size: calc(14px * var(--font-scale)); font-family: 'DM Mono', monospace; font-weight: 500; color: var(--text-primary); }
 
-  /* Válvula */
-  .valve-row { display: flex; align-items: center; justify-content: space-between; padding-top: calc(6px * var(--font-scale)); border-top: 0.5px solid var(--border-subtle); }
-  .valve-indicator { display: flex; align-items: center; gap: 6px; }
-  .valve-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-default); transition: background .2s; }
-  .valve-indicator.on .valve-dot { background: #3da85a; box-shadow: 0 0 6px #3da85a88; }
-  .valve-label { font-size: calc(11px * var(--font-scale)); font-family: 'DM Mono', monospace; color: var(--text-muted); }
-  .valve-indicator.on .valve-label { color: #3da85a; }
+  .decision-row { display: flex; align-items: center; gap: calc(16px * var(--font-scale)); flex-wrap: wrap; }
+  .ds-item { display: flex; flex-direction: column; gap: 1px; }
+  .ds-label { font-size: calc(10px * var(--font-scale)); color: var(--text-muted); }
+  .ds-val { font-size: calc(13px * var(--font-scale)); color: var(--text-primary); }
+  .mono { font-family: 'DM Mono', monospace; }
 
-  .valve-btns { display: flex; gap: 4px; }
-  .vbtn { padding: calc(4px * var(--font-scale)) calc(8px * var(--font-scale)); border: 0.5px solid var(--border-default); border-radius: 4px; background: none; cursor: pointer; font-size: calc(11px * var(--font-scale)); font-family: 'DM Mono', monospace; color: var(--text-muted); transition: all .1s; }
-  .vbtn:hover { background: var(--interactive-hover); color: var(--text-primary); }
-  .vbtn:disabled { opacity: 0.35; cursor: default; }
-  .vbtn--on.active  { background: #EAF3DE; color: #3B6D11; border-color: #3da85a44; }
-  .vbtn--off.active { background: #FCEBEB; color: #A32D2D; border-color: #e0545444; }
-  .vbtn--auto { color: var(--text-muted); }
+  .chart-loading { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); }
+  .mini-chart { background: var(--bg-elevated); border-radius: 6px; padding: 4px; overflow: hidden; }
 
-  @media (max-width: 640px) {
-    .lineas-grid { grid-template-columns: 1fr; }
-    .kalman-bar { flex-direction: column; align-items: flex-start; }
-  }
+  .override-row { display: flex; align-items: center; gap: 6px; padding-top: calc(6px * var(--font-scale)); border-top: 0.5px solid var(--border-subtle); flex-wrap: wrap; }
+  .ov-label { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; }
+  .ovbtn { padding: calc(4px * var(--font-scale)) calc(10px * var(--font-scale)); border: 0.5px solid var(--border-default); border-radius: 6px; background: none; cursor: pointer; font-size: calc(11px * var(--font-scale)); font-family: 'DM Mono', monospace; color: var(--text-secondary); }
+  .ovbtn:disabled { opacity: 0.4; }
+  .ovbtn--on  { color: #3da85a; border-color: #3da85a44; } .ovbtn--on:hover  { background: #EAF3DE; }
+  .ovbtn--off { color: #e05454; border-color: #e0545444; } .ovbtn--off:hover { background: #FCEBEB; }
+  .ovbtn--auto:hover { background: var(--interactive-hover); }
+  .ov-active-badge { font-size: calc(10px * var(--font-scale)); padding: 2px 7px; border-radius: 10px; background: #FEF3C7; color: #92400E; font-family: 'DM Mono', monospace; }
 </style>
