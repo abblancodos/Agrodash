@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE processes SET\n            name        = COALESCE($1, name),\n            description = COALESCE($2, description),\n            config      = COALESCE($3, config),\n            status      = COALESCE($4, status),\n            updated_at  = now()\n        WHERE id = $5\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dac94ad951c3c92d9f941b3a70c3f7e7d9fcf3110f92ffc75aa84acb67d45625"
+}
