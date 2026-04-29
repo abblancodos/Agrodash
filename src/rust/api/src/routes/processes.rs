@@ -618,3 +618,87 @@ pub async fn list_collaborators(
 
     Ok(Json(json!({ "collaborators": collabs })))
 }
+// ── Rutas internas para el agente ─────────────────────────────────────────────
+
+pub async fn get_config(
+    State(pool): State<PgPool>,
+    Path(process_id): Path<Uuid>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let row = sqlx::query!(
+        "SELECT config FROM processes WHERE id = $1",
+        process_id
+    )
+    .fetch_optional(&pool)
+    .await
+    .map_err(err)?
+    .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "No encontrado"}))))?;
+
+    Ok(Json(row.config))
+}
+
+pub async fn get_agent_state(
+    State(pool): State<PgPool>,
+    Path(process_id): Path<Uuid>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let row = sqlx::query!(
+        "SELECT last_state FROM processes WHERE id = $1",
+        process_id
+    )
+    .fetch_optional(&pool)
+    .await
+    .map_err(err)?
+    .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "No encontrado"}))))?;
+
+    Ok(Json(row.last_state.unwrap_or(json!({}))))
+}
+
+pub async fn post_agent_state(
+    State(pool): State<PgPool>,
+    Path(process_id): Path<Uuid>,
+    Json(body): Json<Value>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    sqlx::query!(
+        r#"
+        UPDATE processes
+        SET last_state   = $1,
+            last_seen_at = now(),
+            status       = 'running',
+            updated_at   = now()
+        WHERE id = $2
+        "#,
+        body, process_id,
+    )
+    .execute(&pool)
+    .await
+    .map_err(err)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn post_agent_error(
+    State(pool): State<PgPool>,
+    Path(process_id): Path<Uuid>,
+    Json(body): Json<Value>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    let msg = body.get("error")
+        .and_then(|v| v.as_str())
+        .unwrap_or("error desconocido");
+
+    sqlx::query!(
+        "INSERT INTO process_logs (process_id, level, source, message) VALUES ($1, 'error', 'worker', $2)",
+        process_id, msg,
+    )
+    .execute(&pool)
+    .await
+    .map_err(err)?;
+
+    sqlx::query!(
+        "UPDATE processes SET status = 'error', updated_at = now() WHERE id = $1",
+        process_id,
+    )
+    .execute(&pool)
+    .await
+    .map_err(err)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}

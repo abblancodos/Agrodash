@@ -222,6 +222,13 @@ async fn main() {
             .post(routes::processes::add_collaborator))
         .route("/api/v1/processes/:id/collaborators/:uid",
             delete(routes::processes::remove_collaborator))
+        .route("/api/v1/processes/:id/config",
+            get(routes::processes::get_config))
+        .route("/api/v1/processes/:id/agent-state",
+            get(routes::processes::get_agent_state)
+            .post(routes::processes::post_agent_state))
+        .route("/api/v1/processes/:id/agent-error",
+            post(routes::processes::post_agent_error))
 
 
         .layer(cors)
