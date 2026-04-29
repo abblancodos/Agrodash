@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE processes\n        SET last_state   = $1,\n            last_seen_at = now(),\n            status       = 'running',\n            updated_at   = now()\n        WHERE id = $2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1ac440d59b5cfa59030f35af621bc12966b8c8636af57ce79ef1fa068c956cb1"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE processes SET status = 'error', updated_at = now() WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b3c8bc03d9a407affd39ecaba8a7072ea59401d3dc2658a40d0c8109e1a3edcb"
+}
