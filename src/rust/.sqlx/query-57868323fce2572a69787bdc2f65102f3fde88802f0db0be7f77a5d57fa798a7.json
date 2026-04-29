@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO process_logs (process_id, level, source, message, data, user_id)\n        VALUES ($1, 'info', 'user', $2, $3, $4)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "57868323fce2572a69787bdc2f65102f3fde88802f0db0be7f77a5d57fa798a7"
+}

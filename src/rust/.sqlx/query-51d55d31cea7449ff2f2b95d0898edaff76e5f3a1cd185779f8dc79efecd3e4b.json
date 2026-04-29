@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT control_url, api_key FROM processes WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "control_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "api_key",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "51d55d31cea7449ff2f2b95d0898edaff76e5f3a1cd185779f8dc79efecd3e4b"
+}

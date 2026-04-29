@@ -1,0 +1,79 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, process_id, ts, linea, estado, modo,\n               triggered_by, kalman_convergido, kalman_x_hat, context\n        FROM process_valve_events\n        WHERE process_id = $1\n          AND ($2::timestamptz IS NULL OR ts > $2)\n          AND ($3::text IS NULL OR linea = $3)\n        ORDER BY ts DESC\n        LIMIT $4\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "process_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "ts",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "linea",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "estado",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "modo",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "triggered_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "kalman_convergido",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "kalman_x_hat",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "context",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "aec5d5ebd8ad99d77f9cb4a842d8e030ea0210db1e2db4e2fe00ce2b136f2544"
+}

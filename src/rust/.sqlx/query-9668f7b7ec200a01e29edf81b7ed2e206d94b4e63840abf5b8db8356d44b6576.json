@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO process_collaborators (process_id, user_id, role)\n        VALUES ($1, $2, $3)\n        ON CONFLICT (process_id, user_id) DO UPDATE SET role = $3\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9668f7b7ec200a01e29edf81b7ed2e206d94b4e63840abf5b8db8356d44b6576"
+}

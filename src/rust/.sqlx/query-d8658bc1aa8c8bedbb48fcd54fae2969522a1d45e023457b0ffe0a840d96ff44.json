@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT status, last_state, last_seen_at,\n                       -- logs nuevos desde el último envío\n                       (\n                           SELECT json_agg(json_build_object(\n                               'ts', l.ts, 'level', l.level,\n                               'source', l.source, 'message', l.message\n                           ) ORDER BY l.ts)\n                           FROM process_logs l\n                           WHERE l.process_id = $1\n                             AND ($2::text IS NULL OR l.ts > $2::timestamptz)\n                           LIMIT 20\n                       ) AS new_logs\n                FROM processes WHERE id = $1\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "last_state",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "last_seen_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "new_logs",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "d8658bc1aa8c8bedbb48fcd54fae2969522a1d45e023457b0ffe0a840d96ff44"
+}
