@@ -387,7 +387,7 @@
                 {#if editError}<div class="edit-err">{editError}</div>{/if}
                 <div class="edit-row">
                   <div class="edit-field"><label for="edit-unit-kg">unidad</label><input id="edit-unit-kg" bind:value={editUnit} placeholder="kg, %, …" /></div>
-                  <div class="edit-field"><label>comentario</label><input bind:value={editComment} /></div>
+                  <div class="edit-field"><label for="edit-comment-a">comentario</label><input id="edit-comment-a" bind:value={editComment} /></div>
                 </div>
                 <div class="edit-actions">
                   <button class="btn-edit-save" disabled={editSaving} onclick={() => saveEdit(d)}>{editSaving ? 'guardando...' : 'guardar'}</button>
@@ -471,7 +471,7 @@
                   <div class="edit-field edit-field--sm"><label for="edit-unit2">unidad</label><input id="edit-unit2" bind:value={editUnit} placeholder="g" /></div>
                 </div>
                 <div class="edit-row">
-                  <div class="edit-field"><label>comentario</label><input bind:value={editComment} /></div>
+                  <div class="edit-field"><label for="edit-comment-b">comentario</label><input id="edit-comment-b" bind:value={editComment} /></div>
 
                 </div>
                 <div class="edit-actions">
@@ -566,7 +566,7 @@
                 </div>
                 <div class="edit-row">
                   <div class="edit-field edit-field--sm"><label for="edit-unit-pct">unidad</label><input id="edit-unit-pct" bind:value={editUnit} placeholder="%" /></div>
-                  <div class="edit-field"><label>comentario</label><input bind:value={editComment} /></div>
+                  <div class="edit-field"><label for="edit-comment-c">comentario</label><input id="edit-comment-c" bind:value={editComment} /></div>
                 </div>
                 <div class="edit-actions">
                   <button class="btn-edit-save" disabled={editSaving} onclick={() => saveEdit(d)}>{editSaving ? 'guardando...' : 'guardar'}</button>

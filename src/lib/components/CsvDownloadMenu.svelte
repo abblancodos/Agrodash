@@ -181,10 +181,10 @@
 
   // Wrap a CSV field in quotes if it contains comma, quote, or newline
   function csvQ(s: string): string {
-    if (/[,"
-]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    if (/[,"\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
     return s;
   }
+
 
   function saveCSV(csv:string, name:string) {
     downloading.setProgress(98,'guardando...');

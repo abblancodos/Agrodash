@@ -483,9 +483,9 @@
                   </span>
                   <!-- Resize handle (solo en modo view) -->
                   {#if mode === 'view'}
-                    <span class="resize-handle"
+                    <div class="resize-handle"
                       onmousedown={(e) => onResizeStart(e, col.key)}
-                      role="separator" aria-label="Redimensionar columna">
+                      role="separator" tabindex="0" aria-label="Redimensionar columna">
                     </span>
                   {/if}
                 </th>
