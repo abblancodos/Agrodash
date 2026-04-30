@@ -486,7 +486,7 @@
                     <div class="resize-handle"
                       onmousedown={(e) => onResizeStart(e, col.key)}
                       role="separator" tabindex="0" aria-label="Redimensionar columna">
-                    </span>
+                    </div>
                   {/if}
                 </th>
               {/each}
