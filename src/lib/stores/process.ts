@@ -245,7 +245,11 @@ function createProcessStore() {
         const d = await res.json();
         throw new Error(d.error ?? `HTTP ${res.status}`);
       }
-      await this.load(id);
+      // Update config in store directly — don't reload to avoid resetting the canvas
+      update(s => ({
+        ...s,
+        process: s.process ? { ...s.process, config } : s.process,
+      }));
     },
 
     // ── Pipeline state refresh ────────────────────────────────────────────

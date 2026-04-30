@@ -134,9 +134,11 @@
         <span class="gs-label">listos</span>
       </span>
     </div>
-    {#if ovError}
-      <span class="ov-err">{ovError}</span>
-    {/if}
+    <div class="global-right">
+      {#if Object.keys(states).length === 0 && pipelines.length > 0}
+        <span class="agent-offline">agente no iniciado — configurá y guardá los pipelines primero</span>
+      {/if}
+    </div>
   </div>
 
   {#if pipelines.length === 0}
@@ -263,6 +265,8 @@
   .gs-label { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); }
   .gs-sep { color: var(--border-default); }
   .ov-err { font-size: calc(12px * var(--font-scale)); color: var(--error-color); }
+  .global-right { display: flex; align-items: center; gap: 8px; }
+  .agent-offline { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; font-style: italic; }
 
   .empty { color: var(--text-muted); font-size: calc(13px * var(--font-scale)); padding: 32px 0; text-align: center; line-height: 1.6; }
 

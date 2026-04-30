@@ -14,6 +14,7 @@
 
   const proc = $derived($processStore.process);
   let draft     = $state<ProcessConfig | null>(null);
+  let draftInitialized = false;  // plain bool, not $state — we never want reactivity here
   let saving    = $state(false);
   let saveMsg   = $state('');
   let saveMsgOk = $state(true);
@@ -34,7 +35,8 @@
 
   // ── Init: cargar draft desde servidor, luego chequear localStorage ────────
   $effect(() => {
-    if (proc?.config && !draft) {
+    if (proc?.config && !draftInitialized) {
+      draftInitialized = true;
       const serverCfg: ProcessConfig = JSON.parse(JSON.stringify(proc.config));
       try {
         const stored = localStorage.getItem(STORAGE_KEY());
@@ -228,6 +230,7 @@
   // ── Delete nodos y edges (teclado + evento SvelteFlow) ────────────────────
   function onNodesDelete(event: CustomEvent) {
     const deleted: Node[] = event.detail?.nodes ?? [];
+    console.log('[ConfigTab] onNodesDelete fired, deleted:', deleted.map(n => n.id));
     if (!draft || !deleted.length) return;
     const pl = draft.pipelines[activePl];
     const ids = new Set(deleted.map(n => n.id));
@@ -272,6 +275,7 @@
   }
 
   function removeNode(plIdx: number, nodeId: string) {
+    console.log('[ConfigTab] removeNode:', nodeId);
     if (!draft) return;
     const pl = draft.pipelines[plIdx];
     pl.nodes = pl.nodes.filter(n => n.id !== nodeId);
@@ -366,6 +370,7 @@
         from: e.from ?? e.source,
         to:   e.to   ?? e.target,
       }));
+      console.log('[ConfigTab] saving config:', JSON.stringify(draft, null, 2));
       await processStore.saveConfig(processId, draft);
       dirty = false;
       localStorage.removeItem(STORAGE_KEY());
