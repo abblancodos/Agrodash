@@ -6,457 +6,416 @@
   let { box, onclose }: Props = $props();
 
   // ── Timezone ──────────────────────────────────────────────────────────────
-  const userTz   = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const tzOffset = (() => {
-    const off  = -new Date().getTimezoneOffset();
-    const h    = Math.floor(Math.abs(off) / 60);
-    const m    = Math.abs(off) % 60;
-    const sign = off >= 0 ? '+' : '-';
-    return m ? `UTC${sign}${h}:${String(m).padStart(2,'0')}` : `UTC${sign}${h}`;
+    const off = -new Date().getTimezoneOffset();
+    const h   = Math.floor(Math.abs(off) / 60);
+    const m   = Math.abs(off) % 60;
+    const s   = off >= 0 ? '+' : '-';
+    return m ? `UTC${s}${h}:${String(m).padStart(2,'0')}` : `UTC${s}${h}`;
   })();
 
-  function bucketToLocal(bucket: string): string {
-    return new Date(bucket + 'Z').toLocaleString('sv-SE', {
-      timeZone: userTz, year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-    }).replace('T', ' ');
+  function bucketToLocal(b: string) {
+    return new Date(b + 'Z').toLocaleString('sv-SE', {
+      timeZone: userTz, year:'numeric', month:'2-digit', day:'2-digit',
+      hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false,
+    }).replace('T',' ');
   }
 
   // ── Time range ────────────────────────────────────────────────────────────
   const PRESETS = [
-    { label: '1h',   hours: 1   },
-    { label: '24h',  hours: 24  },
-    { label: '7d',   hours: 168 },
-    { label: '1 mes',hours: 720 },
+    { label:'1h',    hours:1   },
+    { label:'24h',   hours:24  },
+    { label:'7d',    hours:168 },
+    { label:'1 mes', hours:720 },
   ];
-  let activePreset = $state<string | null>('24h');
+  let activePreset = $state<string|null>('24h');
 
   function fmt(d: Date) {
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0,16);
   }
   let toDate   = $state(fmt(new Date()));
-  let fromDate = $state(fmt(new Date(Date.now() - 24 * 3_600_000)));
+  let fromDate = $state(fmt(new Date(Date.now() - 24*3600000)));
 
-  function applyPreset(p: { label: string; hours: number }) {
+  function applyPreset(p: {label:string;hours:number}) {
     activePreset = p.label;
     const now = new Date();
     toDate   = fmt(now);
-    fromDate = fmt(new Date(now.getTime() - p.hours * 3_600_000));
+    fromDate = fmt(new Date(now.getTime() - p.hours*3600000));
   }
 
-  // ── Resolution ────────────────────────────────────────────────────────────
-  const RES_STEPS  = [100, 300, 1000, 3000, 5000];
-  const RES_LABELS = ['100', '300', '1 000', '3 000', '5 000'];
+  // ── Mode ──────────────────────────────────────────────────────────────────
+  let mode = $state<'timeseries'|'stats'>('timeseries');
+
+  // ── Resolution (timeseries only) ──────────────────────────────────────────
+  const RES = [100,300,1000,3000,5000];
+  const RESL= ['100','300','1 000','3 000','5 000'];
   let resStep = $state(2);
-  const points = $derived(RES_STEPS[resStep]);
+  const points = $derived(RES[resStep]);
 
-  // ── Format mode ───────────────────────────────────────────────────────────
-  // simple: current format   descriptive: VWC(v/v %)_SensorN
-  let formatMode = $state<'simple' | 'descriptive'>('simple');
+  // ── Format (timeseries only) ──────────────────────────────────────────────
+  let fmtMode = $state<'simple'|'descriptive'>('simple');
 
-  // ── Download mode ────────────────────────────────────────────────────────
-  let downloadMode = $state<'timeseries' | 'stats'>('timeseries');
+  // ── Column defs ───────────────────────────────────────────────────────────
+  interface ColDef { sensorId:string; enabled:boolean; customLabel:string; }
+  let cols = $state<ColDef[]>(box.sensors.map(s => ({
+    sensorId:s.id, enabled:true, customLabel:'',
+  })));
 
-  // ── Column editor (advanced) ──────────────────────────────────────────────
-  let showAdvanced = $state(false);
+  function sensorOf(id:string) { return box.sensors.find(s=>s.id===id)!; }
 
-  interface ColDef {
-    sensorId:  string;
-    enabled:   boolean;
-    customLabel: string;
+  function autoLabel(col: ColDef) {
+    const s = sensorOf(col.sensorId);
+    return fmtMode === 'descriptive'
+      ? `${normaliseSensorLabel(s.type)}(v/v%)_Sensor${s.sensor_number}`
+      : `${normaliseSensorLabel(s.type)}_#${s.sensor_number}`;
+  }
+  function colLabel(col: ColDef) { return col.customLabel.trim() || autoLabel(col); }
+
+  function moveCol(i:number, d:-1|1) {
+    const ni=i+d; if(ni<0||ni>=cols.length) return;
+    const next=[...cols]; [next[i],next[ni]]=[next[ni],next[i]]; cols=next;
   }
 
-  // Initialize column defs from box sensors
-  let colDefs = $state<ColDef[]>(
-    box.sensors.map(s => ({
-      sensorId:    s.id,
-      enabled:     true,
-      customLabel: '',
-    }))
-  );
+  const activeCols = $derived(cols.filter(c=>c.enabled));
 
-  // Stats columns available in summary mode
-  interface StatCol { key: string; label: string; enabled: boolean; customLabel: string; }
+  // ── Stat columns ──────────────────────────────────────────────────────────
+  interface StatCol { key:string; label:string; enabled:boolean; customLabel:string; }
   let statCols = $state<StatCol[]>([
-    { key: 'mean',   label: 'promedio',           enabled: true,  customLabel: '' },
-    { key: 'stddev', label: 'desv. estándar',     enabled: true,  customLabel: '' },
-    { key: 'min',    label: 'mínimo',             enabled: true,  customLabel: '' },
-    { key: 'max',    label: 'máximo',             enabled: true,  customLabel: '' },
-    { key: 'count',  label: 'n (lecturas)',        enabled: true,  customLabel: '' },
-    { key: 'range',  label: 'rango (max-min)',     enabled: false, customLabel: '' },
-    { key: 'cv',     label: 'CV% (stddev/mean)',   enabled: false, customLabel: '' },
-    { key: 'p25',    label: 'percentil 25',        enabled: false, customLabel: '' },
-    { key: 'p75',    label: 'percentil 75',        enabled: false, customLabel: '' },
-    { key: 'p95',    label: 'percentil 95',        enabled: false, customLabel: '' },
+    { key:'mean',   label:'promedio',        enabled:true,  customLabel:'' },
+    { key:'stddev', label:'desv. estándar',  enabled:true,  customLabel:'' },
+    { key:'min',    label:'mínimo',          enabled:true,  customLabel:'' },
+    { key:'max',    label:'máximo',          enabled:true,  customLabel:'' },
+    { key:'count',  label:'n',               enabled:true,  customLabel:'' },
+    { key:'range',  label:'rango',           enabled:false, customLabel:'' },
+    { key:'cv',     label:'CV%',             enabled:false, customLabel:'' },
+    { key:'p25',    label:'p25',             enabled:false, customLabel:'' },
+    { key:'p75',    label:'p75',             enabled:false, customLabel:'' },
+    { key:'p95',    label:'p95',             enabled:false, customLabel:'' },
   ]);
+  function scLabel(sc:StatCol) { return sc.customLabel.trim()||sc.label; }
+  const activeStats = $derived(statCols.filter(c=>c.enabled));
 
-  function statColLabel(sc: StatCol) {
-    return sc.customLabel.trim() || sc.label;
-  }
-
-  function colLabel(col: ColDef): string {
-    if (col.customLabel.trim()) return col.customLabel.trim();
-    const s = box.sensors.find(x => x.id === col.sensorId)!;
-    if (formatMode === 'descriptive') {
-      return `${normaliseSensorLabel(s.type)}(v/v %)_Sensor${s.sensor_number}`;
-    }
-    return `${normaliseSensorLabel(s.type)}_#${s.sensor_number}`;
-  }
-
-  function moveCol(i: number, dir: -1 | 1) {
-    const ni = i + dir;
-    if (ni < 0 || ni >= colDefs.length) return;
-    const next = [...colDefs];
-    [next[i], next[ni]] = [next[ni], next[i]];
-    colDefs = next;
-  }
-
-  const activeCols     = $derived(colDefs.filter(c => c.enabled));
-  const activeStatCols = $derived(statCols.filter(c => c.enabled));
+  // ── Advanced / preview mode ───────────────────────────────────────────────
+  let advanced = $state(false);
 
   // ── Estimated rows ────────────────────────────────────────────────────────
-  const estimatedRows = $derived(() => {
-    const from  = new Date(fromDate + ':00Z');
-    const to    = new Date(toDate   + ':00Z');
-    const hours = Math.max(0, (to.getTime() - from.getTime()) / 3_600_000);
-    return Math.min(points, Math.round(hours * 12)).toLocaleString('es-CR');
+  const estRows = $derived(() => {
+    const h = Math.max(0,(new Date(toDate+':00Z').getTime()-new Date(fromDate+':00Z').getTime())/3600000);
+    return Math.min(points, Math.round(h*12)).toLocaleString('es-CR');
   });
+
+  // ── Stats computation ─────────────────────────────────────────────────────
+  function computeStats(vals: number[]) {
+    if(!vals.length) return {} as Record<string,number>;
+    const n=vals.length, sum=vals.reduce((a,b)=>a+b,0), mean=sum/n;
+    const sorted=[...vals].sort((a,b)=>a-b);
+    const stddev=Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/n);
+    const min=sorted[0], max=sorted[n-1];
+    const p=(pct:number)=>{const i=(pct/100)*(n-1),lo=Math.floor(i),hi=Math.ceil(i);return sorted[lo]+(sorted[hi]-sorted[lo])*(i-lo);};
+    return {mean,stddev,min,max,count:n,range:max-min,cv:mean!==0?(stddev/Math.abs(mean))*100:0,p25:p(25),p75:p(75),p95:p(95)};
+  }
 
   // ── Download ──────────────────────────────────────────────────────────────
   let error = $state('');
 
-  // ── Stats computation ────────────────────────────────────────────────────
-  function computeStats(values: number[]): Record<string, number> {
-    if (!values.length) return {};
-    const n   = values.length;
-    const sum = values.reduce((a, b) => a + b, 0);
-    const mean = sum / n;
-    const sorted = [...values].sort((a, b) => a - b);
-    const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / n;
-    const stddev = Math.sqrt(variance);
-    const min = sorted[0];
-    const max = sorted[n - 1];
-    const p = (pct: number) => {
-      const i = (pct / 100) * (n - 1);
-      const lo = Math.floor(i); const hi = Math.ceil(i);
-      return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
-    };
-    return {
-      mean, stddev, min, max, count: n,
-      range: max - min,
-      cv: mean !== 0 ? (stddev / Math.abs(mean)) * 100 : 0,
-      p25: p(25), p75: p(75), p95: p(95),
-    };
-  }
-
-  async function downloadStats() {
-    if (!activeCols.length) return;
-    error = '';
-    const from    = new Date(fromDate + ':00Z');
-    const to      = new Date(toDate   + ':00Z');
-    const sensors = activeCols.map(c => box.sensors.find(s => s.id === c.sensorId)!);
-
-    downloading.start(`${box.name} — calculando estadísticas...`);
-    try {
-      const rows: string[] = [];
-      const statHeaders = activeStatCols.map(sc => statColLabel(sc));
-      const header = ['sensor', ...statHeaders].join(',');
-      rows.push(header);
-
-      for (let i = 0; i < activeCols.length; i++) {
-        const col = activeCols[i];
-        const s   = sensors[i];
-        downloading.setProgress(
-          Math.round((i / activeCols.length) * 90),
-          `${box.name} — ${normaliseSensorLabel(s.type)} #${s.sensor_number} (${i+1}/${activeCols.length})`
-        );
-        // Fetch with max resolution for accurate stats
-        const data = await fetchReadings(s.id, s.type, from, to, 5000);
-        const values = data.map(r => r.value).filter(v => v !== null && !isNaN(v));
-        const stats  = computeStats(values);
-        const sensorName = colLabel(col);
-        const statValues = activeStatCols.map(sc => {
-          const v = stats[sc.key];
-          return v !== undefined ? v.toFixed(sc.key === 'count' ? 0 : 4) : '';
-        });
-        rows.push([sensorName, ...statValues].join(','));
-      }
-
-      downloading.setProgress(97, `${box.name} — guardando...`);
-
-      // Add metadata footer
-      rows.push('');
-      rows.push(`# generado: ${new Date().toLocaleString('es-CR', { timeZone: userTz })}`);
-      rows.push(`# rango: ${fromDate} → ${toDate} (${userTz})`);
-      rows.push(`# resolución: hasta 5000 pts/sensor`);
-
-      const csv  = rows.join('\n');
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
-      a.download = `${box.name.toLowerCase().replace(/\s+/g,'_')}_stats_${fromDate.slice(0,10)}_${toDate.slice(0,10)}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-      downloading.finish();
-      setTimeout(onclose, 500);
-    } catch (e: any) {
-      downloading.cancel();
-      error = e.message ?? 'Error desconocido';
-    }
-  }
-
   async function download() {
-    if (downloadMode === 'stats') { await downloadStats(); return; }
-    if (!activeCols.length) return;
-    error = '';
-    const from    = new Date(fromDate + ':00Z');
-    const to      = new Date(toDate   + ':00Z');
-    const sensors = activeCols.map(c => box.sensors.find(s => s.id === c.sensorId)!);
-
+    if(!activeCols.length) return;
+    error='';
+    const from=new Date(fromDate+':00Z'), to=new Date(toDate+':00Z');
     downloading.start(`${box.name} — preparando...`);
     try {
-      const allReadings: { col: ColDef; data: { bucket: string; value: number }[] }[] = [];
-      for (let i = 0; i < activeCols.length; i++) {
-        const col = activeCols[i];
-        const s   = sensors[i];
-        downloading.setProgress(
-          Math.round((i / activeCols.length) * 88),
-          `${box.name} — ${normaliseSensorLabel(s.type)} #${s.sensor_number} (${i+1}/${activeCols.length})`
-        );
-        const data = await fetchReadings(s.id, s.type, from, to, points);
-        allReadings.push({ col, data });
-      }
-
-      downloading.setProgress(92, `${box.name} — construyendo CSV...`);
-
-      const tsMap = new Map<string, Record<string, number | null>>();
-      for (const { col, data } of allReadings) {
-        for (const r of data) {
-          const ts = bucketToLocal(r.bucket);
-          if (!tsMap.has(ts)) tsMap.set(ts, {});
-          tsMap.get(ts)![col.sensorId] = r.value;
+      if(mode==='timeseries') {
+        const all: {col:ColDef;data:{bucket:string;value:number}[]}[]=[];
+        for(let i=0;i<activeCols.length;i++){
+          const col=activeCols[i], s=sensorOf(col.sensorId);
+          downloading.setProgress(Math.round(i/activeCols.length*88),`${s.sensor_number} — ${normaliseSensorLabel(s.type)}`);
+          all.push({col, data:await fetchReadings(s.id,s.type,from,to,points)});
         }
+        downloading.setProgress(92,`construyendo CSV...`);
+        const tsMap=new Map<string,Record<string,number|null>>();
+        for(const{col,data}of all){
+          for(const r of data){
+            const ts=bucketToLocal(r.bucket);
+            if(!tsMap.has(ts))tsMap.set(ts,{});
+            tsMap.get(ts)![col.sensorId]=r.value;
+          }
+        }
+        const header=[`timestamp (${userTz}, ${tzOffset})`,...activeCols.map(colLabel)].join(',');
+        const rows=[...tsMap.entries()].sort(([a],[b])=>a.localeCompare(b))
+          .map(([ts,vals])=>[ts,...activeCols.map(c=>{const v=vals[c.sensorId];return v!=null?v.toFixed(4):'';})].join(','));
+        saveCSV([header,...rows].join('\n'), `${box.name.toLowerCase().replace(/\s+/g,'_')}_${fromDate.slice(0,10)}_${toDate.slice(0,10)}_${points}pts.csv`);
+
+      } else {
+        const rows:string[]=[];
+        rows.push(['sensor',...activeStats.map(scLabel)].join(','));
+        for(let i=0;i<activeCols.length;i++){
+          const col=activeCols[i], s=sensorOf(col.sensorId);
+          downloading.setProgress(Math.round(i/activeCols.length*90),`${normaliseSensorLabel(s.type)} #${s.sensor_number}`);
+          const data=await fetchReadings(s.id,s.type,from,to,5000);
+          const stats=computeStats(data.map(r=>r.value).filter(v=>!isNaN(v)));
+          rows.push([colLabel(col),...activeStats.map(sc=>{const v=stats[sc.key];return v!=null?v.toFixed(sc.key==='count'?0:4):'';})].join(','));
+        }
+        rows.push('',`# ${new Date().toLocaleString('es-CR',{timeZone:userTz})}`,`# rango: ${fromDate} → ${toDate}`);
+        saveCSV(rows.join('\n'), `${box.name.toLowerCase().replace(/\s+/g,'_')}_stats_${fromDate.slice(0,10)}_${toDate.slice(0,10)}.csv`);
       }
-
-      const header = [
-        `timestamp (${userTz}, ${tzOffset})`,
-        ...activeCols.map(c => colLabel(c)),
-      ].join(',');
-
-      const rows = [...tsMap.entries()]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([ts, vals]) => [
-          ts,
-          ...activeCols.map(c => {
-            const v = vals[c.sensorId];
-            return v !== undefined && v !== null ? v.toFixed(4) : '';
-          }),
-        ].join(','));
-
-      downloading.setProgress(98, `${box.name} — guardando...`);
-
-      const csv  = [header, ...rows].join('\n');
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
-      a.download = `${box.name.toLowerCase().replace(/\s+/g,'_')}_${fromDate.slice(0,10)}_${toDate.slice(0,10)}_${points}pts.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-      downloading.finish();
-      setTimeout(onclose, 500);
-    } catch (e: any) {
-      downloading.cancel();
-      error = e.message ?? 'Error desconocido';
-    }
+      downloading.finish(); setTimeout(onclose,500);
+    } catch(e:any){ downloading.cancel(); error=e.message??'Error'; }
   }
 
-  function cancel() { downloading.cancel(); onclose(); }
+  function saveCSV(csv:string, name:string) {
+    downloading.setProgress(98,'guardando...');
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download=name; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function cancel(){ downloading.cancel(); onclose(); }
 </script>
 
 <div class="overlay" onclick={cancel} role="presentation">
-  <div class="panel" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}
-       role="dialog" aria-modal="true" tabindex="-1" aria-label="Descargar CSV de {box.name}">
+  <div class="panel" onclick={e=>e.stopPropagation()} onkeydown={e=>e.stopPropagation()}
+       role="dialog" aria-modal="true" tabindex="-1">
 
-    <!-- Header -->
+    <!-- ── Header ────────────────────────────────────────────────────────── -->
     <div class="panel-head">
       <div class="head-left">
-        <span class="panel-icon">⬇</span>
-        <span class="panel-title">CSV — {box.name}</span>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="head-icon">
+          <path d="M8 2v9M4 7l4 5 4-5"/><line x1="2" y1="14" x2="14" y2="14"/>
+        </svg>
+        <span class="panel-title">Exportar CSV — {box.name}</span>
       </div>
-      <button class="close-btn" onclick={cancel} aria-label="Cerrar">✕</button>
-    </div>
-
-    <!-- ── Modo de descarga ──────────────────────────────────────────────── -->
-    <div class="section section--mode">
-      <button class="mode-btn" class:active={downloadMode === 'timeseries'}
-        onclick={() => downloadMode = 'timeseries'}>
-        <span class="mode-icon">📈</span>
-        <div class="mode-text">
-          <span class="mode-label">serie temporal</span>
-          <span class="mode-desc">una fila por timestamp</span>
-        </div>
-      </button>
-      <button class="mode-btn" class:active={downloadMode === 'stats'}
-        onclick={() => downloadMode = 'stats'}>
-        <span class="mode-icon">📊</span>
-        <div class="mode-text">
-          <span class="mode-label">resumen estadístico</span>
-          <span class="mode-desc">una fila por sensor</span>
-        </div>
+      <button class="icon-btn" onclick={cancel} aria-label="Cerrar">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/>
+        </svg>
       </button>
     </div>
 
-    <!-- ── Sección 1: Rango de tiempo ──────────────────────────────────── -->
+    <!-- ── Modo ──────────────────────────────────────────────────────────── -->
     <div class="section">
-      <div class="section-label">rango de tiempo</div>
+      <div class="section-label">tipo de exportación</div>
+      <div class="mode-row">
+        <button class="mode-btn" class:active={mode==='timeseries'} onclick={()=>mode='timeseries'}>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mode-icon">
+            <polyline points="2,12 5,7 8,9 11,4 14,6"/><line x1="2" y1="14" x2="14" y2="14"/>
+          </svg>
+          <div>
+            <div class="mode-label">serie temporal</div>
+            <div class="mode-sub">una fila por timestamp</div>
+          </div>
+        </button>
+        <button class="mode-btn" class:active={mode==='stats'} onclick={()=>mode='stats'}>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mode-icon">
+            <rect x="2" y="8" width="3" height="6"/><rect x="6.5" y="5" width="3" height="9"/><rect x="11" y="2" width="3" height="12"/>
+          </svg>
+          <div>
+            <div class="mode-label">resumen estadístico</div>
+            <div class="mode-sub">una fila por sensor</div>
+          </div>
+        </button>
+      </div>
+    </div>
 
+    <!-- ── Rango de tiempo ───────────────────────────────────────────────── -->
+    <div class="section">
+      <div class="section-label">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="s-icon">
+          <circle cx="8" cy="8" r="6"/><polyline points="8,5 8,8 10.5,9.5"/>
+        </svg>
+        rango de tiempo
+      </div>
       <div class="presets">
         {#each PRESETS as p (p.label)}
-          <button class="pbtn" class:active={activePreset === p.label}
-            onclick={() => applyPreset(p)}>{p.label}</button>
+          <button class="pbtn" class:active={activePreset===p.label} onclick={()=>applyPreset(p)}>{p.label}</button>
         {/each}
       </div>
-
       <div class="date-row">
         <div class="date-field">
           <label for="csv-from" class="field-label">desde</label>
-          <input id="csv-from" type="datetime-local" bind:value={fromDate}
-            oninput={() => activePreset = null} class="date-input" />
+          <input id="csv-from" type="datetime-local" bind:value={fromDate} oninput={()=>activePreset=null} class="date-input"/>
         </div>
-        <span class="date-sep">→</span>
+        <div class="date-sep">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <line x1="2" y1="8" x2="14" y2="8"/><polyline points="10,4 14,8 10,12"/>
+          </svg>
+        </div>
         <div class="date-field">
           <label for="csv-to" class="field-label">hasta</label>
-          <input id="csv-to" type="datetime-local" bind:value={toDate}
-            oninput={() => activePreset = null} class="date-input" />
+          <input id="csv-to" type="datetime-local" bind:value={toDate} oninput={()=>activePreset=null} class="date-input"/>
         </div>
       </div>
-
-      <div class="tz-note">
-        <span>🕐</span>
-        <span>{userTz} ({tzOffset})</span>
+      <div class="tz-pill">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" class="tz-icon">
+          <circle cx="8" cy="8" r="6"/><path d="M8 2c0 0-2 2-2 6s2 6 2 6M8 2c0 0 2 2 2 6s-2 6-2 6"/><line x1="2" y1="8" x2="14" y2="8"/>
+        </svg>
+        {userTz} · {tzOffset}
       </div>
     </div>
 
-    <!-- ── Sección 2: Resolución (solo en serie temporal) ─────────────────── -->
-    {#if downloadMode === 'timeseries'}
+    <!-- ── Resolución (solo serie temporal) ─────────────────────────────── -->
+    {#if mode === 'timeseries'}
     <div class="section">
       <div class="section-label">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" class="s-icon">
+          <line x1="2" y1="14" x2="14" y2="14"/>
+          <line x1="4" y1="14" x2="4" y2="10"/><line x1="7" y1="14" x2="7" y2="6"/>
+          <line x1="10" y1="14" x2="10" y2="8"/><line x1="13" y1="14" x2="13" y2="3"/>
+        </svg>
         resolución
-        <span class="badge">{RES_LABELS[resStep]} pts/sensor</span>
+        <span class="badge">{RESL[resStep]} pts/sensor</span>
       </div>
       <div class="res-row">
         <span class="res-tick">100</span>
-        <input type="range" min="0" max="4" step="1" bind:value={resStep} class="res-slider" />
+        <input type="range" min="0" max="4" step="1" bind:value={resStep} class="res-slider"/>
         <span class="res-tick">5k</span>
       </div>
     </div>
 
-    {/if}
-
-    <!-- ── Sección 3: Formato de columnas ──────────────────────────────── -->
+    <!-- ── Formato (solo serie temporal) ────────────────────────────────── -->
     <div class="section">
-      <div class="section-label">formato de columnas</div>
-      <div class="format-toggle">
-        <button class="ftbtn" class:active={formatMode === 'simple'}
-          onclick={() => formatMode = 'simple'}>
+      <div class="section-label">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" class="s-icon">
+          <line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="10" y2="8"/><line x1="2" y1="12" x2="7" y2="12"/>
+        </svg>
+        formato de columnas
+      </div>
+      <div class="fmt-row">
+        <button class="ftbtn" class:active={fmtMode==='simple'} onclick={()=>fmtMode='simple'}>
           <span class="ft-label">simple</span>
           <span class="ft-eg">humedad_#1</span>
         </button>
-        <button class="ftbtn" class:active={formatMode === 'descriptive'}
-          onclick={() => formatMode = 'descriptive'}>
+        <button class="ftbtn" class:active={fmtMode==='descriptive'} onclick={()=>fmtMode='descriptive'}>
           <span class="ft-label">descriptivo</span>
-          <span class="ft-eg">VWC(v/v %)_Sensor1</span>
+          <span class="ft-eg">VWC(v/v%)_Sensor1</span>
         </button>
       </div>
     </div>
+    {/if}
 
-    <!-- ── Sección 4: Sensores + advanced ──────────────────────────────── -->
+    <!-- ── Sensores ──────────────────────────────────────────────────────── -->
     <div class="section">
       <div class="section-label">
-        columnas
-        <span class="badge">{activeCols.length}/{colDefs.length} activas</span>
-        <button class="advanced-toggle" onclick={() => showAdvanced = !showAdvanced}>
-          {showAdvanced ? 'básico' : 'avanzado ↓'}
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" class="s-icon">
+          <circle cx="5" cy="5" r="1.5"/><circle cx="11" cy="4" r="1.5"/>
+          <circle cx="8" cy="9" r="1.5"/><circle cx="4" cy="12" r="1.5"/><circle cx="12" cy="11" r="1.5"/>
+        </svg>
+        sensores
+        <span class="badge">{activeCols.length}/{cols.length}</span>
+        <button class="link-btn" onclick={()=>{ const all=activeCols.length===cols.length; cols=cols.map(c=>({...c,enabled:!all})); }}>
+          {activeCols.length===cols.length?'quitar todos':'todos'}
+        </button>
+        <button class="link-btn adv-toggle" onclick={()=>advanced=!advanced}>
+          {advanced ? 'simple ↑' : 'avanzado ↓'}
         </button>
       </div>
 
-      {#if !showAdvanced}
-        <!-- Vista básica: checkboxes simples -->
+      {#if !advanced}
+        <!-- Vista básica -->
         <div class="sensor-list">
-          {#each colDefs as col, i (col.sensorId)}
-            {@const s = box.sensors.find(x => x.id === col.sensorId)!}
+          {#each cols as col (col.sensorId)}
+            {@const s=sensorOf(col.sensorId)}
             <label class="sensor-item">
-              <input type="checkbox" bind:checked={col.enabled} />
-              <span class="sensor-dot" style="background:{sensorColor(s.type)}"></span>
-              <span class="sensor-name">
-                {normaliseSensorLabel(s.type)}
-                <span class="sensor-num">#{s.sensor_number}</span>
-              </span>
-              <span class="col-preview">{colLabel(col)}</span>
+              <input type="checkbox" bind:checked={col.enabled}/>
+              <span class="sdot" style="background:{sensorColor(s.type)}"></span>
+              <span class="sname">{normaliseSensorLabel(s.type)} <span class="snum">#{s.sensor_number}</span></span>
+              <span class="slabel">{colLabel(col)}</span>
             </label>
           {/each}
         </div>
 
       {:else}
-        <!-- Vista avanzada: sensores -->
-        <div class="adv-note">Sensores — reordenár y renombrar columnas</div>
-        <div class="adv-list">
-          {#each colDefs as col, i (col.sensorId)}
-            {@const s = box.sensors.find(x => x.id === col.sensorId)!}
-            <div class="adv-row" class:disabled={!col.enabled}>
-              <input type="checkbox" bind:checked={col.enabled} class="adv-check" />
-              <span class="sensor-dot" style="background:{sensorColor(s.type)}"></span>
-              <span class="adv-default">{normaliseSensorLabel(s.type)} #{s.sensor_number}</span>
-              <input class="adv-label-input" bind:value={col.customLabel} placeholder={colLabel(col)} />
-              <div class="adv-order">
-                <button class="ord-btn" onclick={() => moveCol(i, -1)} disabled={i === 0}>↑</button>
-                <button class="ord-btn" onclick={() => moveCol(i, 1)} disabled={i === colDefs.length - 1}>↓</button>
-              </div>
-            </div>
-          {/each}
-        </div>
-
-        {#if downloadMode === 'stats'}
-          <!-- Stats columns selector -->
-          <div class="adv-note" style="margin-top:8px">Columnas estadísticas</div>
-          <div class="adv-list">
-            {#each statCols as sc, i (sc.key)}
-              <div class="adv-row" class:disabled={!sc.enabled}>
-                <input type="checkbox" bind:checked={sc.enabled} class="adv-check" />
-                <span class="adv-default">{sc.label}</span>
-                <input class="adv-label-input" bind:value={sc.customLabel} placeholder={sc.label} />
-              </div>
-            {/each}
+        <!-- Vista avanzada: spreadsheet preview -->
+        <div class="sheet-wrap">
+          <div class="sheet-scroll">
+            <table class="sheet">
+              <thead>
+                <tr>
+                  <th class="sh-th sh-th--ctrl"></th>
+                  <th class="sh-th sh-th--sensor">sensor</th>
+                  {#if mode==='timeseries'}
+                    <th class="sh-th sh-th--label">nombre de columna</th>
+                    <th class="sh-th sh-th--preview">preview</th>
+                    <th class="sh-th sh-th--order">orden</th>
+                  {:else}
+                    <th class="sh-th sh-th--label">nombre de columna</th>
+                    {#each statCols as sc (sc.key)}
+                      <th class="sh-th sh-th--stat" class:sh-disabled={!sc.enabled}>
+                        <label class="stat-hdr">
+                          <input type="checkbox" bind:checked={sc.enabled}/>
+                          <input class="stat-hdr-input" bind:value={sc.customLabel} placeholder={sc.label}/>
+                        </label>
+                      </th>
+                    {/each}
+                  {/if}
+                </tr>
+              </thead>
+              <tbody>
+                {#each cols as col, i (col.sensorId)}
+                  {@const s=sensorOf(col.sensorId)}
+                  <tr class="sh-row" class:sh-row--disabled={!col.enabled}>
+                    <td class="sh-td sh-td--ctrl">
+                      <input type="checkbox" bind:checked={col.enabled}/>
+                    </td>
+                    <td class="sh-td sh-td--sensor">
+                      <span class="sdot" style="background:{sensorColor(s.type)}"></span>
+                      {normaliseSensorLabel(s.type)} #{s.sensor_number}
+                    </td>
+                    {#if mode==='timeseries'}
+                      <td class="sh-td sh-td--editable">
+                        <input class="sh-input" bind:value={col.customLabel} placeholder={autoLabel(col)}/>
+                      </td>
+                      <td class="sh-td sh-td--preview">{colLabel(col)}</td>
+                      <td class="sh-td sh-td--order">
+                        <button class="ord" onclick={()=>moveCol(i,-1)} disabled={i===0}>↑</button>
+                        <button class="ord" onclick={()=>moveCol(i,1)} disabled={i===cols.length-1}>↓</button>
+                      </td>
+                    {:else}
+                      <td class="sh-td sh-td--editable">
+                        <input class="sh-input" bind:value={col.customLabel} placeholder={autoLabel(col)}/>
+                      </td>
+                      {#each statCols as sc (sc.key)}
+                        <td class="sh-td sh-td--stat-val" class:sh-disabled={!sc.enabled}>
+                          <span class="stat-placeholder">—</span>
+                        </td>
+                      {/each}
+                    {/if}
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
           </div>
-        {/if}
-
-        <!-- Preview del header -->
-        <div class="header-preview">
-          <span class="hp-label">header:</span>
-          {#if downloadMode === 'timeseries'}
-            <span class="hp-val">timestamp, {activeCols.map(c => colLabel(c)).join(', ')}</span>
-          {:else}
-            <span class="hp-val">sensor, {activeStatCols.map(sc => statColLabel(sc)).join(', ')}</span>
-          {/if}
+          <!-- Header preview strip -->
+          <div class="header-preview">
+            <span class="hp-label">header.csv</span>
+            <code class="hp-code">
+              {#if mode==='timeseries'}
+                timestamp,{activeCols.map(colLabel).join(',')}
+              {:else}
+                sensor,{activeStats.map(scLabel).join(',')}
+              {/if}
+            </code>
+          </div>
         </div>
       {/if}
     </div>
 
-    <!-- ── Preview + error + botón ─────────────────────────────────────── -->
-    <div class="bottom">
-      <div class="preview-row">
-        <span>{activeCols.length} sensor{activeCols.length !== 1 ? 'es' : ''}</span>
-        <span class="sep">·</span>
-        {#if downloadMode === 'timeseries'}
-          <span>~{estimatedRows()} filas</span>
-          <span class="sep">·</span>
-          <span>{RES_LABELS[resStep]} pts/sensor</span>
+    <!-- ── Footer: preview + botón ──────────────────────────────────────── -->
+    <div class="panel-foot">
+      <div class="preview-chips">
+        <span class="chip">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" class="chip-icon">
+            <circle cx="5" cy="5" r="1.5"/><circle cx="11" cy="4" r="1.5"/>
+            <circle cx="8" cy="9" r="1.5"/><circle cx="4" cy="12" r="1.5"/>
+          </svg>
+          {activeCols.length} sensor{activeCols.length!==1?'es':''}
+        </span>
+        {#if mode==='timeseries'}
+          <span class="chip">~{estRows()} filas</span>
+          <span class="chip">{RESL[resStep]} pts</span>
         {:else}
-          <span>{activeCols.length} filas</span>
-          <span class="sep">·</span>
-          <span>{activeStatCols.length} estadísticas</span>
+          <span class="chip">{activeCols.length} filas · {activeStats.length} cols estadísticas</span>
         {/if}
       </div>
 
@@ -464,8 +423,11 @@
         <div class="error-msg">{error}</div>
       {/if}
 
-      <button class="download-btn" onclick={download} disabled={activeCols.length === 0}>
-        {downloadMode === 'timeseries' ? '⬇ Descargar serie temporal' : '⬇ Descargar resumen estadístico'}
+      <button class="download-btn" onclick={download} disabled={activeCols.length===0}>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 2v9M4 7l4 5 4-5"/><line x1="2" y1="14" x2="14" y2="14"/>
+        </svg>
+        {mode==='timeseries'?'Descargar serie temporal':'Descargar resumen estadístico'}
       </button>
     </div>
 
@@ -477,9 +439,7 @@
     <div class="spinner-card">
       <div class="spinner"></div>
       <p class="spinner-label">{$downloading.label}</p>
-      <div class="progress-track">
-        <div class="progress-fill" style="width:{$downloading.progress}%"></div>
-      </div>
+      <div class="progress-track"><div class="progress-fill" style="width:{$downloading.progress}%"></div></div>
       <span class="progress-pct">{$downloading.progress}%</span>
       <button class="cancel-btn" onclick={cancel}>cancelar</button>
     </div>
@@ -487,221 +447,241 @@
 {/if}
 
 <style>
+  /* ── Layout ───────────────────────────────────────────────────────────── */
   .overlay {
-    position: fixed; inset: 0; z-index: 100;
-    background: rgba(0,0,0,0.28);
-    backdrop-filter: blur(2px);
-    display: flex; align-items: center; justify-content: center;
+    position:fixed; inset:0; z-index:100;
+    background:rgba(0,0,0,.3); backdrop-filter:blur(2px);
+    display:flex; align-items:center; justify-content:center;
   }
   .panel {
-    background: var(--bg-surface);
-    border: 0.5px solid var(--border-default);
-    border-radius: 14px;
-    width: 460px; max-width: calc(100vw - 32px);
-    max-height: 88vh; overflow-y: auto;
-    display: flex; flex-direction: column;
+    background:var(--bg-surface);
+    border:.5px solid var(--border-default);
+    border-radius:14px;
+    width:580px; max-width:calc(100vw - 24px);
+    max-height:90vh; overflow-y:auto;
+    display:flex; flex-direction:column;
+    box-shadow:0 8px 40px rgba(0,0,0,.12);
   }
 
-  /* Header */
+  /* ── Header ───────────────────────────────────────────────────────────── */
   .panel-head {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: calc(14px * var(--font-scale)) calc(16px * var(--font-scale)) calc(12px * var(--font-scale));
-    border-bottom: 0.5px solid var(--border-subtle);
-    position: sticky; top: 0; background: var(--bg-surface); z-index: 1;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:16px 20px 14px;
+    border-bottom:.5px solid var(--border-subtle);
+    position:sticky; top:0; background:var(--bg-surface); z-index:1;
   }
-  .head-left { display: flex; align-items: center; gap: 8px; }
-  .panel-icon { font-size: calc(14px * var(--font-scale)); color: var(--text-muted); }
-  .panel-title { font-size: calc(14px * var(--font-scale)); font-weight: 500; color: var(--text-primary); font-family: 'DM Mono', monospace; }
-  .close-btn { width: 24px; height: 24px; border: none; background: transparent; color: var(--text-muted); font-size: 14px; cursor: pointer; border-radius: 4px; }
-  .close-btn:hover { background: var(--interactive-hover); }
+  .head-left { display:flex; align-items:center; gap:10px; }
+  .head-icon { width:18px; height:18px; color:var(--text-muted); }
+  .panel-title { font-size:calc(14px * var(--font-scale)); font-weight:500; color:var(--text-primary); font-family:'DM Mono',monospace; }
+  .icon-btn { width:28px; height:28px; border:none; background:transparent; color:var(--text-muted); cursor:pointer; border-radius:5px; display:flex; align-items:center; justify-content:center; }
+  .icon-btn svg { width:14px; height:14px; }
+  .icon-btn:hover { background:var(--interactive-hover); }
 
-  /* Mode selector */
-  .section--mode { flex-direction: row; gap: 8px; }
-  .mode-btn {
-    flex: 1; display: flex; align-items: center; gap: 10px;
-    padding: calc(10px * var(--font-scale)) calc(12px * var(--font-scale));
-    border: 0.5px solid var(--border-default); border-radius: 8px;
-    background: transparent; cursor: pointer; transition: all .12s; text-align: left;
-  }
-  .mode-btn:hover { background: var(--interactive-hover); }
-  .mode-btn.active { border-color: var(--text-primary); background: var(--bg-elevated); }
-  .mode-icon { font-size: 18px; flex-shrink: 0; }
-  .mode-text { display: flex; flex-direction: column; gap: 1px; }
-  .mode-label { font-size: calc(12px * var(--font-scale)); font-weight: 500; color: var(--text-primary); font-family: 'DM Mono', monospace; }
-  .mode-desc  { font-size: calc(10px * var(--font-scale)); color: var(--text-muted); }
-
-  /* Sections */
-  .section {
-    padding: calc(12px * var(--font-scale)) calc(16px * var(--font-scale));
-    border-bottom: 0.5px solid var(--border-subtle);
-    display: flex; flex-direction: column; gap: calc(8px * var(--font-scale));
-  }
+  /* ── Sections ─────────────────────────────────────────────────────────── */
+  .section { padding:16px 20px; border-bottom:.5px solid var(--border-subtle); display:flex; flex-direction:column; gap:12px; }
   .section-label {
-    font-size: calc(11px * var(--font-scale));
-    color: var(--text-muted);
-    font-family: 'DM Mono', monospace;
-    letter-spacing: .06em;
-    text-transform: uppercase;
-    display: flex; align-items: center; gap: 8px;
+    display:flex; align-items:center; gap:7px;
+    font-size:calc(11px * var(--font-scale)); font-family:'DM Mono',monospace;
+    letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted);
   }
-  .badge {
-    font-size: calc(11px * var(--font-scale));
-    background: var(--bg-elevated);
-    color: var(--text-primary);
-    padding: 1px 7px; border-radius: 4px;
-    font-weight: 500; letter-spacing: .02em;
-  }
+  .s-icon { width:13px; height:13px; flex-shrink:0; }
+  .badge { font-size:calc(11px * var(--font-scale)); background:var(--bg-elevated); color:var(--text-primary); padding:1px 7px; border-radius:4px; font-weight:500; }
+  .link-btn { font-size:calc(11px * var(--font-scale)); font-family:'DM Mono',monospace; color:var(--text-muted); border:none; background:transparent; cursor:pointer; padding:0; text-decoration:underline; }
+  .adv-toggle { margin-left:auto; }
 
-  /* Presets */
-  .presets { display: flex; gap: 5px; }
+  /* ── Mode selector ────────────────────────────────────────────────────── */
+  .mode-row { display:flex; gap:10px; }
+  .mode-btn {
+    flex:1; display:flex; align-items:center; gap:12px;
+    padding:12px 14px; border:.5px solid var(--border-default);
+    border-radius:9px; background:transparent; cursor:pointer; transition:all .12s; text-align:left;
+  }
+  .mode-btn:hover { background:var(--interactive-hover); }
+  .mode-btn.active { border-color:var(--text-primary); background:var(--bg-elevated); }
+  .mode-icon { width:20px; height:20px; flex-shrink:0; color:var(--text-muted); }
+  .mode-btn.active .mode-icon { color:var(--text-primary); }
+  .mode-label { font-size:calc(13px * var(--font-scale)); font-weight:500; color:var(--text-primary); font-family:'DM Mono',monospace; }
+  .mode-sub   { font-size:calc(10px * var(--font-scale)); color:var(--text-muted); margin-top:1px; }
+
+  /* ── Presets ──────────────────────────────────────────────────────────── */
+  .presets { display:flex; gap:6px; }
   .pbtn {
-    padding: calc(5px * var(--font-scale)) calc(12px * var(--font-scale));
-    border: 0.5px solid var(--border-default); border-radius: 5px;
-    background: transparent; color: var(--text-secondary);
-    font-family: 'DM Mono', monospace; font-size: calc(13px * var(--font-scale));
-    cursor: pointer; transition: all .1s;
+    padding:6px 14px; border:.5px solid var(--border-default); border-radius:6px;
+    background:transparent; color:var(--text-secondary); font-family:'DM Mono',monospace;
+    font-size:calc(13px * var(--font-scale)); cursor:pointer; transition:all .1s;
   }
-  .pbtn:hover { background: var(--interactive-hover); }
-  .pbtn.active { background: var(--text-primary); color: var(--bg-surface); border-color: transparent; }
+  .pbtn:hover { background:var(--interactive-hover); }
+  .pbtn.active { background:var(--text-primary); color:var(--bg-surface); border-color:transparent; }
 
-  /* Dates */
-  .date-row { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
-  .date-field { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 150px; }
-  .field-label { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; }
+  /* ── Dates ────────────────────────────────────────────────────────────── */
+  .date-row { display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap; }
+  .date-field { display:flex; flex-direction:column; gap:4px; flex:1; min-width:155px; }
+  .field-label { font-size:calc(11px * var(--font-scale)); color:var(--text-muted); font-family:'DM Mono',monospace; }
   .date-input {
-    padding: calc(6px * var(--font-scale)) calc(8px * var(--font-scale));
-    border: 0.5px solid var(--border-default); border-radius: 5px;
-    background: var(--bg-elevated); color: var(--text-primary);
-    font-family: 'DM Mono', monospace; font-size: calc(13px * var(--font-scale)); outline: none; width: 100%;
+    padding:7px 10px; border:.5px solid var(--border-default); border-radius:6px;
+    background:var(--bg-elevated); color:var(--text-primary);
+    font-family:'DM Mono',monospace; font-size:calc(13px * var(--font-scale)); outline:none; width:100%;
   }
-  .date-input:focus { border-color: var(--text-primary); }
-  .date-sep { color: var(--text-muted); font-size: calc(13px * var(--font-scale)); padding-bottom: 8px; }
-  .tz-note { display: flex; gap: 5px; font-size: calc(11px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; }
+  .date-input:focus { border-color:var(--text-primary); }
+  .date-sep { padding-bottom:9px; color:var(--text-muted); }
+  .date-sep svg { width:14px; height:14px; }
+  .tz-pill {
+    display:inline-flex; align-items:center; gap:5px; align-self:flex-start;
+    padding:3px 9px; background:var(--bg-elevated); border-radius:20px;
+    font-size:calc(11px * var(--font-scale)); color:var(--text-muted); font-family:'DM Mono',monospace;
+  }
+  .tz-icon { width:11px; height:11px; }
 
-  /* Resolution */
-  .res-row { display: flex; align-items: center; gap: 10px; }
-  .res-tick { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; min-width: 24px; }
-  .res-slider { flex: 1; }
+  /* ── Resolution ───────────────────────────────────────────────────────── */
+  .res-row { display:flex; align-items:center; gap:12px; }
+  .res-tick { font-size:calc(11px * var(--font-scale)); color:var(--text-muted); font-family:'DM Mono',monospace; min-width:26px; }
+  .res-slider { flex:1; }
 
-  /* Format toggle */
-  .format-toggle { display: flex; gap: 6px; }
+  /* ── Format ───────────────────────────────────────────────────────────── */
+  .fmt-row { display:flex; gap:8px; }
   .ftbtn {
-    flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
-    padding: calc(8px * var(--font-scale)) calc(10px * var(--font-scale));
-    border: 0.5px solid var(--border-default); border-radius: 6px;
-    background: transparent; cursor: pointer; transition: all .1s; text-align: left;
+    flex:1; display:flex; flex-direction:column; gap:3px;
+    padding:10px 12px; border:.5px solid var(--border-default); border-radius:7px;
+    background:transparent; cursor:pointer; text-align:left; transition:all .1s;
   }
-  .ftbtn:hover { background: var(--interactive-hover); }
-  .ftbtn.active { border-color: var(--text-primary); background: var(--bg-elevated); }
-  .ft-label { font-size: calc(12px * var(--font-scale)); font-weight: 500; color: var(--text-primary); font-family: 'DM Mono', monospace; }
-  .ft-eg { font-size: calc(10px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; }
+  .ftbtn:hover { background:var(--interactive-hover); }
+  .ftbtn.active { border-color:var(--text-primary); background:var(--bg-elevated); }
+  .ft-label { font-size:calc(12px * var(--font-scale)); font-weight:500; color:var(--text-primary); font-family:'DM Mono',monospace; }
+  .ft-eg    { font-size:calc(10px * var(--font-scale)); color:var(--text-muted); font-family:'DM Mono',monospace; }
 
-  /* Advanced toggle */
-  .advanced-toggle {
-    margin-left: auto; font-size: calc(11px * var(--font-scale));
-    font-family: 'DM Mono', monospace; color: var(--text-muted);
-    border: none; background: transparent; cursor: pointer; padding: 0;
-    text-decoration: underline;
-  }
-
-  /* Basic sensor list */
-  .sensor-list { display: flex; flex-direction: column; gap: 1px; max-height: 160px; overflow-y: auto; }
+  /* ── Sensor list (basic) ──────────────────────────────────────────────── */
+  .sensor-list { display:flex; flex-direction:column; gap:1px; max-height:180px; overflow-y:auto; }
   .sensor-item {
-    display: flex; align-items: center; gap: 8px;
-    padding: calc(5px * var(--font-scale)) calc(6px * var(--font-scale));
-    border-radius: 5px; cursor: pointer; font-size: calc(13px * var(--font-scale));
-    color: var(--text-primary); transition: background .1s;
+    display:flex; align-items:center; gap:9px; padding:6px 8px;
+    border-radius:5px; cursor:pointer; font-size:calc(13px * var(--font-scale)); transition:background .1s;
   }
-  .sensor-item:hover { background: var(--interactive-hover); }
-  .sensor-item input[type="checkbox"] { width: 13px; height: 13px; cursor: pointer; }
-  .sensor-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-  .sensor-name { flex: 1; }
-  .sensor-num { color: var(--text-muted); font-size: calc(12px * var(--font-scale)); margin-left: 3px; }
-  .col-preview { font-size: calc(10px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; text-align: right; }
+  .sensor-item:hover { background:var(--interactive-hover); }
+  .sensor-item input[type="checkbox"] { width:13px; height:13px; cursor:pointer; }
+  .sdot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .sname { flex:1; color:var(--text-primary); }
+  .snum  { color:var(--text-muted); font-size:calc(12px * var(--font-scale)); }
+  .slabel { font-size:calc(10px * var(--font-scale)); color:var(--text-muted); font-family:'DM Mono',monospace; }
 
-  /* Advanced list */
-  .adv-note { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; }
-  .adv-list { display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow-y: auto; }
-  .adv-row {
-    display: flex; align-items: center; gap: 6px;
-    padding: calc(5px * var(--font-scale)) calc(4px * var(--font-scale));
-    border-radius: 5px; transition: background .1s;
+  /* ── Spreadsheet (advanced) ───────────────────────────────────────────── */
+  .sheet-wrap { display:flex; flex-direction:column; gap:8px; }
+  .sheet-scroll { overflow-x:auto; border:.5px solid var(--border-default); border-radius:8px; }
+  .sheet { border-collapse:collapse; width:100%; font-size:calc(12px * var(--font-scale)); }
+
+  .sh-th {
+    padding:7px 10px; background:var(--bg-elevated); border-bottom:.5px solid var(--border-default);
+    font-size:calc(10px * var(--font-scale)); font-family:'DM Mono',monospace; letter-spacing:.05em;
+    color:var(--text-muted); text-transform:uppercase; white-space:nowrap;
+    border-right:.5px solid var(--border-subtle); text-align:left; font-weight:500;
   }
-  .adv-row:hover { background: var(--interactive-hover); }
-  .adv-row.disabled { opacity: 0.4; }
-  .adv-check { width: 13px; height: 13px; flex-shrink: 0; }
-  .adv-default { font-size: calc(11px * var(--font-scale)); color: var(--text-secondary); white-space: nowrap; flex-shrink: 0; min-width: 100px; }
-  .adv-label-input {
-    flex: 1; padding: 2px 6px;
-    border: 0.5px solid var(--border-default); border-radius: 4px;
-    background: var(--bg-elevated); color: var(--text-primary);
-    font-size: calc(11px * var(--font-scale)); font-family: 'DM Mono', monospace; outline: none;
+  .sh-th:last-child { border-right:none; }
+  .sh-th--ctrl  { width:28px; }
+  .sh-th--sensor{ min-width:140px; }
+  .sh-th--label { min-width:160px; }
+  .sh-th--preview { min-width:120px; color:var(--text-muted); }
+  .sh-th--order { width:52px; }
+  .sh-th--stat  { min-width:80px; }
+  .sh-disabled  { opacity:.35; }
+
+  .stat-hdr { display:flex; align-items:center; gap:4px; cursor:pointer; }
+  .stat-hdr input[type="checkbox"] { width:11px; height:11px; flex-shrink:0; }
+  .stat-hdr-input {
+    border:none; background:transparent; font-size:calc(10px * var(--font-scale));
+    font-family:'DM Mono',monospace; color:var(--text-muted); outline:none; width:100%;
+    cursor:pointer;
   }
-  .adv-label-input:focus { border-color: var(--text-primary); }
-  .adv-order { display: flex; flex-direction: column; gap: 1px; flex-shrink: 0; }
-  .ord-btn { width: 16px; height: 14px; border: none; background: none; cursor: pointer; font-size: 9px; color: var(--text-muted); padding: 0; line-height: 1; }
-  .ord-btn:hover:not(:disabled) { color: var(--text-primary); }
-  .ord-btn:disabled { opacity: 0.2; }
+  .stat-hdr-input:focus { color:var(--text-primary); }
+
+  .sh-row { border-bottom:.5px solid var(--border-subtle); transition:background .08s; }
+  .sh-row:hover { background:var(--interactive-hover); }
+  .sh-row:last-child { border-bottom:none; }
+  .sh-row--disabled { opacity:.45; }
+
+  .sh-td {
+    padding:6px 10px; border-right:.5px solid var(--border-subtle);
+    color:var(--text-primary); vertical-align:middle;
+  }
+  .sh-td:last-child { border-right:none; }
+  .sh-td--ctrl   { text-align:center; }
+  .sh-td--sensor { display:flex; align-items:center; gap:7px; white-space:nowrap; font-family:'DM Mono',monospace; font-size:calc(11px * var(--font-scale)); color:var(--text-secondary); }
+  .sh-td--preview { font-family:'DM Mono',monospace; font-size:calc(11px * var(--font-scale)); color:var(--text-muted); }
+  .sh-td--order  { white-space:nowrap; }
+  .sh-td--stat-val { text-align:center; }
+  .sh-td--editable { padding:3px 6px; }
+  .stat-placeholder { color:var(--border-default); font-size:calc(10px * var(--font-scale)); }
+
+  .sh-input {
+    width:100%; padding:4px 7px;
+    border:.5px solid transparent; border-radius:4px;
+    background:transparent; color:var(--text-primary);
+    font-size:calc(12px * var(--font-scale)); font-family:'DM Mono',monospace; outline:none;
+  }
+  .sh-input:hover { border-color:var(--border-default); background:var(--bg-elevated); }
+  .sh-input:focus { border-color:var(--text-primary); background:var(--bg-elevated); }
+
+  .ord {
+    width:18px; height:18px; border:none; background:none; cursor:pointer;
+    font-size:11px; color:var(--text-muted); padding:0; border-radius:3px;
+  }
+  .ord:hover:not(:disabled) { background:var(--interactive-hover); color:var(--text-primary); }
+  .ord:disabled { opacity:.2; }
 
   .header-preview {
-    display: flex; gap: 6px; align-items: flex-start;
-    padding: calc(6px * var(--font-scale)) calc(8px * var(--font-scale));
-    background: var(--bg-inset); border-radius: 5px;
-    font-size: calc(10px * var(--font-scale)); font-family: 'DM Mono', monospace;
+    display:flex; align-items:flex-start; gap:8px;
+    padding:8px 10px; background:var(--bg-inset); border-radius:6px;
+    font-size:calc(11px * var(--font-scale));
   }
-  .hp-label { color: var(--text-muted); flex-shrink: 0; }
-  .hp-val { color: var(--text-secondary); word-break: break-all; }
+  .hp-label { color:var(--text-muted); font-family:'DM Mono',monospace; flex-shrink:0; }
+  .hp-code  { color:var(--text-secondary); font-family:'DM Mono',monospace; word-break:break-all; white-space:pre-wrap; }
 
-  /* Bottom */
-  .bottom { padding: calc(12px * var(--font-scale)) calc(16px * var(--font-scale)); display: flex; flex-direction: column; gap: calc(8px * var(--font-scale)); }
-  .preview-row {
-    display: flex; align-items: center; gap: 6px;
-    padding: calc(6px * var(--font-scale)) calc(10px * var(--font-scale));
-    background: var(--bg-elevated); border: 0.5px solid var(--border-subtle);
-    border-radius: 5px; font-size: calc(12px * var(--font-scale));
-    color: var(--text-muted); font-family: 'DM Mono', monospace;
+  /* ── Footer ───────────────────────────────────────────────────────────── */
+  .panel-foot {
+    padding:16px 20px; display:flex; flex-direction:column; gap:10px;
+    position:sticky; bottom:0; background:var(--bg-surface);
+    border-top:.5px solid var(--border-subtle);
   }
-  .sep { color: var(--border-default); }
-  .error-msg {
-    padding: calc(6px * var(--font-scale)) calc(10px * var(--font-scale));
-    background: var(--error-bg); border: 0.5px solid #F09595;
-    border-radius: 5px; font-size: calc(13px * var(--font-scale)); color: #A32D2D;
+  .preview-chips { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .chip {
+    display:inline-flex; align-items:center; gap:4px;
+    padding:3px 9px; background:var(--bg-elevated); border:.5px solid var(--border-subtle);
+    border-radius:20px; font-size:calc(11px * var(--font-scale));
+    color:var(--text-muted); font-family:'DM Mono',monospace;
   }
+  .chip-icon { width:10px; height:10px; }
+  .error-msg { padding:8px 12px; background:var(--error-bg); border:.5px solid #F09595; border-radius:5px; font-size:calc(13px * var(--font-scale)); color:#A32D2D; }
   .download-btn {
-    padding: calc(10px * var(--font-scale));
-    background: var(--text-primary); color: var(--bg-surface);
-    border: none; border-radius: 6px;
-    font-family: 'DM Mono', monospace; font-size: calc(14px * var(--font-scale));
-    font-weight: 500; letter-spacing: .04em; cursor: pointer; transition: opacity .15s;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    padding:11px; background:var(--text-primary); color:var(--bg-surface);
+    border:none; border-radius:8px; font-family:'DM Mono',monospace;
+    font-size:calc(14px * var(--font-scale)); font-weight:500; letter-spacing:.04em; cursor:pointer; transition:opacity .15s;
   }
-  .download-btn:hover:not(:disabled) { opacity: .85; }
-  .download-btn:disabled { opacity: .4; cursor: not-allowed; }
+  .download-btn svg { width:14px; height:14px; }
+  .download-btn:hover:not(:disabled) { opacity:.85; }
+  .download-btn:disabled { opacity:.4; cursor:not-allowed; }
 
-  /* Fullscreen overlay */
+  /* ── Fullscreen overlay ───────────────────────────────────────────────── */
   .fullscreen-overlay {
-    position: fixed; inset: 0; z-index: 200;
-    background: rgba(0,0,0,0.6); backdrop-filter: blur(5px);
-    display: flex; align-items: center; justify-content: center;
+    position:fixed; inset:0; z-index:200; background:rgba(0,0,0,.55);
+    backdrop-filter:blur(5px); display:flex; align-items:center; justify-content:center;
   }
   .spinner-card {
-    display: flex; flex-direction: column; align-items: center; gap: calc(14px * var(--font-scale));
-    padding: calc(32px * var(--font-scale)) calc(40px * var(--font-scale));
-    background: var(--bg-surface); border: 0.5px solid var(--border-default);
-    border-radius: 14px; min-width: 280px; max-width: calc(100vw - 48px);
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+    padding:36px 44px; background:var(--bg-surface);
+    border:.5px solid var(--border-default); border-radius:14px; min-width:280px;
   }
-  .spinner { width: 38px; height: 38px; border: 3px solid var(--border-subtle); border-top-color: var(--text-primary); border-radius: 50%; animation: spin .75s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .spinner-label { font-size: calc(14px * var(--font-scale)); font-family: 'DM Mono', monospace; color: var(--text-secondary); text-align: center; max-width: 240px; line-height: 1.6; margin: 0; }
-  .progress-track { width: 100%; height: 3px; background: var(--border-subtle); border-radius: 2px; overflow: hidden; }
-  .progress-fill { height: 100%; background: var(--text-primary); border-radius: 2px; transition: width .25s ease; }
-  .progress-pct { font-size: calc(13px * var(--font-scale)); font-family: 'DM Mono', monospace; color: var(--text-muted); }
-  .cancel-btn { padding: calc(5px * var(--font-scale)) calc(18px * var(--font-scale)); border: 0.5px solid var(--border-default); border-radius: 5px; background: transparent; color: var(--text-muted); font-family: 'DM Mono', monospace; font-size: calc(13px * var(--font-scale)); cursor: pointer; }
-  .cancel-btn:hover { background: var(--interactive-hover); }
+  .spinner { width:36px; height:36px; border:3px solid var(--border-subtle); border-top-color:var(--text-primary); border-radius:50%; animation:spin .7s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .spinner-label { font-size:calc(13px * var(--font-scale)); font-family:'DM Mono',monospace; color:var(--text-secondary); text-align:center; max-width:240px; line-height:1.6; margin:0; }
+  .progress-track { width:100%; height:3px; background:var(--border-subtle); border-radius:2px; overflow:hidden; }
+  .progress-fill  { height:100%; background:var(--text-primary); transition:width .25s ease; }
+  .progress-pct   { font-size:calc(12px * var(--font-scale)); font-family:'DM Mono',monospace; color:var(--text-muted); }
+  .cancel-btn { padding:5px 18px; border:.5px solid var(--border-default); border-radius:5px; background:transparent; color:var(--text-muted); font-family:'DM Mono',monospace; font-size:calc(13px * var(--font-scale)); cursor:pointer; }
+  .cancel-btn:hover { background:var(--interactive-hover); }
 
-  @media (max-width: 640px) {
-    .panel { width: calc(100vw - 20px); max-height: 85vh; }
-    .date-row { flex-direction: column; }
-    .date-sep { display: none; }
-    .format-toggle { flex-direction: column; }
+  @media (max-width:640px) {
+    .panel { width:calc(100vw - 16px); max-height:88vh; }
+    .mode-row { flex-direction:column; }
+    .fmt-row  { flex-direction:column; }
+    .date-row { flex-direction:column; }
+    .date-sep { display:none; }
   }
 </style>
