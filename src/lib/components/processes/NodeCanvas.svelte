@@ -234,16 +234,15 @@
 
   // ── Edge SVG paths ─────────────────────────────────────────────────────────
   function getPortCenter(nodeId: string, port: 'input' | 'output'): { x: number; y: number } | null {
-    const pos = positions[nodeId];
-    if (!pos) return null;
     const el = blockRefs[nodeId];
-    if (!el) return null;
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
-    const y = pos.y + panY + h / 2;
+    if (!el || !canvasEl) return null;
+    const cr = canvasEl.getBoundingClientRect();
+    const nr = el.getBoundingClientRect();
+    // Center of block vertically, left or right edge horizontally
+    const y = nr.top  - cr.top  + nr.height / 2;
     const x = port === 'input'
-      ? pos.x + panX - 6   // port radius
-      : pos.x + panX + w + 6;
+      ? nr.left - cr.left - 6   // left edge - port radius
+      : nr.right - cr.left + 6; // right edge + port radius
     return { x, y };
   }
 
@@ -337,7 +336,6 @@
       class:expanded={isExpanded}
       style="left:{pos.x}px; top:{pos.y}px; --nc:{color}"
       bind:this={blockRefs[node.id]}
-      onmousedown={(e) => startDrag(e, node.id)}
     >
       <!-- Input port -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -358,6 +356,7 @@
         onexpand={() => toggleExpand(node.id)}
         onremove={() => removeNode(node.id)}
         onchange={onchange}
+        onstartdrag={(e: MouseEvent) => startDrag(e, node.id)}
       />
 
       <!-- Output port -->

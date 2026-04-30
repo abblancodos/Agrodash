@@ -10,6 +10,7 @@
     onexpand,
     onremove,
     onchange,
+    onstartdrag,
   }: {
     node: any;
     color: string;
@@ -20,6 +21,7 @@
     onexpand: () => void;
     onremove: () => void;
     onchange: () => void;
+    onstartdrag?: (e: MouseEvent) => void;
   } = $props();
 
   function set(field: string, value: any) {
@@ -33,10 +35,19 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="block-inner" style="--nc:{color}" onmousedown={(e) => e.stopPropagation()}>
+<div class="block-inner" style="--nc:{color}">
 
-  <!-- Header — always visible -->
-  <div class="block-header" ondblclick={onexpand}>
+  <!-- Header — drag handle + expand/remove -->
+  <div class="block-header"
+    ondblclick={onexpand}
+    onmousedown={(e) => {
+      // Only drag from header, not from buttons
+      if ((e.target as HTMLElement).closest('button')) return;
+      onstartdrag?.(e);
+    }}
+    style="cursor:grab"
+  >
+    <span class="drag-handle">⠿</span>
     <span class="cat">{category}</span>
     <span class="type-label">{fmtType(node.type)}</span>
     <div class="header-actions">
@@ -316,11 +327,14 @@
     align-items: center;
     justify-content: center;
   }
+  .drag-handle { font-size: 12px; color: var(--text-muted); opacity: 0.4; flex-shrink: 0; }
+  .block-header:hover .drag-handle { opacity: 0.8; }
   .btn-expand:hover { background: var(--interactive-hover); }
   .btn-remove:hover { background: var(--error-bg); color: var(--error-color); }
 
   .block-body {
     padding: 8px 10px;
+    cursor: default;
     display: flex;
     flex-direction: column;
     gap: 6px;
