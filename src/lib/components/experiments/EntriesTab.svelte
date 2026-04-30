@@ -423,7 +423,7 @@
 
       <!-- Trash zone (solo en modo edit mientras arrastrás) -->
       {#if mode === 'edit' && dragCol !== null}
-        <div class="trash-zone" class:trash-over={draggingOverTrash}
+        <div class="trash-zone" role="region" aria-label="Zona de eliminación" class:trash-over={draggingOverTrash}
           ondragover={(e) => { e.preventDefault(); draggingOverTrash = true; }}
           ondragleave={() => draggingOverTrash = false}
           ondrop={onDropTrash}>
@@ -746,7 +746,6 @@
   .btn-import:hover { background: var(--interactive-hover); color: var(--text-primary); }
 
   /* ── Dropdown portal ─────────────────────────────────────────────────── */
-  .add-wrap { display: inline-block; }
   .btn-plus { width: 24px; height: 24px; border-radius: 50%; border: 0.5px dashed var(--border-default); background: none; cursor: pointer; font-size: 14px; color: var(--text-muted); }
   .btn-plus:hover { border-color: var(--text-muted); color: var(--text-primary); }
 

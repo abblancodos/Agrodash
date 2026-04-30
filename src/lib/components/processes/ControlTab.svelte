@@ -264,7 +264,6 @@
   .gs-num { font-size: calc(16px * var(--font-scale)); font-weight: 600; font-family: 'DM Mono', monospace; color: var(--text-primary); }
   .gs-label { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); }
   .gs-sep { color: var(--border-default); }
-  .ov-err { font-size: calc(12px * var(--font-scale)); color: var(--error-color); }
   .global-right { display: flex; align-items: center; gap: 8px; }
   .agent-offline { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; font-style: italic; }
 

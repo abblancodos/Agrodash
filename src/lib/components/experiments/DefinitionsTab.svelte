@@ -284,15 +284,15 @@
                             {#if editError}<div class="edit-err">{editError}</div>{/if}
                             {#if d.type === 'constant'}
                               <div class="edit-row">
-                                <div class="edit-field"><label>valor</label><input class="mono" bind:value={editValue} inputmode="decimal" /></div>
-                                <div class="edit-field edit-field--sm"><label>unidad</label><input bind:value={editUnit} placeholder="g" /></div>
+                                <div class="edit-field"><label for="edit-val">valor</label><input id="edit-val" class="mono" bind:value={editValue} inputmode="decimal" /></div>
+                                <div class="edit-field edit-field--sm"><label for="edit-unit-g">unidad</label><input id="edit-unit-g" bind:value={editUnit} placeholder="g" /></div>
                               </div>
                             {:else if d.type === 'expression'}
-                              <div class="edit-field"><label>fórmula</label><input class="mono" bind:value={editFormula} /></div>
-                              <div class="edit-field edit-field--sm"><label>unidad</label><input bind:value={editUnit} /></div>
+                              <div class="edit-field"><label for="edit-formula">fórmula</label><input id="edit-formula" class="mono" bind:value={editFormula} /></div>
+                              <div class="edit-field edit-field--sm"><label for="edit-unit">unidad</label><input id="edit-unit" bind:value={editUnit} /></div>
                             {/if}
                             <div class="edit-row">
-                              <div class="edit-field"><label>comentario</label><input bind:value={editComment} /></div>
+                              <div class="edit-field"><label for="edit-comment">comentario</label><input id="edit-comment" bind:value={editComment} /></div>
                             </div>
                             <div class="edit-actions">
                               <button class="btn-edit-save" disabled={editSaving} onclick={() => saveEdit(d)}>{editSaving ? 'guardando...' : 'guardar'}</button>
@@ -386,7 +386,7 @@
               <div class="edit-form">
                 {#if editError}<div class="edit-err">{editError}</div>{/if}
                 <div class="edit-row">
-                  <div class="edit-field"><label>unidad</label><input bind:value={editUnit} placeholder="kg, %, …" /></div>
+                  <div class="edit-field"><label for="edit-unit-kg">unidad</label><input id="edit-unit-kg" bind:value={editUnit} placeholder="kg, %, …" /></div>
                   <div class="edit-field"><label>comentario</label><input bind:value={editComment} /></div>
                 </div>
                 <div class="edit-actions">
@@ -467,8 +467,8 @@
               <div class="edit-form">
                 {#if editError}<div class="edit-err">{editError}</div>{/if}
                 <div class="edit-row">
-                  <div class="edit-field"><label>valor</label><input class="mono" bind:value={editValue} inputmode="decimal" /></div>
-                  <div class="edit-field edit-field--sm"><label>unidad</label><input bind:value={editUnit} placeholder="g" /></div>
+                  <div class="edit-field"><label for="edit-val2">valor</label><input id="edit-val2" class="mono" bind:value={editValue} inputmode="decimal" /></div>
+                  <div class="edit-field edit-field--sm"><label for="edit-unit2">unidad</label><input id="edit-unit2" bind:value={editUnit} placeholder="g" /></div>
                 </div>
                 <div class="edit-row">
                   <div class="edit-field"><label>comentario</label><input bind:value={editComment} /></div>
@@ -547,8 +547,8 @@
               <div class="edit-form">
                 {#if editError}<div class="edit-err">{editError}</div>{/if}
                 <div class="edit-field formula-autocomplete">
-                  <label>fórmula</label>
-                  <input class="mono" bind:this={editFormulaEl} bind:value={editFormula}
+                  <label for="edit-formula-expr">fórmula</label>
+                  <input id="edit-formula-expr" class="mono" bind:this={editFormulaEl} bind:value={editFormula}
                     onfocus={() => showEditPicker = true}
                     oninput={() => showEditPicker = true}
                     onblur={() => setTimeout(() => showEditPicker = false, 150)} />
@@ -565,7 +565,7 @@
                   {/if}
                 </div>
                 <div class="edit-row">
-                  <div class="edit-field edit-field--sm"><label>unidad</label><input bind:value={editUnit} placeholder="%" /></div>
+                  <div class="edit-field edit-field--sm"><label for="edit-unit-pct">unidad</label><input id="edit-unit-pct" bind:value={editUnit} placeholder="%" /></div>
                   <div class="edit-field"><label>comentario</label><input bind:value={editComment} /></div>
                 </div>
                 <div class="edit-actions">

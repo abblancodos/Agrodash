@@ -33,7 +33,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="block-inner" style="--nc:{color}" onmousedown|stopPropagation>
+<div class="block-inner" style="--nc:{color}" onmousedown={(e) => e.stopPropagation()}>
 
   <!-- Header — always visible -->
   <div class="block-header" ondblclick={onexpand}>

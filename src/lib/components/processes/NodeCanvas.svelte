@@ -30,7 +30,7 @@
   let dragging: { nodeId: string; startX: number; startY: number; origX: number; origY: number } | null = null;
 
   // Connecting state — drawing an edge
-  let connecting: { fromId: string; fromPort: 'output'; x: number; y: number } | null = null;
+  let connecting = $state<{ fromId: string; fromPort: 'output'; x: number; y: number } | null>(null);
   let mouseX = $state(0);
   let mouseY = $state(0);
 
@@ -223,7 +223,10 @@
             stroke="var(--border-default)"
             stroke-width="1"
             style="cursor:pointer"
+            role="button"
+            tabindex="0"
             onclick={() => removeEdge(edge.id)}
+            onkeydown={(e) => e.key === 'Enter' && removeEdge(edge.id)}
           />
           <text
             x={(p1.x + p2.x) / 2}
