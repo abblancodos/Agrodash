@@ -1,6 +1,6 @@
 <!-- src/lib/components/processes/ConfigTab.svelte -->
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { SvelteFlow, Background, Controls, type Node, type Edge } from '@xyflow/svelte';
   import '@xyflow/svelte/dist/style.css';
   import PipelineNode from './PipelineNode.svelte';
@@ -125,55 +125,61 @@
     logger: 'util', select: 'util', linear_scale: 'util',
   };
 
-  // ── Flow nodes/edges reactivos ────────────────────────────────────────────
-  // IMPORTANT: only rebuild when draft/activePl change, NOT when panelNode changes.
-  // Rebuilding on panelNode change resets positions and edges in SvelteFlow.
-  let flowNodes = $state<Node[]>([]);
-  let flowEdges = $state<Edge[]>([]);
-  let lastPlIdx = -1;
-  let lastNodeCount = -1;
+  // ── Flow nodes/edges — NOT reactive, managed manually ───────────────────
+  // Using $state.raw so Svelte never tracks reads of these arrays inside effects.
+  // We rebuild ONLY when explicitly calling rebuildFlow().
+  let flowNodes = $state.raw<Node[]>([]);
+  let flowEdges = $state.raw<Edge[]>([]);
+  let builtForPl = -1;   // which pipeline index we last built for
 
+  function buildFlowNode(n: any, i: number, plIdx: number, pl: any): Node {
+    return {
+      id:       n.id,
+      type:     'pipeline_node',
+      position: pl.node_positions?.[n.id] ?? { x: 80 + i * 220, y: 120 },
+      data: {
+        nodeId:   n.id,
+        label:    n.type.replace(/_/g, ' '),
+        category: NODE_CATEGORY[n.type] ?? '',
+        color:    NODE_COLORS[n.type] ?? '#8a9bb0',
+        active:   false,
+        onClick:  (id: string) => openPanel(plIdx, id),
+      },
+    };
+  }
+
+  function buildFlowEdge(e: any): Edge {
+    const src = e.from ?? e.source ?? '';
+    const tgt = e.to   ?? e.target ?? '';
+    return {
+      id:        e.id ?? `${src}-${tgt}`,
+      source:    src,
+      target:    tgt,
+      animated:  true,
+      deletable: true,
+    };
+  }
+
+  function rebuildFlow(plIdx: number) {
+    const pl = draft?.pipelines[plIdx];
+    if (!pl) { flowNodes = []; flowEdges = []; builtForPl = -1; return; }
+    flowNodes = pl.nodes.map((n, i) => buildFlowNode(n, i, plIdx, pl));
+    flowEdges = (pl.edges ?? []).map(buildFlowEdge);
+    builtForPl = plIdx;
+  }
+
+  // Rebuild only when activePl tab changes or on first load
   $effect(() => {
-    const pl = draft?.pipelines[activePl];
-    const nodeCount = pl?.nodes.length ?? 0;
-
-    // Only fully rebuild when pipeline or node list changes
-    if (!pl) { flowNodes = []; flowEdges = []; lastPlIdx = -1; lastNodeCount = -1; return; }
-
-    if (activePl !== lastPlIdx || nodeCount !== lastNodeCount) {
-      lastPlIdx = activePl;
-      lastNodeCount = nodeCount;
-
-      flowNodes = pl.nodes.map((n, i) => ({
-        id:       n.id,
-        type:     'pipeline_node',
-        position: pl.node_positions?.[n.id] ?? { x: 80 + i * 220, y: 120 },
-        data: {
-          nodeId:   n.id,
-          label:    n.type.replace(/_/g, ' '),
-          category: NODE_CATEGORY[n.type] ?? '',
-          color:    NODE_COLORS[n.type] ?? '#8a9bb0',
-          active:   false,
-          onClick:  (id: string) => openPanel(activePl, id),
-        },
-      }));
-
-      flowEdges = (pl.edges ?? []).map(e => ({
-        id:       e.id ?? `${e.from ?? (e as any).source}-${e.to ?? (e as any).target}`,
-        source:   e.from ?? (e as any).source,
-        target:   e.to   ?? (e as any).target,
-        animated: true,
-        deletable: true,
-      }));
-    }
+    const plIdx = activePl;   // track only activePl, nothing else
+    untrack(() => {
+      if (builtForPl !== plIdx) rebuildFlow(plIdx);
+    });
   });
 
   function openPanel(plIdx: number, nodeId: string) {
-    // Toggle panel without touching flowNodes — just update active flag in-place
     const closing = panelNode?.nodeId === nodeId;
     panelNode = closing ? null : { plIdx, nodeId };
-
-    // Update only the 'active' data field, preserving positions
+    // Update only active flag — $state.raw requires reassignment to trigger re-render
     flowNodes = flowNodes.map(n => ({
       ...n,
       data: { ...n.data, active: !closing && n.id === nodeId },
@@ -186,8 +192,10 @@
     if (!node || !draft) return;
     const pl = draft.pipelines[activePl];
     if (!pl.node_positions) pl.node_positions = {};
+    // Mutate in place — no draft reassignment so effect doesn't rebuild
     pl.node_positions[node.id] = { x: node.position.x, y: node.position.y };
     schedulLocalSave();
+    // DON'T do draft = { ...draft } here — that would trigger effect
   }
 
   // ── Connect: crear edge arrastrando ──────────────────────────────────────
@@ -195,18 +203,12 @@
     const conn = event.detail?.connection ?? event.detail;
     if (!conn || !draft) return;
     const pl = draft.pipelines[activePl];
-    const newEdge = {
-      id:     `${conn.source}-${conn.target}-${Date.now()}`,
-      from:   conn.source, to: conn.target,
-      source: conn.source, target: conn.target,
-    };
-    pl.edges = [...(pl.edges ?? []), newEdge];
-    // Sync flowEdges directly — don't touch flowNodes
-    flowEdges = [...flowEdges, {
-      id: newEdge.id, source: newEdge.source, target: newEdge.target,
-      animated: true, deletable: true,
-    }];
-    draft = { ...draft };
+    const edgeId = `${conn.source}-${conn.target}-${Date.now()}`;
+    // Draft stores {from, to} — Rust schema
+    pl.edges = [...(pl.edges ?? []), { id: edgeId, from: conn.source, to: conn.target }];
+    // flowEdges uses {source, target} — SvelteFlow schema
+    flowEdges = [...flowEdges, { id: edgeId, source: conn.source, target: conn.target, animated: true, deletable: true }];
+    // Don't reassign draft here — just mutate and schedule save
     schedulLocalSave();
   }
 
@@ -217,15 +219,13 @@
     const pl = draft.pipelines[activePl];
     const ids = new Set(deleted.map(n => n.id));
     pl.nodes = pl.nodes.filter(n => !ids.has(n.id));
-    pl.edges = (pl.edges ?? []).filter(e =>
-      !ids.has(e.from ?? (e as any).source) && !ids.has(e.to ?? (e as any).target)
+    pl.edges = (pl.edges ?? []).filter((e: any) =>
+      !ids.has(e.from ?? e.source) && !ids.has(e.to ?? e.target)
     );
     if (panelNode && ids.has(panelNode.nodeId)) panelNode = null;
-    // Sync flow state directly
     flowNodes = flowNodes.filter(n => !ids.has(n.id));
     flowEdges = flowEdges.filter(e => !ids.has(e.source) && !ids.has(e.target));
-    lastNodeCount = pl.nodes.length;
-    draft = { ...draft };
+    builtForPl = activePl; // keep guard valid after node removal
     schedulLocalSave();
   }
 
@@ -234,13 +234,11 @@
     if (!draft || !deleted.length) return;
     const pl = draft.pipelines[activePl];
     const ids = new Set(deleted.map(e => e.id));
-    pl.edges = (pl.edges ?? []).filter(e => {
-      const eid = e.id ?? `${e.from ?? (e as any).source}-${e.to ?? (e as any).target}`;
+    pl.edges = (pl.edges ?? []).filter((e: any) => {
+      const eid = e.id ?? `${e.from ?? e.source}-${e.to ?? e.target}`;
       return !ids.has(eid);
     });
-    // Sync flowEdges directly
     flowEdges = flowEdges.filter(e => !ids.has(e.id));
-    draft = { ...draft };
     schedulLocalSave();
   }
 
@@ -250,9 +248,12 @@
     const pl  = draft.pipelines[activePl];
     const id  = `${type}_${Date.now()}`;
     const pos = { x: 80 + pl.nodes.length * 220, y: 120 };
-    pl.nodes = [...pl.nodes, { id, type, ...defaultParams(type) }];
+    const newNodeCfg = { id, type, ...defaultParams(type) };
+    pl.nodes = [...pl.nodes, newNodeCfg];
     if (!pl.node_positions) pl.node_positions = {};
     pl.node_positions[id] = pos;
+    // Append to flowNodes directly — don't rebuild
+    flowNodes = [...flowNodes, buildFlowNode(newNodeCfg, pl.nodes.length - 1, activePl, pl)];
     draft = { ...draft };
     schedulLocalSave();
   }
@@ -261,12 +262,13 @@
     if (!draft) return;
     const pl = draft.pipelines[plIdx];
     pl.nodes = pl.nodes.filter(n => n.id !== nodeId);
-    pl.edges = (pl.edges ?? []).filter(e =>
-      (e.from ?? (e as any).source) !== nodeId &&
-      (e.to   ?? (e as any).target) !== nodeId
+    pl.edges = (pl.edges ?? []).filter((e: any) =>
+      (e.from ?? e.source) !== nodeId && (e.to ?? e.target) !== nodeId
     );
-    draft = { ...draft };
     if (panelNode?.nodeId === nodeId) panelNode = null;
+    flowNodes = flowNodes.filter(n => n.id !== nodeId);
+    flowEdges = flowEdges.filter(e => e.source !== nodeId && e.target !== nodeId);
+    builtForPl = activePl;
     schedulLocalSave();
   }
 
@@ -311,6 +313,7 @@
       nodes: [], edges: [], node_positions: {},
     }];
     activePl = draft.pipelines.length - 1;
+    builtForPl = -1;  // force rebuild for new pipeline
     draft = { ...draft };
     schedulLocalSave();
   }
@@ -340,6 +343,18 @@
     if (!draft) return;
     saving = true; saveMsg = '';
     try {
+      // Snapshot current flowNode positions into draft before saving
+      const pl = draft.pipelines[activePl];
+      if (!pl.node_positions) pl.node_positions = {};
+      for (const fn of flowNodes) {
+        pl.node_positions[fn.id] = { x: fn.position.x, y: fn.position.y };
+      }
+      // Normalize edges to {from, to} only (Rust schema)
+      pl.edges = (pl.edges ?? []).map((e: any) => ({
+        id:   e.id,
+        from: e.from ?? e.source,
+        to:   e.to   ?? e.target,
+      }));
       await processStore.saveConfig(processId, draft);
       dirty = false;
       localStorage.removeItem(STORAGE_KEY());
