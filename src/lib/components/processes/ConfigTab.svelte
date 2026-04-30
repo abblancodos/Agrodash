@@ -273,15 +273,18 @@
     if (!draft) return;
     const pl  = draft.pipelines[activePl];
     const id  = `${type}_${Date.now()}`;
-    const pos = { x: 80 + pl.nodes.length * 220, y: 120 };
+    // Use flowNodes.length for position — flowNodes is the true canvas state
+    const pos = { x: 80 + flowNodes.length * 220, y: 120 };
     const newNodeCfg = { id, type, ...defaultParams(type) };
-    pl.nodes = [...pl.nodes, newNodeCfg];
+    // Update draft.nodes (mutate in place — no reassignment)
+    pl.nodes.push(newNodeCfg);
     if (!pl.node_positions) pl.node_positions = {};
     pl.node_positions[id] = pos;
-    // Append to flowNodes directly — don't rebuild
-    flowNodes = [...flowNodes, buildFlowNode(newNodeCfg, pl.nodes.length - 1, activePl, pl)];
-    draft = { ...draft };
-    schedulLocalSave();
+    // Add to canvas — no rebuild, no draft reassignment
+    const newFlowNode = buildFlowNode(newNodeCfg, flowNodes.length, activePl, pl);
+    newFlowNode.position = pos;
+    flowNodes = [...flowNodes, newFlowNode];
+    dirty = true;
   }
 
   function removeNode(plIdx: number, nodeId: string) {
@@ -324,7 +327,7 @@
     const node = draft.pipelines[panelNode.plIdx].nodes.find(n => n.id === panelNode!.nodeId);
     if (!node) return;
     node[field] = value;
-    draft = { ...draft };
+    // Mutate in place — no draft reassignment needed
     schedulLocalSave();
   }
 
@@ -390,7 +393,11 @@
 
       await processStore.saveConfig(processId, draft);
       dirty = false;
+      // Cancel any pending debounce and clear local storage
+      if (saveLocalTimer) { clearTimeout(saveLocalTimer); saveLocalTimer = null; }
       localStorage.removeItem(STORAGE_KEY());
+      // Reset draftInitialized would re-init from server — instead just mark clean
+      // draft is already correct (we just built it in save())
       saveMsg = '✓ guardado'; saveMsgOk = true;
     } catch (e: any) {
       saveMsg = e.message; saveMsgOk = false;
@@ -685,7 +692,7 @@
                         const parsed = JSON.parse((e.target as HTMLTextAreaElement).value);
                         const pl2 = draft!.pipelines[panelNode!.plIdx];
                         const idx2 = pl2.nodes.findIndex(n => n.id === panelNode!.nodeId);
-                        if (idx2 >= 0) { pl2.nodes[idx2] = parsed; draft = { ...draft! }; schedulLocalSave(); }
+                        if (idx2 >= 0) { pl2.nodes[idx2] = parsed; schedulLocalSave(); }
                       } catch {}
                     }}></textarea>
                 </div>
@@ -710,7 +717,7 @@
                 if (!draft!.shared_connections) draft!.shared_connections = {};
                 if (!draft!.shared_connections.mqtt) draft!.shared_connections.mqtt = { broker_url: '', client_id: 'agrodash-{process_id}' };
                 draft!.shared_connections.mqtt.broker_url = (e.target as HTMLInputElement).value;
-                draft = { ...draft! }; schedulLocalSave();
+                schedulLocalSave();
               }}
               placeholder="mqtt://172.21.224.19:1883" />
           </div>
@@ -721,7 +728,7 @@
               oninput={(e) => {
                 if (!draft!.shared_connections?.mqtt) return;
                 draft!.shared_connections.mqtt.client_id = (e.target as HTMLInputElement).value;
-                draft = { ...draft! }; schedulLocalSave();
+                schedulLocalSave();
               }} />
           </div>
         </div>
