@@ -9,8 +9,8 @@
   class="flow-node"
   class:active={data.active}
   style="--nc:{data.color}"
-  onclick={data.onClick}
-  onkeydown={(e) => e.key === 'Enter' && data.onClick?.()}
+  onclick={() => data.onClick?.(data.nodeId)}
+  onkeydown={(e) => e.key === 'Enter' && data.onClick?.(data.nodeId)}
   role="button"
   tabindex="0"
 >

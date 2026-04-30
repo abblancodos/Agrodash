@@ -126,41 +126,57 @@
   };
 
   // ── Flow nodes/edges reactivos ────────────────────────────────────────────
+  // IMPORTANT: only rebuild when draft/activePl change, NOT when panelNode changes.
+  // Rebuilding on panelNode change resets positions and edges in SvelteFlow.
   let flowNodes = $state<Node[]>([]);
   let flowEdges = $state<Edge[]>([]);
+  let lastPlIdx = -1;
+  let lastNodeCount = -1;
 
   $effect(() => {
     const pl = draft?.pipelines[activePl];
-    if (!pl) { flowNodes = []; flowEdges = []; return; }
+    const nodeCount = pl?.nodes.length ?? 0;
 
-    flowNodes = pl.nodes.map((n, i) => ({
-      id:       n.id,
-      type:     'pipeline_node',
-      position: pl.node_positions?.[n.id] ?? { x: 80 + i * 220, y: 120 },
-      data: {
-        nodeId:   n.id,
-        label:    n.type.replace(/_/g, ' '),
-        category: NODE_CATEGORY[n.type] ?? '',
-        color:    NODE_COLORS[n.type] ?? '#8a9bb0',
-        active:   panelNode?.nodeId === n.id,
-        onClick:  () => openPanel(activePl, n.id),
-      },
-    }));
+    // Only fully rebuild when pipeline or node list changes
+    if (!pl) { flowNodes = []; flowEdges = []; lastPlIdx = -1; lastNodeCount = -1; return; }
 
-    flowEdges = (pl.edges ?? []).map(e => ({
-      id:       e.id ?? `${e.from ?? (e as any).source}-${e.to ?? (e as any).target}`,
-      source:   e.from ?? (e as any).source,
-      target:   e.to   ?? (e as any).target,
-      animated: true,
-      deletable: true,
-    }));
+    if (activePl !== lastPlIdx || nodeCount !== lastNodeCount) {
+      lastPlIdx = activePl;
+      lastNodeCount = nodeCount;
+
+      flowNodes = pl.nodes.map((n, i) => ({
+        id:       n.id,
+        type:     'pipeline_node',
+        position: pl.node_positions?.[n.id] ?? { x: 80 + i * 220, y: 120 },
+        data: {
+          nodeId:   n.id,
+          label:    n.type.replace(/_/g, ' '),
+          category: NODE_CATEGORY[n.type] ?? '',
+          color:    NODE_COLORS[n.type] ?? '#8a9bb0',
+          active:   false,
+          onClick:  (id: string) => openPanel(activePl, id),
+        },
+      }));
+
+      flowEdges = (pl.edges ?? []).map(e => ({
+        id:       e.id ?? `${e.from ?? (e as any).source}-${e.to ?? (e as any).target}`,
+        source:   e.from ?? (e as any).source,
+        target:   e.to   ?? (e as any).target,
+        animated: true,
+        deletable: true,
+      }));
+    }
   });
 
   function openPanel(plIdx: number, nodeId: string) {
-    panelNode = panelNode?.nodeId === nodeId ? null : { plIdx, nodeId };
+    // Toggle panel without touching flowNodes — just update active flag in-place
+    const closing = panelNode?.nodeId === nodeId;
+    panelNode = closing ? null : { plIdx, nodeId };
+
+    // Update only the 'active' data field, preserving positions
     flowNodes = flowNodes.map(n => ({
       ...n,
-      data: { ...n.data, active: n.id === nodeId && panelNode !== null },
+      data: { ...n.data, active: !closing && n.id === nodeId },
     }));
   }
 
@@ -185,6 +201,11 @@
       source: conn.source, target: conn.target,
     };
     pl.edges = [...(pl.edges ?? []), newEdge];
+    // Sync flowEdges directly — don't touch flowNodes
+    flowEdges = [...flowEdges, {
+      id: newEdge.id, source: newEdge.source, target: newEdge.target,
+      animated: true, deletable: true,
+    }];
     draft = { ...draft };
     schedulLocalSave();
   }
@@ -200,6 +221,10 @@
       !ids.has(e.from ?? (e as any).source) && !ids.has(e.to ?? (e as any).target)
     );
     if (panelNode && ids.has(panelNode.nodeId)) panelNode = null;
+    // Sync flow state directly
+    flowNodes = flowNodes.filter(n => !ids.has(n.id));
+    flowEdges = flowEdges.filter(e => !ids.has(e.source) && !ids.has(e.target));
+    lastNodeCount = pl.nodes.length;
     draft = { ...draft };
     schedulLocalSave();
   }
@@ -213,6 +238,8 @@
       const eid = e.id ?? `${e.from ?? (e as any).source}-${e.to ?? (e as any).target}`;
       return !ids.has(eid);
     });
+    // Sync flowEdges directly
+    flowEdges = flowEdges.filter(e => !ids.has(e.id));
     draft = { ...draft };
     schedulLocalSave();
   }
