@@ -1,6 +1,7 @@
 <!-- src/lib/components/processes/ConfigTab.svelte -->
 <script lang="ts">
-  import { onMount, onDestroy, untrack } from 'svelte';
+  import { onMount, onDestroy, setContext } from 'svelte';
+  import { writable } from 'svelte/store';
   import { SvelteFlow, Background, Controls, type Node, type Edge } from '@xyflow/svelte';
   import '@xyflow/svelte/dist/style.css';
   import PipelineNode from './PipelineNode.svelte';
@@ -19,27 +20,32 @@
   let dirty     = $state(false);      // cambios sin guardar al servidor
   let activePl  = $state(0);
   let panelNode = $state<{plIdx: number; nodeId: string} | null>(null);
+  // Separate store for active node highlight — never triggers flowNodes reassignment
+  let activeNodeId = $state<string | null>(null);
   let showRestoreBanner = $state(false);
   let localDraft: ProcessConfig | null = null;
 
   const STORAGE_KEY = () => `agrodash_process_draft_${processId}`;
 
+  // Context store for active node — PipelineNode subscribes to this
+  // instead of receiving it as a prop, so flowNodes never needs to be reassigned
+  const activeNodeStore = writable<string | null>(null);
+  setContext('activeNode', activeNodeStore);
+
   // ── Init: cargar draft desde servidor, luego chequear localStorage ────────
   $effect(() => {
     if (proc?.config && !draft) {
       const serverCfg: ProcessConfig = JSON.parse(JSON.stringify(proc.config));
-
-      // Chequear si hay draft local más reciente
       try {
         const stored = localStorage.getItem(STORAGE_KEY());
         if (stored) {
           const parsed = JSON.parse(stored);
           localDraft = parsed.config;
           const localTs = new Date(parsed.ts);
-          const serverTs = new Date(proc.updated_at ?? 0);
+          const serverTs = new Date((proc as any).updated_at ?? 0);
           if (localTs > serverTs) {
             showRestoreBanner = true;
-            draft = serverCfg; // mostrar server version, ofrecemos restaurar
+            draft = serverCfg;
           } else {
             localStorage.removeItem(STORAGE_KEY());
             draft = serverCfg;
@@ -50,11 +56,13 @@
       } catch {
         draft = serverCfg;
       }
+      // Build flow canvas once after draft is initialized
+      rebuildFlow(activePl);
     }
   });
 
   function restoreLocal() {
-    if (localDraft) { draft = localDraft; dirty = true; }
+    if (localDraft) { draft = localDraft; dirty = true; rebuildFlow(activePl); }
     showRestoreBanner = false;
   }
 
@@ -125,12 +133,13 @@
     logger: 'util', select: 'util', linear_scale: 'util',
   };
 
-  // ── Flow nodes/edges — NOT reactive, managed manually ───────────────────
-  // Using $state.raw so Svelte never tracks reads of these arrays inside effects.
-  // We rebuild ONLY when explicitly calling rebuildFlow().
-  let flowNodes = $state.raw<Node[]>([]);
-  let flowEdges = $state.raw<Edge[]>([]);
-  let builtForPl = -1;   // which pipeline index we last built for
+  // ── Flow nodes/edges — fully imperative, zero reactivity ────────────────
+  // We NEVER let Svelte rebuild these automatically.
+  // rebuildFlow() is called ONLY on: mount, tab switch, pipeline add/remove.
+  // Everything else (add node, connect, delete, click) mutates arrays directly.
+  let flowNodes = $state<Node[]>([]);
+  let flowEdges = $state<Edge[]>([]);
+  let currentPlId = '';   // track by ID not index to survive reorders
 
   function buildFlowNode(n: any, i: number, plIdx: number, pl: any): Node {
     return {
@@ -142,7 +151,6 @@
         label:    n.type.replace(/_/g, ' '),
         category: NODE_CATEGORY[n.type] ?? '',
         color:    NODE_COLORS[n.type] ?? '#8a9bb0',
-        active:   false,
         onClick:  (id: string) => openPanel(plIdx, id),
       },
     };
@@ -152,38 +160,43 @@
     const src = e.from ?? e.source ?? '';
     const tgt = e.to   ?? e.target ?? '';
     return {
-      id:        e.id ?? `${src}-${tgt}`,
-      source:    src,
-      target:    tgt,
-      animated:  true,
-      deletable: true,
+      id: e.id ?? `${src}-${tgt}`, source: src, target: tgt,
+      animated: true, deletable: true,
     };
   }
 
   function rebuildFlow(plIdx: number) {
     const pl = draft?.pipelines[plIdx];
-    if (!pl) { flowNodes = []; flowEdges = []; builtForPl = -1; return; }
+    if (!pl) { flowNodes = []; flowEdges = []; currentPlId = ''; return; }
+    currentPlId = pl.id;
     flowNodes = pl.nodes.map((n, i) => buildFlowNode(n, i, plIdx, pl));
     flowEdges = (pl.edges ?? []).map(buildFlowEdge);
-    builtForPl = plIdx;
   }
 
-  // Rebuild only when activePl tab changes or on first load
-  $effect(() => {
-    const plIdx = activePl;   // track only activePl, nothing else
-    untrack(() => {
-      if (builtForPl !== plIdx) rebuildFlow(plIdx);
-    });
-  });
+  // Called ONLY when switching pipeline tabs
+  function switchPipeline(idx: number) {
+    activeNodeStore.set(null);
+    panelNode = null;
+    // Save current flow positions into draft before switching
+    if (draft && currentPlId) {
+      const curPl = draft.pipelines.find(p => p.id === currentPlId);
+      if (curPl) {
+        if (!curPl.node_positions) curPl.node_positions = {};
+        for (const fn of flowNodes) {
+          curPl.node_positions[fn.id] = { x: fn.position.x, y: fn.position.y };
+        }
+        curPl.edges = flowEdges.map(e => ({ id: e.id, from: e.source, to: e.target }));
+      }
+    }
+    activePl = idx;
+    rebuildFlow(idx);
+  }
 
   function openPanel(plIdx: number, nodeId: string) {
     const closing = panelNode?.nodeId === nodeId;
     panelNode = closing ? null : { plIdx, nodeId };
-    // Update only active flag — $state.raw requires reassignment to trigger re-render
-    flowNodes = flowNodes.map(n => ({
-      ...n,
-      data: { ...n.data, active: !closing && n.id === nodeId },
-    }));
+    // Update context store only — flowNodes is NEVER touched here
+    activeNodeStore.set(closing ? null : nodeId);
   }
 
   // ── Drag stop: guardar posición ───────────────────────────────────────────
@@ -225,7 +238,7 @@
     if (panelNode && ids.has(panelNode.nodeId)) panelNode = null;
     flowNodes = flowNodes.filter(n => !ids.has(n.id));
     flowEdges = flowEdges.filter(e => !ids.has(e.source) && !ids.has(e.target));
-    builtForPl = activePl; // keep guard valid after node removal
+
     schedulLocalSave();
   }
 
@@ -268,7 +281,7 @@
     if (panelNode?.nodeId === nodeId) panelNode = null;
     flowNodes = flowNodes.filter(n => n.id !== nodeId);
     flowEdges = flowEdges.filter(e => e.source !== nodeId && e.target !== nodeId);
-    builtForPl = activePl;
+
     schedulLocalSave();
   }
 
@@ -312,17 +325,16 @@
       connections: { mqtt: null, http: null },
       nodes: [], edges: [], node_positions: {},
     }];
-    activePl = draft.pipelines.length - 1;
-    builtForPl = -1;  // force rebuild for new pipeline
-    draft = { ...draft };
+    const newIdx = draft.pipelines.length - 1;
+    switchPipeline(newIdx);
     schedulLocalSave();
   }
 
   function removePipeline(idx: number) {
     if (!draft || draft.pipelines.length <= 1) return;
     draft.pipelines = draft.pipelines.filter((_, i) => i !== idx);
-    activePl = Math.min(activePl, draft.pipelines.length - 1);
-    draft = { ...draft };
+    const newIdx = Math.min(activePl, draft.pipelines.length - 1);
+    switchPipeline(newIdx);
     schedulLocalSave();
   }
 
@@ -333,8 +345,7 @@
     const pls = [...draft.pipelines];
     [pls[idx], pls[ni]] = [pls[ni], pls[idx]];
     draft.pipelines = pls;
-    activePl = ni;
-    draft = { ...draft };
+    switchPipeline(ni);
     schedulLocalSave();
   }
 
@@ -410,7 +421,7 @@
     {#each (draft?.pipelines ?? []) as pl, i (pl.id)}
       <div class="pl-tab-wrap">
         <button class="pl-tab" class:active={activePl === i}
-          onclick={() => { activePl = i; panelNode = null; }}>
+          onclick={() => switchPipeline(i)}>
           {pl.label}
         </button>
         {#if activePl === i && $canAdmin}
