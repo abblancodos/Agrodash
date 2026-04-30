@@ -83,6 +83,17 @@
     saveLocalTimer = setTimeout(() => {
       if (!draft) return;
       try {
+        // Sync flow state before local save
+        const flowNodeIds = new Set(flowNodes.map(n => n.id));
+        const pl = draft.pipelines[activePl];
+        pl.nodes = pl.nodes.filter(n => flowNodeIds.has(n.id));
+        if (!pl.node_positions) pl.node_positions = {};
+        for (const fn of flowNodes) {
+          pl.node_positions[fn.id] = { x: fn.position.x, y: fn.position.y };
+        }
+        pl.edges = flowEdges
+          .filter(e => flowNodeIds.has(e.source) && flowNodeIds.has(e.target))
+          .map(e => ({ id: e.id, from: e.source, to: e.target }));
         localStorage.setItem(STORAGE_KEY(), JSON.stringify({ config: draft, ts: new Date().toISOString() }));
       } catch {}
     }, 2000);
@@ -230,18 +241,17 @@
   // ── Delete nodos y edges (teclado + evento SvelteFlow) ────────────────────
   function onNodesDelete(event: CustomEvent) {
     const deleted: Node[] = event.detail?.nodes ?? [];
-    console.log('[ConfigTab] onNodesDelete fired, deleted:', deleted.map(n => n.id));
     if (!draft || !deleted.length) return;
-    const pl = draft.pipelines[activePl];
     const ids = new Set(deleted.map(n => n.id));
+    flowNodes = flowNodes.filter(n => !ids.has(n.id));
+    flowEdges = flowEdges.filter(e => !ids.has(e.source) && !ids.has(e.target));
+    const pl = draft.pipelines[activePl];
     pl.nodes = pl.nodes.filter(n => !ids.has(n.id));
     pl.edges = (pl.edges ?? []).filter((e: any) =>
       !ids.has(e.from ?? e.source) && !ids.has(e.to ?? e.target)
     );
-    if (panelNode && ids.has(panelNode.nodeId)) panelNode = null;
-    flowNodes = flowNodes.filter(n => !ids.has(n.id));
-    flowEdges = flowEdges.filter(e => !ids.has(e.source) && !ids.has(e.target));
-
+    for (const id of ids) { if (pl.node_positions) delete pl.node_positions[id]; }
+    if (panelNode && ids.has(panelNode.nodeId)) { panelNode = null; activeNodeStore.set(null); }
     schedulLocalSave();
   }
 
@@ -275,17 +285,16 @@
   }
 
   function removeNode(plIdx: number, nodeId: string) {
-    console.log('[ConfigTab] removeNode:', nodeId);
     if (!draft) return;
+    flowNodes = flowNodes.filter(n => n.id !== nodeId);
+    flowEdges = flowEdges.filter(e => e.source !== nodeId && e.target !== nodeId);
     const pl = draft.pipelines[plIdx];
     pl.nodes = pl.nodes.filter(n => n.id !== nodeId);
     pl.edges = (pl.edges ?? []).filter((e: any) =>
       (e.from ?? e.source) !== nodeId && (e.to ?? e.target) !== nodeId
     );
-    if (panelNode?.nodeId === nodeId) panelNode = null;
-    flowNodes = flowNodes.filter(n => n.id !== nodeId);
-    flowEdges = flowEdges.filter(e => e.source !== nodeId && e.target !== nodeId);
-
+    if (pl.node_positions) delete pl.node_positions[nodeId];
+    if (panelNode?.nodeId === nodeId) { panelNode = null; activeNodeStore.set(null); }
     schedulLocalSave();
   }
 
@@ -358,19 +367,27 @@
     if (!draft) return;
     saving = true; saveMsg = '';
     try {
-      // Snapshot current flowNode positions into draft before saving
+      // flowNodes/flowEdges are the source of truth — sync into draft before saving
+      const flowNodeIds = new Set(flowNodes.map(n => n.id));
       const pl = draft.pipelines[activePl];
+
+      // Keep only nodes that exist in the canvas
+      pl.nodes = pl.nodes.filter(n => flowNodeIds.has(n.id));
+
+      // Snapshot positions from canvas
       if (!pl.node_positions) pl.node_positions = {};
       for (const fn of flowNodes) {
         pl.node_positions[fn.id] = { x: fn.position.x, y: fn.position.y };
       }
-      // Normalize edges to {from, to} only (Rust schema)
-      pl.edges = (pl.edges ?? []).map((e: any) => ({
-        id:   e.id,
-        from: e.from ?? e.source,
-        to:   e.to   ?? e.target,
-      }));
-      console.log('[ConfigTab] saving config:', JSON.stringify(draft, null, 2));
+      // Remove stale positions
+      for (const key of Object.keys(pl.node_positions)) {
+        if (!flowNodeIds.has(key)) delete pl.node_positions[key];
+      }
+      // Edges: only between existing nodes, normalized to {from, to}
+      pl.edges = flowEdges
+        .filter(e => flowNodeIds.has(e.source) && flowNodeIds.has(e.target))
+        .map(e => ({ id: e.id, from: e.source, to: e.target }));
+
       await processStore.saveConfig(processId, draft);
       dirty = false;
       localStorage.removeItem(STORAGE_KEY());
