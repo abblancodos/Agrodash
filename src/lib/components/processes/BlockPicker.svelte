@@ -72,11 +72,19 @@
         <button
           class="block-btn"
           style="--nc:{group.color}"
+          draggable="true"
           onclick={() => onAdd(item.type)}
+          ondragstart={(e) => {
+            e.dataTransfer?.setData('text/plain', item.type);
+            e.dataTransfer && (e.dataTransfer.effectAllowed = 'copy');
+          }}
           title={item.desc}
         >
-          <span class="block-btn-label">{item.label}</span>
-          <span class="block-btn-desc">{item.desc}</span>
+          <span class="block-btn-icon">⠿</span>
+          <div class="block-btn-text">
+            <span class="block-btn-label">{item.label}</span>
+            <span class="block-btn-desc">{item.desc}</span>
+          </div>
         </button>
       {/each}
     </div>
@@ -118,8 +126,9 @@
 
   .block-btn {
     display: flex;
-    flex-direction: column;
-    gap: 1px;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
     padding: calc(6px * var(--font-scale)) calc(8px * var(--font-scale));
     border: 0.5px solid var(--border-default);
     border-left: 3px solid var(--nc);
@@ -134,6 +143,10 @@
     transform: translateX(2px);
   }
   .block-btn:active { transform: translateX(4px); }
+  .block-btn[draggable="true"] { cursor: grab; }
+  .block-btn[draggable="true"]:active { cursor: grabbing; }
+  .block-btn-icon { color: var(--text-muted); font-size: 12px; flex-shrink: 0; opacity: 0.5; }
+  .block-btn-text { display: flex; flex-direction: column; gap: 1px; }
 
   .block-btn-label {
     font-size: calc(11px * var(--font-scale));

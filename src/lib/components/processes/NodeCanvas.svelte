@@ -27,7 +27,12 @@
   let blockRefs: Record<string, HTMLDivElement> = {};
 
   // Dragging state
-  let dragging: { nodeId: string; startX: number; startY: number; origX: number; origY: number } | null = null;
+  let dragging = $state<{ nodeId: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
+
+  // Panning state
+  let panning = $state<{ startX: number; startY: number; origPanX: number; origPanY: number } | null>(null);
+  let panX = $state(0);
+  let panY = $state(0);
 
   // Connecting state — drawing an edge
   let connecting = $state<{ fromId: string; fromPort: 'output'; x: number; y: number } | null>(null);
@@ -83,38 +88,53 @@
 
   // ── Dragging ───────────────────────────────────────────────────────────────
   function startDrag(e: MouseEvent, nodeId: string) {
-    if (!canEdit) return;
     if ((e.target as HTMLElement).closest('.port, button, input, select, textarea')) return;
     e.preventDefault();
+    e.stopPropagation(); // prevent canvas pan from firing
+    if (!canEdit) return;
     const pos = positions[nodeId] ?? { x: 0, y: 0 };
     dragging = { nodeId, startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y };
+  }
+
+  // Canvas panning
+  function startPan(e: MouseEvent) {
+    if (dragging || connecting) return;
+    if ((e.target as HTMLElement).closest('.block')) return;
+    e.preventDefault();
+    panning = { startX: e.clientX, startY: e.clientY, origPanX: panX, origPanY: panY };
   }
 
   function onMouseMove(e: MouseEvent) {
     if (canvasEl) {
       const rect = canvasEl.getBoundingClientRect();
-      mouseX = e.clientX - rect.left;
-      mouseY = e.clientY - rect.top;
+      mouseX = e.clientX - rect.left - panX;
+      mouseY = e.clientY - rect.top  - panY;
     }
-    if (!dragging) return;
-    const dx = e.clientX - dragging.startX;
-    const dy = e.clientY - dragging.startY;
-    positions = {
-      ...positions,
-      [dragging.nodeId]: {
-        x: Math.max(0, dragging.origX + dx),
-        y: Math.max(0, dragging.origY + dy),
-      }
-    };
+    if (dragging) {
+      const dx = e.clientX - dragging.startX;
+      const dy = e.clientY - dragging.startY;
+      positions = {
+        ...positions,
+        [dragging.nodeId]: {
+          x: Math.max(0, dragging.origX + dx),
+          y: Math.max(0, dragging.origY + dy),
+        }
+      };
+      return;
+    }
+    if (panning) {
+      panX = panning.origPanX + (e.clientX - panning.startX);
+      panY = panning.origPanY + (e.clientY - panning.startY);
+    }
   }
 
   function onMouseUp() {
     if (dragging) {
-      // Save positions to pipeline
       pipeline.node_positions = { ...pipeline.node_positions, ...positions };
       dragging = null;
       onchange();
     }
+    if (panning) { panning = null; }
     connecting = null;
   }
 
@@ -149,6 +169,25 @@
     connecting = null;
   }
 
+  // Drop from BlockPicker
+  function onDrop(e: DragEvent) {
+    e.preventDefault();
+    const type = e.dataTransfer?.getData('text/plain');
+    if (!type || !canvasEl) return;
+    const rect = canvasEl.getBoundingClientRect();
+    // Drop position in canvas coords (accounting for pan)
+    const x = e.clientX - rect.left - panX;
+    const y = e.clientY - rect.top  - panY;
+
+    const id  = `${type}_${Date.now()}`;
+    const nodes = pipeline.nodes ?? [];
+    pipeline.nodes = [...nodes, { id, type, ...defaultParams(type) }];
+    if (!pipeline.node_positions) pipeline.node_positions = {};
+    pipeline.node_positions[id] = { x: Math.max(0, x - 90), y: Math.max(0, y - 20) };
+    positions = { ...positions, [id]: pipeline.node_positions[id] };
+    onchange();
+  }
+
   function removeEdge(edgeId: string) {
     pipeline.edges = (pipeline.edges ?? []).filter((e: any) => e.id !== edgeId);
     onchange();
@@ -173,14 +212,16 @@
 
   // ── Edge SVG paths ─────────────────────────────────────────────────────────
   function getPortCenter(nodeId: string, port: 'input' | 'output'): { x: number; y: number } | null {
+    const pos = positions[nodeId];
+    if (!pos) return null;
     const el = blockRefs[nodeId];
-    if (!el || !canvasEl) return null;
-    const cr = canvasEl.getBoundingClientRect();
-    const nr = el.getBoundingClientRect();
-    const y = nr.top - cr.top + nr.height / 2;
+    if (!el) return null;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const y = pos.y + panY + h / 2;
     const x = port === 'input'
-      ? nr.left - cr.left
-      : nr.left - cr.left + nr.width;
+      ? pos.x + panX - 6   // port radius
+      : pos.x + panX + w + 6;
     return { x, y };
   }
 
@@ -194,9 +235,13 @@
 <div
   class="canvas"
   bind:this={canvasEl}
+  onmousedown={startPan}
   onmousemove={onMouseMove}
   onmouseup={onMouseUp}
   onmouseleave={onMouseUp}
+  ondragover={(e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; }}
+  ondrop={onDrop}
+  style="cursor:{panning ? 'grabbing' : dragging ? 'grabbing' : 'default'}"
 >
 
   <!-- SVG layer for edges -->
@@ -256,7 +301,8 @@
     {/if}
   </svg>
 
-  <!-- Blocks -->
+  <!-- Blocks — translated by pan offset -->
+  <div class="blocks-layer" style="transform:translate({panX}px,{panY}px)">
   {#each (pipeline.nodes ?? []) as node (node.id)}
     {@const pos = positions[node.id] ?? { x: 60, y: 100 }}
     {@const color = NODE_COLORS[node.type] ?? '#8a9bb0'}
@@ -302,7 +348,9 @@
     </div>
   {/each}
 
-  {#if (pipeline.nodes ?? []).length === 0}
+  </div><!-- end blocks-layer -->
+
+{#if (pipeline.nodes ?? []).length === 0}
     <div class="empty-hint">
       Usá el panel izquierdo para agregar bloques al pipeline
     </div>
