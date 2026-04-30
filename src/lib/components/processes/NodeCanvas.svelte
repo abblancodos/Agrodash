@@ -239,15 +239,18 @@
 
   // ── Edge SVG paths ─────────────────────────────────────────────────────────
   function getPortCenter(nodeId: string, port: 'input' | 'output'): { x: number; y: number } | null {
+    // Read panX/panY to make this reactive — when they change, SVG re-evaluates
+    const _px = panX; const _py = panY;
+    // Also depend on positions so drag updates edges too
+    const _pos = positions[nodeId];
     const el = blockRefs[nodeId];
     if (!el || !canvasEl) return null;
     const cr = canvasEl.getBoundingClientRect();
     const nr = el.getBoundingClientRect();
-    // Center of block vertically, left or right edge horizontally
     const y = nr.top  - cr.top  + nr.height / 2;
     const x = port === 'input'
-      ? nr.left - cr.left - 6   // left edge - port radius
-      : nr.right - cr.left + 6; // right edge + port radius
+      ? nr.left - cr.left - 6
+      : nr.right - cr.left + 6;
     return { x, y };
   }
 
@@ -272,7 +275,7 @@
 
   <!-- SVG layer for edges -->
   <svg class="edge-svg" bind:this={svgEl}>
-    {#key renderTick}{#each (pipeline.edges ?? []) as edge (edge.id)}
+    {#each (pipeline.edges ?? []) as edge (edge.id)}
       {@const p1 = getPortCenter(edge.from, 'output')}
       {@const p2 = getPortCenter(edge.to, 'input')}
       {#if p1 && p2}
@@ -315,7 +318,7 @@
           >✕</text>
         {/if}
       {/if}
-    {/each}{/key}
+    {/each}
 
     <!-- In-progress connection line -->
     {#if connecting}
