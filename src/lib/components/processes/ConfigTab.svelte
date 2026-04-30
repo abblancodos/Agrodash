@@ -33,35 +33,7 @@
   const activeNodeStore = writable<string | null>(null);
   setContext('activeNode', activeNodeStore);
 
-  // ── Init: cargar draft desde servidor, luego chequear localStorage ────────
-  $effect(() => {
-    if (proc?.config && !draftInitialized) {
-      draftInitialized = true;
-      const serverCfg: ProcessConfig = JSON.parse(JSON.stringify(proc.config));
-      try {
-        const stored = localStorage.getItem(STORAGE_KEY());
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          localDraft = parsed.config;
-          const localTs = new Date(parsed.ts);
-          const serverTs = new Date((proc as any).updated_at ?? 0);
-          if (localTs > serverTs) {
-            showRestoreBanner = true;
-            draft = serverCfg;
-          } else {
-            localStorage.removeItem(STORAGE_KEY());
-            draft = serverCfg;
-          }
-        } else {
-          draft = serverCfg;
-        }
-      } catch {
-        draft = serverCfg;
-      }
-      // Build flow canvas once after draft is initialized
-      rebuildFlow(activePl);
-    }
-  });
+  // Draft initialized in onMount
 
   function restoreLocal() {
     if (localDraft) { draft = localDraft; dirty = true; rebuildFlow(activePl); }
@@ -107,15 +79,10 @@
     }
   }
 
-  onMount(() => window.addEventListener('beforeunload', handleBeforeUnload));
-  onDestroy(() => {
-    window.removeEventListener('beforeunload', handleBeforeUnload);
-    if (saveLocalTimer) clearTimeout(saveLocalTimer);
-  });
+  onMount(async () => {
+    window.addEventListener('beforeunload', handleBeforeUnload);
 
-  // ── Sensores disponibles ──────────────────────────────────────────────────
-  let availableSensors = $state<{id: string; label: string}[]>([]);
-  $effect(() => {
+    // Load sensors
     fetch(`${API}/api/v1/boxes`, { credentials: 'include' })
       .then(r => r.json())
       .then((boxes: any[]) => {
@@ -126,7 +93,41 @@
           }))
         );
       }).catch(() => {});
+
+    // Initialize draft from store — proc is already loaded by parent
+    const procVal = $processStore.process;
+    if (procVal?.config && !draftInitialized) {
+      draftInitialized = true;
+      const serverCfg: ProcessConfig = JSON.parse(JSON.stringify(procVal.config));
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY());
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          localDraft = parsed.config;
+          const localTs = new Date(parsed.ts);
+          const serverTs = new Date((procVal as any).updated_at ?? 0);
+          if (localTs > serverTs) {
+            showRestoreBanner = true;
+            draft = serverCfg;
+          } else {
+            localStorage.removeItem(STORAGE_KEY());
+            draft = serverCfg;
+          }
+        } else {
+          draft = serverCfg;
+        }
+      } catch {
+        draft = serverCfg;
+      }
+      rebuildFlow(activePl);
+    }
   });
+  onDestroy(() => {
+    window.removeEventListener('beforeunload', handleBeforeUnload);
+    if (saveLocalTimer) clearTimeout(saveLocalTimer);
+  });
+
+  // Sensors loaded in onMount
 
   // ── Node metadata ─────────────────────────────────────────────────────────
   const NODE_COLORS: Record<string, string> = {
@@ -393,11 +394,8 @@
 
       await processStore.saveConfig(processId, draft);
       dirty = false;
-      // Cancel any pending debounce and clear local storage
       if (saveLocalTimer) { clearTimeout(saveLocalTimer); saveLocalTimer = null; }
       localStorage.removeItem(STORAGE_KEY());
-      // Reset draftInitialized would re-init from server — instead just mark clean
-      // draft is already correct (we just built it in save())
       saveMsg = '✓ guardado'; saveMsgOk = true;
     } catch (e: any) {
       saveMsg = e.message; saveMsgOk = false;
