@@ -47,6 +47,20 @@
 
   // Block element refs — for edge calculation
   let blockRefs: Record<string, HTMLDivElement> = {};
+  // Track block dimensions for edge calculation
+  let blockSizes = $state<Record<string, { w: number; h: number }>>({});
+
+  // Update block size after render
+  function measureBlock(nodeId: string, el: HTMLDivElement | null) {
+    if (!el) return;
+    blockRefs[nodeId] = el;
+    // Use offsetWidth/Height which work correctly with position:absolute
+    const w = el.offsetWidth  || 180;
+    const h = el.offsetHeight || 36;
+    if (blockSizes[nodeId]?.w !== w || blockSizes[nodeId]?.h !== h) {
+      blockSizes = { ...blockSizes, [nodeId]: { w, h } };
+    }
+  }
   let renderTick = $state(0); // increment to force edge re-render after DOM updates
 
   // Dragging state
@@ -80,7 +94,13 @@
     });
     positions = newPos;
     // Delay edge render until DOM has painted the blocks
-    setTimeout(() => { renderTick++; }, 50);
+    setTimeout(() => {
+      renderTick++;
+      // Measure all blocks after DOM paints
+      for (const nodeId of Object.keys(positions)) {
+        measureBlock(nodeId, blockRefs[nodeId]);
+      }
+    }, 60);
   }
 
   // When pipeline changes (tab switch), reinit
@@ -239,19 +259,18 @@
 
   // ── Edge SVG paths ─────────────────────────────────────────────────────────
   function getPortCenter(nodeId: string, port: 'input' | 'output'): { x: number; y: number } | null {
-    // Read panX/panY to make this reactive — when they change, SVG re-evaluates
-    const _px = panX; const _py = panY;
-    // Also depend on positions so drag updates edges too
-    const _pos = positions[nodeId];
-    const el = blockRefs[nodeId];
-    if (!el || !canvasEl) return null;
-    const cr = canvasEl.getBoundingClientRect();
-    const nr = el.getBoundingClientRect();
-    const y = nr.top  - cr.top  + nr.height / 2;
-    const x = port === 'input'
-      ? nr.left - cr.left - 6
-      : nr.right - cr.left + 6;
-    return { x, y };
+    const pos  = positions[nodeId];
+    const size = blockSizes[nodeId];
+    if (!pos) return null;
+    const w = size?.w ?? 180;
+    const h = size?.h ?? 36;
+    // Canvas-local coordinates (including pan offset)
+    const cx = pos.x + panX;
+    const cy = pos.y + panY + h / 2;
+    return {
+      x: port === 'input'  ? cx - 6        : cx + w + 6,
+      y: cy,
+    };
   }
 
   function cubicPath(x1: number, y1: number, x2: number, y2: number): string {
@@ -351,6 +370,7 @@
       class:expanded={isExpanded}
       style="left:{pos.x}px; top:{pos.y}px; --nc:{color}"
       bind:this={blockRefs[node.id]}
+      onmouseenter={() => measureBlock(node.id, blockRefs[node.id])}
     >
       <!-- Input port -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
