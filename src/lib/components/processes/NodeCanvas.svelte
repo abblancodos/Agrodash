@@ -1,6 +1,28 @@
 <!-- src/lib/components/processes/NodeCanvas.svelte -->
 <script lang="ts">
   import { onMount } from 'svelte';
+
+  function defaultParams(type: string): Record<string, any> {
+    const d: Record<string, any> = {
+      postgres_sensor: { sensors: [] },
+      kalman:          { Q: 1e-5, R: 1e-3, P0: 1.0, convergence_threshold: 5e-4, warmup_samples: 10 },
+      moving_avg:      { window_n: 10, warmup_samples: 10 },
+      ewma:            { alpha: 0.1, warmup_samples: 10 },
+      lowpass:         { tau_seconds: 120, warmup_samples: 10 },
+      passthrough:     {},
+      concat:          {},
+      weighted_mean:   { weights: [] },
+      mahalanobis:     { target: [], threshold_act: 2.5, threshold_deact: 1.0, use_kalman_P: true },
+      hysteresis:      { reduction: { type: 'mean' }, low: 0.08, high: 0.085, action_below_low: 'on', action_above_high: 'off' },
+      sprt:            { mu_H0: 0.0, mu_H1: 1.0, sigma: 0.1, alpha: 0.05, beta: 0.05, reduction: { type: 'mean' }, reset_on_action: true },
+      mqtt_actuator:   { connection: 'shared', topic: '', payload_on: 'on', payload_off: 'off' },
+      http_actuator:   { connection: 'shared', path_on: '/on', path_off: '/off' },
+      logger:          { tag: '' },
+      select:          { indices: [] },
+      linear_scale:    { a: 1.0, b: 0.0 },
+    };
+    return d[type] ?? {};
+  }
   import PipelineBlock from './PipelineBlock.svelte';
   import type { ProcessConfig } from '$lib/stores/process';
 
