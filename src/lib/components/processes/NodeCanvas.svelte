@@ -47,6 +47,7 @@
 
   // Block element refs — for edge calculation
   let blockRefs: Record<string, HTMLDivElement> = {};
+  let renderTick = $state(0); // increment to force edge re-render after DOM updates
 
   // Dragging state
   let dragging = $state<{ nodeId: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
@@ -78,6 +79,8 @@
       newPos[n.id] = saved[n.id] ?? { x: 60 + i * 260, y: 100 };
     });
     positions = newPos;
+    // Delay edge render until DOM has painted the blocks
+    setTimeout(() => { renderTick++; }, 50);
   }
 
   // When pipeline changes (tab switch), reinit
@@ -180,12 +183,13 @@
     // Add edge if not duplicate
     const edges = pipeline.edges ?? [];
     const exists = edges.some((ed: any) => ed.from === connecting!.fromId && ed.to === toId);
-    if (!exists) {
+    if (!exists && connecting.fromId !== toId) {
       pipeline.edges = [...edges, {
         id: `${connecting.fromId}-${toId}`,
         from: connecting.fromId,
         to: toId,
       }];
+      setTimeout(() => { renderTick++; }, 20);
       onchange();
     }
     connecting = null;
@@ -207,6 +211,7 @@
     if (!pipeline.node_positions) pipeline.node_positions = {};
     pipeline.node_positions[id] = { x: Math.max(0, x - 90), y: Math.max(0, y - 20) };
     positions = { ...positions, [id]: pipeline.node_positions[id] };
+    setTimeout(() => { renderTick++; }, 50);
     onchange();
   }
 
@@ -267,17 +272,23 @@
 
   <!-- SVG layer for edges -->
   <svg class="edge-svg" bind:this={svgEl}>
-    {#each (pipeline.edges ?? []) as edge (edge.id)}
+    {#key renderTick}{#each (pipeline.edges ?? []) as edge (edge.id)}
       {@const p1 = getPortCenter(edge.from, 'output')}
       {@const p2 = getPortCenter(edge.to, 'input')}
       {#if p1 && p2}
         <!-- Edge line -->
         <path
           d={cubicPath(p1.x, p1.y, p2.x, p2.y)}
-          stroke="var(--border-default)"
-          stroke-width="2"
+          stroke="var(--text-muted)"
+          stroke-width="2.5"
           fill="none"
-          stroke-dasharray={connecting ? '4 2' : 'none'}
+          opacity="0.7"
+        />
+        <!-- Arrow at target -->
+        <polygon
+          points="{p2.x},{p2.y} {p2.x - 8},{p2.y - 4} {p2.x - 8},{p2.y + 4}"
+          fill="var(--text-muted)"
+          opacity="0.7"
         />
         <!-- Edge delete button -->
         {#if canEdit}
@@ -304,7 +315,7 @@
           >✕</text>
         {/if}
       {/if}
-    {/each}
+    {/each}{/key}
 
     <!-- In-progress connection line -->
     {#if connecting}
@@ -312,11 +323,12 @@
       {#if p1}
         <path
           d={cubicPath(p1.x, p1.y, mouseX, mouseY)}
-          stroke="var(--text-muted)"
-          stroke-width="1.5"
-          stroke-dasharray="4 2"
+          stroke="var(--nc, #4a90d9)"
+          stroke-width="2"
+          stroke-dasharray="6 3"
           fill="none"
           pointer-events="none"
+          opacity="0.8"
         />
       {/if}
     {/if}

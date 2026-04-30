@@ -179,7 +179,11 @@ function createProcessStore() {
               const logs = newLogs.length
                 ? (() => {
                     const existingIds = new Set(s.logs.map(l => l.id).filter(Boolean));
-                    const fresh = newLogs.filter(l => !l.id || !existingIds.has(l.id));
+                    const existingTsMsg = new Set(s.logs.map(l => `${l.ts}|${l.message}`));
+                    const fresh = newLogs.filter(l =>
+                      (!l.id || !existingIds.has(l.id)) &&
+                      !existingTsMsg.has(`${l.ts}|${l.message}`)
+                    );
                     return [...fresh, ...s.logs].slice(0, 500);
                   })()
                 : s.logs;
@@ -189,11 +193,17 @@ function createProcessStore() {
           } catch {}
         });
 
+        let reconnectAttempts = 0;
         sseSource.onerror = () => {
           if (sseSource) {
             sseSource.close();
             sseSource = null;
-            setTimeout(connect, 5000);
+            reconnectAttempts++;
+            if (reconnectAttempts > 10) {
+              console.warn('[SSE] too many reconnect attempts, giving up');
+              return;
+            }
+            setTimeout(connect, Math.min(5000 * reconnectAttempts, 30000));
           }
         };
       };
@@ -255,11 +265,12 @@ function createProcessStore() {
     // ── Pipeline state refresh ────────────────────────────────────────────
     async refreshPipelineState(processId: string, pipelineId: string) {
       try {
-        const state = await fetch(
+        const res = await fetch(
           `${API}/api/v1/processes/${processId}/agent-state/${pipelineId}`,
           { credentials: 'include' }
-        ).then(r => r.json());
-
+        );
+        if (!res.ok) return; // agent not running — ignore silently
+        const state = await res.json();
         if (state && !state.error) {
           update(s => ({
             ...s,
