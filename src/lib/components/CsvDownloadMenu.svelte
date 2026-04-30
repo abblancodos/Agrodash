@@ -97,9 +97,25 @@
   const activeStats = $derived(statCols.filter(c=>c.enabled));
 
   // ── Advanced / preview mode ───────────────────────────────────────────────
-  let advanced = $state(false);
+  let advanced     = $state(false);
+  let statsExpanded = $state(false); // stats column config starts collapsed
 
   // ── Estimated rows ────────────────────────────────────────────────────────
+  // Density warning — show when the resulting resolution is very sparse
+  const densityWarning = $derived(() => {
+    if (mode === 'stats') return null;
+    const from  = new Date(fromDate + ':00Z');
+    const to    = new Date(toDate   + ':00Z');
+    const hours = Math.max(0, (to.getTime() - from.getTime()) / 3_600_000);
+    if (hours === 0) return null;
+    const minPerPt = (hours * 60) / points;
+    if (minPerPt < 5)   return null; // dense enough
+    if (minPerPt < 30)  return { level: 'ok',   msg: `~1 dato cada ${Math.round(minPerPt)} min` };
+    if (minPerPt < 120) return { level: 'warn', msg: `~1 dato cada ${Math.round(minPerPt)} min — podría ser poco denso` };
+    const h = Math.round(minPerPt / 60);
+    return { level: 'error', msg: `~1 dato cada ${h}h — subí la resolución o reducí el rango` };
+  });
+
   const estRows = $derived(() => {
     const h = Math.max(0,(new Date(toDate+':00Z').getTime()-new Date(fromDate+':00Z').getTime())/3600000);
     return Math.min(points, Math.round(h*12)).toLocaleString('es-CR');
@@ -141,26 +157,33 @@
             tsMap.get(ts)![col.sensorId]=r.value;
           }
         }
-        const header=[`timestamp (${userTz}, ${tzOffset})`,...activeCols.map(colLabel)].join(',');
+        const header=[csvQ(`timestamp (${userTz}, ${tzOffset})`),...activeCols.map(c=>csvQ(colLabel(c)))].join(',');
         const rows=[...tsMap.entries()].sort(([a],[b])=>a.localeCompare(b))
           .map(([ts,vals])=>[ts,...activeCols.map(c=>{const v=vals[c.sensorId];return v!=null?v.toFixed(4):'';})].join(','));
         saveCSV([header,...rows].join('\n'), `${box.name.toLowerCase().replace(/\s+/g,'_')}_${fromDate.slice(0,10)}_${toDate.slice(0,10)}_${points}pts.csv`);
 
       } else {
         const rows:string[]=[];
-        rows.push(['sensor',...activeStats.map(scLabel)].join(','));
+        rows.push([csvQ('sensor'),...activeStats.map(sc=>csvQ(scLabel(sc)))].join(','));
         for(let i=0;i<activeCols.length;i++){
           const col=activeCols[i], s=sensorOf(col.sensorId);
           downloading.setProgress(Math.round(i/activeCols.length*90),`${normaliseSensorLabel(s.type)} #${s.sensor_number}`);
           const data=await fetchReadings(s.id,s.type,from,to,5000);
           const stats=computeStats(data.map(r=>r.value).filter(v=>!isNaN(v)));
-          rows.push([colLabel(col),...activeStats.map(sc=>{const v=stats[sc.key];return v!=null?v.toFixed(sc.key==='count'?0:4):'';})].join(','));
+          rows.push([csvQ(colLabel(col)),...activeStats.map(sc=>{const v=stats[sc.key];return v!=null?v.toFixed(sc.key==='count'?0:4):'';})].join(','));
         }
         rows.push('',`# ${new Date().toLocaleString('es-CR',{timeZone:userTz})}`,`# rango: ${fromDate} → ${toDate}`);
         saveCSV(rows.join('\n'), `${box.name.toLowerCase().replace(/\s+/g,'_')}_stats_${fromDate.slice(0,10)}_${toDate.slice(0,10)}.csv`);
       }
       downloading.finish(); setTimeout(onclose,500);
     } catch(e:any){ downloading.cancel(); error=e.message??'Error'; }
+  }
+
+  // Wrap a CSV field in quotes if it contains comma, quote, or newline
+  function csvQ(s: string): string {
+    if (/[,"
+]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
   }
 
   function saveCSV(csv:string, name:string) {
@@ -340,14 +363,21 @@
                     <th class="sh-th sh-th--order">orden</th>
                   {:else}
                     <th class="sh-th sh-th--label">nombre de columna</th>
-                    {#each statCols as sc (sc.key)}
-                      <th class="sh-th sh-th--stat" class:sh-disabled={!sc.enabled}>
-                        <label class="stat-hdr">
-                          <input type="checkbox" bind:checked={sc.enabled}/>
-                          <input class="stat-hdr-input" bind:value={sc.customLabel} placeholder={sc.label}/>
-                        </label>
-                      </th>
-                    {/each}
+                    <th class="sh-th sh-th--stat-toggle">
+                      <button class="stat-expand-btn" onclick={() => statsExpanded = !statsExpanded}>
+                        {statsExpanded ? '▲ columnas' : '▼ columnas'}
+                      </button>
+                    </th>
+                    {#if statsExpanded}
+                      {#each statCols as sc (sc.key)}
+                        <th class="sh-th sh-th--stat" class:sh-disabled={!sc.enabled}>
+                          <label class="stat-hdr">
+                            <input type="checkbox" bind:checked={sc.enabled}/>
+                            <input class="stat-hdr-input" bind:value={sc.customLabel} placeholder={sc.label}/>
+                          </label>
+                        </th>
+                      {/each}
+                    {/if}
                   {/if}
                 </tr>
               </thead>
@@ -375,11 +405,16 @@
                       <td class="sh-td sh-td--editable">
                         <input class="sh-input" bind:value={col.customLabel} placeholder={autoLabel(col)}/>
                       </td>
-                      {#each statCols as sc (sc.key)}
-                        <td class="sh-td sh-td--stat-val" class:sh-disabled={!sc.enabled}>
-                          <span class="stat-placeholder">—</span>
-                        </td>
-                      {/each}
+                      <td class="sh-td sh-td--stat-val">
+                        <span class="stat-placeholder muted">{activeStats.length} stats</span>
+                      </td>
+                      {#if statsExpanded}
+                        {#each statCols as sc (sc.key)}
+                          <td class="sh-td sh-td--stat-val" class:sh-disabled={!sc.enabled}>
+                            <span class="stat-placeholder">—</span>
+                          </td>
+                        {/each}
+                      {/if}
                     {/if}
                   </tr>
                 {/each}
@@ -391,9 +426,9 @@
             <span class="hp-label">header.csv</span>
             <code class="hp-code">
               {#if mode==='timeseries'}
-                timestamp,{activeCols.map(colLabel).join(',')}
+                {[`timestamp (${userTz}, ${tzOffset})`,...activeCols.map(colLabel)].map(csvQ).join(',')}
               {:else}
-                sensor,{activeStats.map(scLabel).join(',')}
+                {['sensor',...activeStats.map(scLabel)].map(csvQ).join(',')}
               {/if}
             </code>
           </div>
@@ -676,6 +711,25 @@
   .progress-pct   { font-size:calc(12px * var(--font-scale)); font-family:'DM Mono',monospace; color:var(--text-muted); }
   .cancel-btn { padding:5px 18px; border:.5px solid var(--border-default); border-radius:5px; background:transparent; color:var(--text-muted); font-family:'DM Mono',monospace; font-size:calc(13px * var(--font-scale)); cursor:pointer; }
   .cancel-btn:hover { background:var(--interactive-hover); }
+
+  .density-warn {
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 10px; border-radius: 6px;
+    font-size: calc(12px * var(--font-scale)); font-family: 'DM Mono', monospace;
+  }
+  .density-warn--ok    { background: var(--bg-elevated); color: var(--text-muted); }
+  .density-warn--warn  { background: #FEF3C7; color: #92400E; border: 0.5px solid #D97706; }
+  .density-warn--error { background: var(--error-bg); color: #A32D2D; border: 0.5px solid #F09595; }
+  .dw-icon { width: 13px; height: 13px; flex-shrink: 0; }
+
+  .sh-th--stat-toggle { min-width: 90px; }
+  .stat-expand-btn {
+    font-size: calc(10px * var(--font-scale)); font-family: 'DM Mono', monospace;
+    color: var(--text-muted); background: none; border: 0.5px solid var(--border-default);
+    border-radius: 4px; padding: 2px 7px; cursor: pointer; white-space: nowrap;
+  }
+  .stat-expand-btn:hover { background: var(--interactive-hover); color: var(--text-primary); }
+  .muted { color: var(--border-default); font-size: calc(10px * var(--font-scale)); }
 
   @media (max-width:640px) {
     .panel { width:calc(100vw - 16px); max-height:88vh; }
