@@ -8,7 +8,8 @@ mod routes;
 mod script_engine;
 mod tasks;
 
-use axum::{routing::{delete, get, post, put}, Router};
+use agent_manager::{AgentManager, AgentManagerConfig};
+use axum::{routing::{delete, get, patch, post, put}, Router};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -20,15 +21,23 @@ use axum::http::{
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use agent_manager::{AgentManager, AgentManagerConfig};
-
-// ── AppState — compartido entre todos los handlers ────────────────────────────
+// ── AppState ──────────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool:    sqlx::PgPool,
     pub manager: Arc<AgentManager>,
 }
+
+/// Permite que los handlers con `State(pool): State<PgPool>` sigan funcionando
+/// sin cambiar nada: Axum extrae PgPool del AppState vía FromRef.
+impl axum::extract::FromRef<AppState> for sqlx::PgPool {
+    fn from_ref(state: &AppState) -> Self {
+        state.pool.clone()
+    }
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
 
 #[tokio::main]
 async fn main() {
@@ -53,18 +62,17 @@ async fn main() {
 
     tokio::spawn(tasks::stats_worker::run(pool.clone()));
 
-    // AgentManager — arranca procesos que estaban en estado 'running'
+    // AgentManager
     let manager = AgentManager::new(AgentManagerConfig::default(), pool.clone());
     manager.start_all().await;
 
-    // Shutdown limpio con Ctrl-C
+    // Shutdown limpio con Ctrl+C
     let mgr_shutdown = Arc::clone(&manager);
     tokio::spawn(async move {
-        if let Ok(()) = tokio::signal::ctrl_c().await {
-            info!("SIGINT recibido — apagando agentes...");
-            mgr_shutdown.shutdown_all().await;
-            std::process::exit(0);
-        }
+        tokio::signal::ctrl_c().await.ok();
+        info!("Señal de shutdown recibida");
+        mgr_shutdown.shutdown_all().await;
+        std::process::exit(0);
     });
 
     let state = AppState { pool: pool.clone(), manager };
@@ -86,7 +94,7 @@ async fn main() {
         info!("SEED_SECRET definido — ruta /api/v1/admin/seed activa");
     }
 
-    let base = Router::new()
+    let base: Router<AppState> = Router::new()
         // ── AgroDash sensor dashboard ──────────────────────────────────────
         .route("/api/v1/boxes",                   get(routes::boxes::get_boxes))
         .route("/api/v1/readings/time-range",     get(routes::readings::get_time_range))
@@ -102,7 +110,7 @@ async fn main() {
         .route("/api/v1/auth/me",              get(routes::auth::me))
         .route("/api/v1/auth/change-password", post(routes::auth::change_password));
 
-    let base = if seed_enabled {
+    let base: Router<AppState> = if seed_enabled {
         base.route("/api/v1/admin/seed", post(routes::seed::seed_admin))
     } else {
         base
@@ -111,51 +119,43 @@ async fn main() {
     let app = base
         // ── Admin ──────────────────────────────────────────────────────────
         .route("/api/v1/admin/invites",
-            get(routes::invites::list_invites)
-            .post(routes::invites::create_invite))
+            get(routes::invites::list_invites).post(routes::invites::create_invite))
         .route("/api/v1/admin/users",
-            get(routes::auth::admin_list_users)
-            .post(routes::auth::admin_create_user))
+            get(routes::auth::admin_list_users).post(routes::auth::admin_create_user))
 
         // ── Experiment templates ───────────────────────────────────────────
         .route("/api/v1/experiment-templates",
-            get(routes::experiments::list_templates)
-            .post(routes::experiments::create_template))
+            get(routes::experiments::list_templates).post(routes::experiments::create_template))
         .route("/api/v1/experiment-templates/:id",
             get(routes::experiments::get_template))
 
-        // ── Experimentos ───────────────────────────────────────────────────
+        // ── Experiments ────────────────────────────────────────────────────
         .route("/api/v1/experiments",
-            get(routes::experiments::list_experiments)
-            .post(routes::experiments::create_experiment))
+            get(routes::experiments::list_experiments).post(routes::experiments::create_experiment))
         .route("/api/v1/experiments/:id",
             get(routes::experiments::get_experiment)
             .delete(routes::experiment_features::delete_experiment))
         .route("/api/v1/experiments/:id/constants",
             put(routes::experiments::update_constants))
         .route("/api/v1/experiments/:id/columns",
-            axum::routing::patch(routes::experiment_features::update_columns))
+            patch(routes::experiment_features::update_columns))
         .route("/api/v1/experiments/:id/values",
             get(routes::experiment_features::get_all_entry_values))
         .route("/api/v1/experiments/:id/events/:eid/values",
             get(routes::experiment_features::get_entry_values)
             .post(routes::experiment_features::save_entry_values))
         .route("/api/v1/experiments/:id/events",
-            get(routes::experiments::list_events)
-            .post(routes::experiments::create_event))
+            get(routes::experiments::list_events).post(routes::experiments::create_event))
         .route("/api/v1/experiments/:id/events/:eid",
             delete(routes::experiments::delete_event))
         .route("/api/v1/experiments/:id/events/:eid/void",
-            axum::routing::post(routes::experiment_features::void_event))
+            post(routes::experiment_features::void_event))
         .route("/api/v1/experiments/:id/series",
-            get(routes::experiments::list_series)
-            .post(routes::experiments::create_series_point))
+            get(routes::experiments::list_series).post(routes::experiments::create_series_point))
         .route("/api/v1/experiments/:id/upload-csv",
             post(routes::experiments::upload_csv))
-        .route("/api/v1/time",
-            get(routes::experiment_features::server_time))
-        .route("/api/v1/users/search",
-            get(routes::experiment_features::search_users))
+        .route("/api/v1/time",        get(routes::experiment_features::server_time))
+        .route("/api/v1/users/search", get(routes::experiment_features::search_users))
         .route("/api/v1/experiments/:id/collaborators",
             get(routes::experiment_features::list_collaborators)
             .post(routes::experiment_features::add_collaborator))
@@ -177,19 +177,19 @@ async fn main() {
         .route("/api/v1/experiments/:id/export-csv",
             get(routes::experiment_features::export_csv))
         .route("/api/v1/experiments/:id/status",
-            axum::routing::patch(routes::experiment_features::update_status))
+            patch(routes::experiment_features::update_status))
         .route("/api/v1/experiments/:id/clone",
             post(routes::experiments::clone_experiment))
         .route("/api/v1/experiments/:id/groups",
             get(routes::experiment_features::list_groups)
             .post(routes::experiment_features::create_group))
         .route("/api/v1/experiments/:id/groups/:gid",
-            axum::routing::patch(routes::experiment_features::update_group)
+            patch(routes::experiment_features::update_group)
             .delete(routes::experiment_features::delete_group))
         .route("/api/v1/experiments/:id/definitions/:did/group",
-            axum::routing::patch(routes::experiment_features::set_definition_group))
+            patch(routes::experiment_features::set_definition_group))
         .route("/api/v1/experiments/:id/events/:eid/group",
-            axum::routing::patch(routes::experiment_features::set_event_group))
+            patch(routes::experiment_features::set_event_group))
         .route("/api/v1/experiments/:id/steps/:step_key/run",
             get(routes::experiments::run_step_script))
         .route("/api/v1/scripts/validate",
@@ -197,17 +197,9 @@ async fn main() {
 
         // ── Processes ──────────────────────────────────────────────────────
         .route("/api/v1/processes",
-            get(routes::processes::list_processes)
-            .post(routes::processes::create_process))
+            get(routes::processes::list_processes).post(routes::processes::create_process))
         .route("/api/v1/processes/:id",
-            get(routes::processes::get_process)
-            .patch(routes::processes::update_process))
-        .route("/api/v1/processes/:id/start",
-            post(routes::processes::start_process))
-        .route("/api/v1/processes/:id/stop",
-            post(routes::processes::stop_process))
-        .route("/api/v1/processes/:id/test",
-            post(routes::processes::run_self_test))
+            get(routes::processes::get_process).patch(routes::processes::update_process))
         .route("/api/v1/processes/:id/state",
             get(routes::processes::get_state))
         .route("/api/v1/processes/:id/stream",
@@ -234,6 +226,10 @@ async fn main() {
             .post(routes::processes::post_agent_state))
         .route("/api/v1/processes/:id/agent-error",
             post(routes::processes::post_agent_error))
+        // Nuevas rutas de ciclo de vida y self-test
+        .route("/api/v1/processes/:id/start", post(routes::processes::start_process))
+        .route("/api/v1/processes/:id/stop",  post(routes::processes::stop_process))
+        .route("/api/v1/processes/:id/test",  post(routes::processes::self_test))
 
         .layer(cors)
         .layer(TraceLayer::new_for_http())

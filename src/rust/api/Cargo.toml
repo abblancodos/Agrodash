@@ -55,3 +55,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Processes
 tokio-stream = "0.1"
 futures-util = "0.3"
+futures      = "0.3"
+anyhow  = "1"
+rumqttc = "0.24"
