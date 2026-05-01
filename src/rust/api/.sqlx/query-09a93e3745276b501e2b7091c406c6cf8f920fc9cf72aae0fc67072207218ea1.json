@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT value::float8 AS \"value!: f64\",\n                                  EXTRACT(EPOCH FROM (now() AT TIME ZONE 'America/Costa_Rica' - created_at))::bigint\n                                      AS \"age_secs!: i64\"\n                           FROM readings WHERE sensor_id = $1\n                           ORDER BY created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value!: f64",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 1,
+        "name": "age_secs!: i64",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "09a93e3745276b501e2b7091c406c6cf8f920fc9cf72aae0fc67072207218ea1"
+}
