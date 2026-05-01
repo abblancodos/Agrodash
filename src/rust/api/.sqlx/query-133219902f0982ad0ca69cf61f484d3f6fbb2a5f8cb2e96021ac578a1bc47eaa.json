@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE processes SET status='stopped', updated_at=now() WHERE id=$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "133219902f0982ad0ca69cf61f484d3f6fbb2a5f8cb2e96021ac578a1bc47eaa"
+}
