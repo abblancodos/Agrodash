@@ -589,20 +589,20 @@
         <div class="stats-row">
           <div class="stat">
             <span class="stat-l">x̂ estimado</span>
-            <span class="stat-v">{st.x?.toFixed(4) ?? '—'}</span>
+            <span class="stat-v">{pipelineStats?.x?.toFixed(4) ?? '—'}</span>
           </div>
           <div class="stat">
             <span class="stat-l">incertidumbre P</span>
-            <span class="stat-v">{st.p != null ? st.p.toExponential(3) : '—'}</span>
+            <span class="stat-v">{pipelineStats?.p != null ? pipelineStats?.p.toExponential(3) : '—'}</span>
           </div>
           <div class="stat">
             <span class="stat-l">muestras</span>
-            <span class="stat-v">{st.n ?? '—'}</span>
+            <span class="stat-v">{pipelineStats?.n ?? '—'}</span>
           </div>
           <div class="stat">
             <span class="stat-l">estado</span>
-            <span class="stat-v" style="color:{st.ready ? '#3da85a' : '#e8a838'}">
-              {st.ready ? 'convergido' : 'warmup'}
+            <span class="stat-v" style="color:{pipelineStats?.ready ? '#3da85a' : '#e8a838'}">
+              {pipelineStats?.ready ? 'convergido' : 'warmup'}
             </span>
           </div>
         </div>
@@ -614,23 +614,23 @@
         <div class="stats-row">
           <div class="stat">
             <span class="stat-l">distancia d</span>
-            <span class="stat-v" style="color:{mahColor(st.last_d)}">
-              {st.last_d?.toFixed(4) ?? '—'}
+            <span class="stat-v" style="color:{mahColor(pipelineStats?.last_d)}">
+              {pipelineStats?.last_d?.toFixed(4) ?? '—'}
             </span>
           </div>
           <div class="stat">
             <span class="stat-l">decisión</span>
-            <span class="stat-v">{st.hyst ?? '—'}</span>
+            <span class="stat-v">{pipelineStats?.hyst ?? '—'}</span>
           </div>
           <div class="stat">
             <span class="stat-l">actuador</span>
-            <span class="stat-v" style="color:{st.act === 'on' ? '#3da85a' : st.act === 'off' ? '#e05454' : 'var(--text-muted)'}">
-              {st.act?.toUpperCase() ?? '—'}
+            <span class="stat-v" style="color:{pipelineStats?.act === 'on' ? '#3da85a' : pipelineStats?.act === 'off' ? '#e05454' : 'var(--text-muted)'}">
+              {pipelineStats?.act?.toUpperCase() ?? '—'}
             </span>
           </div>
           <div class="stat">
             <span class="stat-l">total ON</span>
-            <span class="stat-v">{st.total_on != null ? fmtSeconds(st.total_on) : '—'}</span>
+            <span class="stat-v">{pipelineStats?.total_on != null ? fmtSeconds(pipelineStats?.total_on) : '—'}</span>
           </div>
         </div>
       </div>
@@ -641,23 +641,23 @@
         <div class="stats-row">
           <div class="stat">
             <span class="stat-l">media</span>
-            <span class="stat-v">{st.mean?.toFixed(4) ?? '—'}</span>
+            <span class="stat-v">{pipelineStats?.mean?.toFixed(4) ?? '—'}</span>
           </div>
           <div class="stat">
             <span class="stat-l">desv. estándar</span>
-            <span class="stat-v">{st.std?.toFixed(4) ?? '—'}</span>
+            <span class="stat-v">{pipelineStats?.std?.toFixed(4) ?? '—'}</span>
           </div>
           <div class="stat">
             <span class="stat-l">mín</span>
-            <span class="stat-v">{st.minV?.toFixed(4) ?? '—'}</span>
+            <span class="stat-v">{pipelineStats?.minV?.toFixed(4) ?? '—'}</span>
           </div>
           <div class="stat">
             <span class="stat-l">máx</span>
-            <span class="stat-v">{st.maxV?.toFixed(4) ?? '—'}</span>
+            <span class="stat-v">{pipelineStats?.maxV?.toFixed(4) ?? '—'}</span>
           </div>
           <div class="stat">
             <span class="stat-l">% tiempo ON</span>
-            <span class="stat-v">{st.pctOn != null ? st.pctOn.toFixed(1) + '%' : '—'}</span>
+            <span class="stat-v">{pipelineStats?.pctOn != null ? pipelineStats?.pctOn.toFixed(1) + '%' : '—'}</span>
           </div>
         </div>
       </div>
