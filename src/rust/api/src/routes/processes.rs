@@ -13,7 +13,6 @@ use std::{convert::Infallible, time::Duration};
 use tokio::time::interval;
 use uuid::Uuid;
 
-use crate::agent_manager::AgentKey;
 use crate::auth::Claims;
 use crate::AppState;
 use agrodash_shared::{AgentCommand, ProcessConfig};
@@ -573,37 +572,41 @@ pub async fn self_test(
 
     // ── 4. Agent dry-run (solo si está running) ───────────────────────────
     if row.status == "running" {
-        let keys = state.manager.process_keys(process_id).await;
-        if keys.is_empty() {
+        // process_sockets retorna Vec<(pipeline_id: String, sock_path: PathBuf)>
+        let sockets = state.manager.process_sockets(process_id);
+        if sockets.is_empty() {
             checks.push(json!({
                 "name":   "agent:dry-run",
                 "status": "warn",
                 "detail": "Proceso marcado como running pero sin agentes activos",
             }));
         } else {
-            for key in &keys {
-                let t0     = std::time::Instant::now();
-                let result = state.manager.socket_cmd(key, AgentCommand::SelfTest).await;
+            for (pipeline_id, _sock_path) in &sockets {
+                let key = crate::agent_manager::AgentKey {
+                    process_id,
+                    pipeline_id: pipeline_id.clone(),
+                };
+                let t0      = std::time::Instant::now();
+                let result  = state.manager.socket_cmd(&key, AgentCommand::SelfTest).await;
                 let elapsed = t0.elapsed().as_millis();
 
                 match result {
                     None => checks.push(json!({
-                        "name":   format!("agent:{}", key.pipeline_id),
+                        "name":   format!("agent:{pipeline_id}"),
                         "status": "error",
                         "detail": "Socket no responde",
                     })),
                     Some(resp) if !resp.ok => checks.push(json!({
-                        "name":   format!("agent:{}", key.pipeline_id),
+                        "name":   format!("agent:{pipeline_id}"),
                         "status": "error",
                         "detail": resp.error.unwrap_or_default(),
                     })),
                     Some(resp) => {
                         let data = resp.data.unwrap_or(json!({}));
                         checks.push(json!({
-                            "name":   format!("agent:{}", key.pipeline_id),
+                            "name":   format!("agent:{pipeline_id}"),
                             "status": "ok",
-                            "detail": format!("dry-run ok en {}ms, is_ready={}",
-                                elapsed,
+                            "detail": format!("dry-run ok en {elapsed}ms, is_ready={}",
                                 data.get("is_ready").and_then(|v| v.as_bool()).unwrap_or(false),
                             ),
                             "nodes": data.get("nodes"),
