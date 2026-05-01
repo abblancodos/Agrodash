@@ -1,4 +1,4 @@
-// src/models.rs
+// api/src/models.rs
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
