@@ -13,6 +13,7 @@ use std::{convert::Infallible, time::Duration};
 use tokio::time::interval;
 use uuid::Uuid;
 
+use crate::agent_manager::AgentKey;
 use crate::auth::Claims;
 use tracing::warn;
 use crate::AppState;
@@ -500,11 +501,7 @@ pub async fn self_test(
             .flatten();
 
             let age_secs = last_seen.map(|ts| {
-                chrono::Utc::now()
-                    .signed_duration_since(
-                        chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(ts, chrono::Utc)
-                    )
-                    .num_seconds()
+                chrono::Utc::now().signed_duration_since(ts).num_seconds()
             });
 
             let (status, detail) = match (in_manager, age_secs, last_result) {
