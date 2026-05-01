@@ -449,8 +449,12 @@ pub async fn self_test(
                         }
                     };
 
+                    // age_secs calculado por Postgres con su propio now() —
+                    // evita cualquier desfase de timezone entre la API y la DB.
                     let res = sqlx::query!(
-                        r#"SELECT value::float8 AS "value!: f64", created_at
+                        r#"SELECT value::float8 AS "value!: f64",
+                                  EXTRACT(EPOCH FROM (now() AT TIME ZONE 'America/Costa_Rica' - created_at))::bigint
+                                      AS "age_secs!: i64"
                            FROM readings WHERE sensor_id = $1
                            ORDER BY created_at DESC LIMIT 1"#,
                         sensor_id,
@@ -470,9 +474,7 @@ pub async fn self_test(
                             "detail": "Sin datos en la base de datos",
                         })),
                         Ok(Some(r)) => {
-                            let age_secs = chrono::Utc::now()
-                                .signed_duration_since(chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(r.created_at, chrono::Utc))
-                                .num_seconds();
+                            let age_secs = r.age_secs;
                             let stale = age_secs > 600; // >10 min → stale
                             checks.push(json!({
                                 "name":   format!("sensor:{}", sensor.label),
