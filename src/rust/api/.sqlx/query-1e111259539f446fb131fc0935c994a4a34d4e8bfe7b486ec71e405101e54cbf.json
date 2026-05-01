@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO process_logs (process_id, source, message, user_id)\n         VALUES ($1, 'system', 'Proceso deteniéndose', $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1e111259539f446fb131fc0935c994a4a34d4e8bfe7b486ec71e405101e54cbf"
+}

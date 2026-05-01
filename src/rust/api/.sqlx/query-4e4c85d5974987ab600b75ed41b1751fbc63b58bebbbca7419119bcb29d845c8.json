@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ok, message, data FROM agent_cmd_results\n                         WHERE pipeline_id=$1 AND cmd='self_test'\n                         ORDER BY ts DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ok",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "message",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "data",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "4e4c85d5974987ab600b75ed41b1751fbc63b58bebbbca7419119bcb29d845c8"
+}

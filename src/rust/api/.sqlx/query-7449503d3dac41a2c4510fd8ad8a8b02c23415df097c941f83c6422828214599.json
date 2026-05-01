@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM agent_cmd_results WHERE pipeline_id=$1 AND cmd='self_test'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7449503d3dac41a2c4510fd8ad8a8b02c23415df097c941f83c6422828214599"
+}
