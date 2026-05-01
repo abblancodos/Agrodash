@@ -98,9 +98,8 @@
 
   // Inicializar todos los tags como activos cuando cambia el pipeline
   $effect(() => {
-    const tags = availableTags;
-    if (tags.length) {
-      selectedTags = new Set(tags.map((t: any) => t.tag));
+    if (availableTags.length) {
+      selectedTags = new Set(availableTags.map((t: any) => t.tag));
     }
   });
 
@@ -677,7 +676,7 @@
             selectedTags = s;
             renderCharts();
           }}>
-          <span class="tag-dot" style="background:{COLORS[(tags.indexOf(t)) % COLORS.length]}"></span>
+          <span class="tag-dot" style="background:{COLORS[(availableTags.indexOf(t)) % COLORS.length]}"></span>
           {t.tag || t.id}
         </label>
       {/each}
