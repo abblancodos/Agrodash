@@ -1,21 +1,40 @@
 // agent/src/main.rs
+//
+// Arquitectura desired-state + PG LISTEN/NOTIFY:
+//
+//   Al arrancar:
+//     1. Leer processes.status — si es 'stopping' o 'stopped', salir.
+//     2. Leer config de DB (processes.config).
+//     3. Leer estado guardado (pipeline_states).
+//     4. Leer override_action de pipeline_states.
+//     5. LISTEN "agent_cmd_{pipeline_id}" en conexión dedicada.
+//
+//   En cada ciclo:
+//     - Ejecutar grafo con override si aplica.
+//     - Escribir process_readings.
+//     - Cada N ciclos: guardar pipeline_states.
+//     - Procesar comandos NOTIFY pendientes (canal mpsc).
+//
+//   Al recibir NOTIFY:
+//     - Stop       → marcar stop_flag, terminar loop.
+//     - Override   → aplicar a actuador(es) con validación.
+//     - ClearOverride → limpiar override.
+//     - Reload     → re-leer config de DB, reconstruir grafo.
+//     - Checkpoint → guardar estado ahora.
+//     - SelfTest   → dry-run, escribir en process_self_test.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use agrodash_shared::{
-    AgentCommand, AgentResponse, AgentState, FullAgentState,
-    NodeAction, ProcessConfig, Signal,
+    AgentCommand, AgentCmdResult, AgentState, NodeAction, ProcessConfig,
 };
 use anyhow::{Context, Result};
+use chrono::Utc;
 use clap::Parser;
 use sqlx::PgPool;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{Mutex, RwLock};
-use tokio::time::sleep;
+use tokio::sync::{mpsc, RwLock};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -24,32 +43,27 @@ mod scheduler;
 
 use scheduler::PipelineGraph;
 
+// ── Args ──────────────────────────────────────────────────────────────────────
+
 #[derive(Parser)]
 struct Args {
     #[arg(long)] process_id:  String,
     #[arg(long)] pipeline_id: String,
-    #[arg(long)] api_url:     String,
-    #[arg(long)] api_token:   String,
-    #[arg(long)] sock_path:   Option<PathBuf>,
 }
+
+// ── Shared state ──────────────────────────────────────────────────────────────
 
 struct AgentShared {
-    graph:        RwLock<PipelineGraph>,
-    state:        Mutex<AgentState>,
-    override_act: Mutex<Option<NodeAction>>,
-    stop_flag:    Mutex<bool>,
-    process_cfg:  RwLock<ProcessConfig>,
-    /// Label legible del pipeline (para FullAgentState)
+    graph:          RwLock<PipelineGraph>,
+    override_acts:  RwLock<HashMap<String, NodeAction>>, // actuator_id → action
+    stop_flag:      tokio::sync::Mutex<bool>,
+    cycle:          tokio::sync::Mutex<u64>,
     pipeline_label: String,
+    process_id:     Uuid,
+    pipeline_id:    String,
 }
 
-#[derive(Clone)]
-struct RunCtx {
-    process_id:  Uuid,
-    pipeline_id: String,
-    api_url:     String,
-    api_token:   String,
-}
+// ── Main ──────────────────────────────────────────────────────────────────────
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -57,432 +71,587 @@ async fn main() -> Result<()> {
         .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()))
         .init();
 
-    let args   = Args::parse();
-    let db_url = std::env::var("DATABASE_URL").context("DATABASE_URL no definida")?;
-    let pool   = PgPool::connect(&db_url).await.context("No se pudo conectar a PostgreSQL")?;
+    let args      = Args::parse();
+    let db_url    = std::env::var("DATABASE_URL").context("DATABASE_URL no definida")?;
+    let pool      = PgPool::connect(&db_url).await.context("Falló conexión a PostgreSQL")?;
+    let process_id: Uuid = args.process_id.parse().context("process_id inválido")?;
 
     info!("Agente {}/{} arrancando", args.process_id, args.pipeline_id);
 
-    let proc_config = fetch_config(&args).await?;
-    let pipeline    = proc_config.pipelines.iter()
+    // ── 1. Desired state: verificar si debería estar corriendo ────────────────
+    let status = sqlx::query_scalar!(
+        "SELECT status FROM processes WHERE id = $1",
+        process_id
+    )
+    .fetch_optional(&pool).await?
+    .ok_or_else(|| anyhow::anyhow!("Proceso {} no encontrado", process_id))?;
+
+    if status == "stopping" || status == "stopped" {
+        info!("Proceso en estado '{status}' — agente no arranca");
+        return Ok(());
+    }
+
+    // ── 2. Cargar config de DB ────────────────────────────────────────────────
+    let proc_config = fetch_config(&pool, process_id).await?;
+    let pipeline = proc_config.pipelines.iter()
         .find(|p| p.id == args.pipeline_id)
         .cloned()
-        .context(format!("Pipeline '{}' no encontrado", args.pipeline_id))?;
+        .context(format!("Pipeline '{}' no encontrado en config", args.pipeline_id))?;
 
-    // FIX: guardamos el label legible
     let pipeline_label = pipeline.label.clone();
+    let loop_secs      = pipeline.loop_interval_seconds;
 
-    let saved_state = fetch_state(&args).await.unwrap_or_default();
+    // ── 3. Cargar estado guardado ─────────────────────────────────────────────
+    let saved_state = fetch_state(&pool, process_id, &args.pipeline_id).await
+        .unwrap_or_default();
 
+    // ── 4. Cargar override desde desired state en DB ──────────────────────────
+    let override_acts = load_overrides(&pool, process_id, &args.pipeline_id).await;
+
+    // ── 5. Construir grafo ────────────────────────────────────────────────────
     let mut graph = PipelineGraph::build(
         &pipeline.nodes,
         &pipeline.edges,
         &proc_config.shared_connections,
         &pool,
     ).await?;
-
     graph.load_state(&saved_state);
 
-    info!("Grafo construido — {} nodos, {} edges, ready={}",
-        pipeline.nodes.len(), pipeline.edges.len(), graph.is_ready());
-
-    let ctx = RunCtx {
-        process_id:  args.process_id.parse().context("process_id inválido")?,
-        pipeline_id: args.pipeline_id.clone(),
-        api_url:     args.api_url.clone(),
-        api_token:   args.api_token.clone(),
-    };
+    info!("Grafo construido — {} nodos, ready={}",
+        pipeline.nodes.len(), graph.is_ready());
 
     let shared = Arc::new(AgentShared {
         graph:          RwLock::new(graph),
-        state:          Mutex::new(saved_state),
-        override_act:   Mutex::new(None),
-        stop_flag:      Mutex::new(false),
-        process_cfg:    RwLock::new(proc_config),
+        override_acts:  RwLock::new(override_acts),
+        stop_flag:      tokio::sync::Mutex::new(false),
+        cycle:          tokio::sync::Mutex::new(saved_state.cycle),
         pipeline_label,
+        process_id,
+        pipeline_id:    args.pipeline_id.clone(),
     });
 
-    let sock_path = args.sock_path.clone().unwrap_or_else(|| {
-        PathBuf::from(format!("/run/agents/{}/{}.sock", args.process_id, args.pipeline_id))
-    });
-
-    let shared_sock = shared.clone();
-    let ctx_sock    = ctx.clone();
-    let pool_sock   = pool.clone();
+    // ── 6. Canal de comandos NOTIFY ───────────────────────────────────────────
+    let (cmd_tx, cmd_rx) = mpsc::channel::<AgentCommand>(32);
+    let pool_listener   = pool.clone();
+    let pipeline_id_l   = args.pipeline_id.clone();
     tokio::spawn(async move {
-        if let Err(e) = run_socket_server(sock_path, shared_sock, ctx_sock, pool_sock).await {
-            error!("Socket error: {e}");
-        }
+        run_listener(pool_listener, pipeline_id_l, cmd_tx).await;
     });
 
-    run_loop(&args, &pool, shared, ctx).await;
+    // ── 7. Loop principal ─────────────────────────────────────────────────────
+    run_loop(&pool, shared, cmd_rx, loop_secs).await;
+
+    info!("Agente {}/{} terminado", args.process_id, args.pipeline_id);
     Ok(())
+}
+
+// ── PG LISTENER ───────────────────────────────────────────────────────────────
+
+async fn run_listener(pool: PgPool, pipeline_id: String, tx: mpsc::Sender<AgentCommand>) {
+    let channel = format!("agent_cmd_{pipeline_id}");
+
+    loop {
+        // sqlx::PgListener necesita conexión propia — no comparte pool
+        let mut listener = match sqlx::postgres::PgListener::connect_with(&pool).await {
+            Ok(l)  => l,
+            Err(e) => {
+                error!("Listener: no se pudo conectar: {e} — reintento en 5s");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                continue;
+            }
+        };
+
+        if let Err(e) = listener.listen(&channel).await {
+            error!("Listener: LISTEN falló: {e} — reintento en 5s");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            continue;
+        }
+
+        info!("Listener: escuchando en '{channel}'");
+
+        loop {
+            match listener.recv().await {
+                Ok(notif) => {
+                    let payload = notif.payload();
+                    match serde_json::from_str::<AgentCommand>(payload) {
+                        Ok(cmd) => {
+                            if tx.send(cmd).await.is_err() {
+                                return; // canal cerrado — agente terminó
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Listener: payload inválido '{payload}': {e}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Listener: error de recepción: {e} — reconectando");
+                    break; // salir del loop interno → reconectar
+                }
+            }
+        }
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
 }
 
 // ── Loop principal ────────────────────────────────────────────────────────────
 
-async fn run_loop(args: &Args, pool: &PgPool, shared: Arc<AgentShared>, ctx: RunCtx) {
+async fn run_loop(
+    pool:    &PgPool,
+    shared:  Arc<AgentShared>,
+    mut cmd_rx: mpsc::Receiver<AgentCommand>,
+    loop_secs:  f64,
+) {
+    let interval = Duration::from_secs_f64(loop_secs.max(1.0));
+    const SAVE_EVERY: u64 = 6; // guardar estado cada N ciclos
+
     loop {
+        // Procesar todos los comandos pendientes antes del ciclo
+        while let Ok(cmd) = cmd_rx.try_recv() {
+            if !process_cmd(pool, &shared, cmd).await {
+                // Stop recibido
+                save_state(pool, &shared).await;
+                return;
+            }
+        }
+
         if *shared.stop_flag.lock().await { break; }
 
         let t0 = Instant::now();
-        let interval = {
-            let cfg = shared.process_cfg.read().await;
-            let pl  = cfg.pipelines.iter().find(|p| p.id == ctx.pipeline_id);
-            Duration::from_secs_f64(pl.map(|p| p.loop_interval_seconds).unwrap_or(60.0))
-        };
 
-        let ov = shared.override_act.lock().await.clone();
-
+        // Ejecutar ciclo del grafo
+        let ov_snapshot = shared.override_acts.read().await.clone();
         let result = {
             let mut graph = shared.graph.write().await;
-            graph.run_cycle(pool, interval.as_secs_f64(), &ov).await
+            graph.run_cycle(pool, interval.as_secs_f64(), &ov_snapshot).await
+        };
+
+        let cycle = {
+            let mut c = shared.cycle.lock().await;
+            *c += 1;
+            *c
         };
 
         match result {
+            Err(e) => {
+                error!("Ciclo {cycle} fallido: {e}");
+                write_agent_error(pool, shared.process_id, &shared.pipeline_id, &e.to_string()).await;
+            }
             Ok(signals) => {
-                let cycle    = shared.state.lock().await.cycle + 1;
-                let is_ready = shared.graph.read().await.is_ready();
-                let state    = shared.graph.read().await.save_state(&ctx.pipeline_id, cycle);
+                let is_ready  = shared.graph.read().await.is_ready();
+                let act_str   = actuator_state_str(&signals);
+                let (raw, filtered, p_diag) = extract_readings(&signals, &shared).await;
 
-                // Extraer valores para process_readings
-                let (raw_vals, filtered_vals, p_diag_vals) = extract_reading_values(&signals, &shared).await;
-
-                let act_str = signals.values()
-                    .find_map(|s| match s {
-                        Signal::Action(a) => Some(match a {
-                            NodeAction::On   => "on",
-                            NodeAction::Off  => "off",
-                            NodeAction::Hold => "hold",
-                        }),
-                        _ => None,
-                    })
-                    .unwrap_or("hold");
-
-                // FIX: escribir raw, filtered, p_diag en process_readings
-                let raw_json      = raw_vals.as_ref().map(|v| serde_json::to_value(v).ok()).flatten();
-                let filtered_json = filtered_vals.as_ref().map(|v| serde_json::to_value(v).ok()).flatten();
-                let p_diag_json   = p_diag_vals.as_ref().map(|v| serde_json::to_value(v).ok()).flatten();
-
-                let _ = sqlx::query!(
-                    r#"INSERT INTO process_readings
-                       (process_id, pipeline_id, raw, filtered, p_diag, actuator)
-                       VALUES ($1::uuid, $2, $3, $4, $5, $6)"#,
-                    ctx.process_id,
-                    ctx.pipeline_id,
-                    raw_json,
-                    filtered_json,
-                    p_diag_json,
-                    act_str,
-                )
-                .execute(pool)
-                .await;
+                write_readings(pool, &shared, &raw, &filtered, &p_diag, &act_str).await;
 
                 info!("Ciclo {cycle} ready={is_ready} act={act_str}");
 
-                if let Err(e) = post_state(args, &state).await {
-                    warn!("No se pudo postear estado: {e}");
+                // Guardar estado cada N ciclos
+                if cycle % SAVE_EVERY == 0 {
+                    save_state(pool, &shared).await;
                 }
-                *shared.state.lock().await = state;
-            }
-            Err(e) => {
-                error!("Ciclo fallido: {e}");
-                let _ = post_error(args, &e.to_string()).await;
             }
         }
 
+        // Esperar el resto del intervalo
         let elapsed = t0.elapsed();
-        if elapsed < interval { sleep(interval - elapsed).await; }
-    }
-
-    let state = shared.state.lock().await.clone();
-    let _ = post_state(args, &state).await;
-    info!("Agente {}/{} detenido", ctx.process_id, ctx.pipeline_id);
-}
-
-/// Extrae raw (fuente), filtered (kalman/ewma/etc) y p_diag del mapa de señales del ciclo.
-async fn extract_reading_values(
-    signals: &HashMap<String, Signal>,
-    shared:  &AgentShared,
-) -> (Option<Vec<f64>>, Option<Vec<f64>>, Option<Vec<f64>>) {
-    let states = shared.graph.read().await;
-
-    // raw: primer nodo tipo postgres_sensor
-    let raw = signals.values().find_map(|s| match s {
-        Signal::Vector(v) => Some(v.clone()),
-        _ => None,
-    });
-
-    // filtered y p_diag: del nodo kalman si existe
-    let kalman_state = states.node_state_by_type("kalman");
-    let filtered = kalman_state.as_ref()
-        .and_then(|ns| ns.data.get("x"))
-        .and_then(|v| serde_json::from_value::<Vec<f64>>(v.clone()).ok());
-    let p_diag = kalman_state.as_ref()
-        .and_then(|ns| ns.data.get("p"))
-        .and_then(|v| serde_json::from_value::<Vec<f64>>(v.clone()).ok());
-
-    // Si no hay kalman, buscar ewma/moving_avg/lowpass
-    let filtered = filtered.or_else(|| {
-        for kind in &["ewma", "moving_avg", "lowpass"] {
-            if let Some(ns) = states.node_state_by_type(kind) {
-                let key = if *kind == "moving_avg" { "buf" } else { "y" };
-                if let Some(v) = ns.data.get(key) {
-                    if let Ok(vecs) = serde_json::from_value::<Vec<Vec<f64>>>(v.clone()) {
-                        // moving_avg guarda un buffer — retornar el último
-                        return vecs.last().cloned();
-                    }
-                    if let Ok(vec) = serde_json::from_value::<Vec<f64>>(v.clone()) {
-                        return Some(vec);
-                    }
+        if elapsed < interval {
+            // Procesar comandos mientras esperamos — así el stop es inmediato
+            let wait = interval - elapsed;
+            match tokio::time::timeout(wait, cmd_rx.recv()).await {
+                Ok(Some(cmd)) => {
+                    if !process_cmd(pool, &shared, cmd).await { break; }
                 }
+                Ok(None) => break, // canal cerrado
+                Err(_)   => {}     // timeout normal
             }
         }
-        None
-    });
-
-    (raw, filtered, p_diag)
-}
-
-// ── Socket server ─────────────────────────────────────────────────────────────
-
-async fn run_socket_server(
-    path:   PathBuf,
-    shared: Arc<AgentShared>,
-    ctx:    RunCtx,
-    pool:   PgPool,
-) -> Result<()> {
-    if path.exists() { std::fs::remove_file(&path)?; }
-    if let Some(p) = path.parent() { std::fs::create_dir_all(p)?; }
-    let listener = UnixListener::bind(&path)?;
-    info!("Socket en {:?}", path);
-    loop {
-        let (stream, _) = listener.accept().await?;
-        let sh = shared.clone();
-        let cx = ctx.clone();
-        let pl = pool.clone();
-        tokio::spawn(async move {
-            if let Err(e) = handle_conn(stream, sh, cx, pl).await {
-                warn!("Conn error: {e}");
-            }
-        });
     }
+
+    save_state(pool, &shared).await;
+    mark_stopped(pool, shared.process_id).await;
 }
 
-async fn handle_conn(
-    stream: UnixStream,
-    shared: Arc<AgentShared>,
-    ctx:    RunCtx,
-    pool:   PgPool,
-) -> Result<()> {
-    let (reader, mut writer) = stream.into_split();
-    let mut lines = BufReader::new(reader).lines();
-    while let Some(line) = lines.next_line().await? {
-        let resp = match serde_json::from_str::<AgentCommand>(&line) {
-            Err(e) => AgentResponse::err(format!("JSON inválido: {e}")),
-            Ok(cmd) => dispatch(cmd, &shared, &ctx, &pool).await,
-        };
-        let mut b = serde_json::to_vec(&resp)?;
-        b.push(b'\n');
-        writer.write_all(&b).await?;
-    }
-    Ok(())
-}
+// ── Procesador de comandos ────────────────────────────────────────────────────
+//
+// Retorna false si el agente debe detenerse.
 
-async fn dispatch(
-    cmd:    AgentCommand,
-    shared: &AgentShared,
-    ctx:    &RunCtx,
-    pool:   &PgPool,
-) -> AgentResponse {
+async fn process_cmd(pool: &PgPool, shared: &Arc<AgentShared>, cmd: AgentCommand) -> bool {
     match cmd {
-        AgentCommand::GetState => {
-            let state    = shared.state.lock().await.clone();
-            let is_ready = shared.graph.read().await.is_ready();
-            let ov       = shared.override_act.lock().await.clone();
-            let full = FullAgentState {
-                pipeline_id:     ctx.pipeline_id.clone(),
-                // FIX: usar el label legible guardado al arrancar
-                label:           shared.pipeline_label.clone(),
-                cycle:           state.cycle,
-                is_ready,
-                override_active: ov.is_some(),
-                node_states:     state.node_states,
-                last_signals:    state.last_signals,
+        // ── Stop ──────────────────────────────────────────────────────────────
+        AgentCommand::Stop => {
+            info!("Comando Stop recibido — deteniendo");
+            *shared.stop_flag.lock().await = true;
+            write_cmd_result(pool, shared, "stop", true, "Agente deteniéndose", None).await;
+            return false;
+        }
+
+        // ── Override ──────────────────────────────────────────────────────────
+        AgentCommand::Override { action, actuator_id } => {
+            let actuators = shared.graph.read().await.actuator_ids();
+
+            if actuators.is_empty() {
+                write_cmd_result(pool, shared, "override", false,
+                    "Este pipeline no tiene actuadores configurados", None).await;
+                return true;
+            }
+
+            let target_id = match actuator_id {
+                Some(id) => {
+                    if !actuators.contains(&id) {
+                        let msg = format!(
+                            "Actuador '{}' no existe. Actuadores disponibles: {}",
+                            id, actuators.join(", ")
+                        );
+                        write_cmd_result(pool, shared, "override", false, &msg, None).await;
+                        return true;
+                    }
+                    id
+                }
+                None if actuators.len() == 1 => actuators[0].clone(),
+                None => {
+                    let msg = format!(
+                        "Este pipeline tiene {} actuadores: {}. Especificá cuál con actuator_id.",
+                        actuators.len(), actuators.join(", ")
+                    );
+                    write_cmd_result(pool, shared, "override", false, &msg, None).await;
+                    return true;
+                }
             };
-            AgentResponse::ok(full)
+
+            shared.override_acts.write().await.insert(target_id.clone(), action.clone());
+            persist_overrides(pool, shared).await;
+
+            let msg = format!("Override {:?} aplicado a '{target_id}'", action);
+            info!("{msg}");
+            write_cmd_result(pool, shared, "override", true, &msg, None).await;
         }
 
-        AgentCommand::GetConfig => {
-            let cfg = shared.process_cfg.read().await.clone();
-            AgentResponse::ok(cfg)
+        // ── ClearOverride ─────────────────────────────────────────────────────
+        AgentCommand::ClearOverride { actuator_id } => {
+            let mut ovs = shared.override_acts.write().await;
+
+            if ovs.is_empty() {
+                write_cmd_result(pool, shared, "clear_override", false,
+                    "No hay overrides activos", None).await;
+                return true;
+            }
+
+            match actuator_id {
+                Some(id) => { ovs.remove(&id); }
+                None     => { ovs.clear(); }
+            }
+            drop(ovs);
+            persist_overrides(pool, shared).await;
+
+            write_cmd_result(pool, shared, "clear_override", true,
+                "Override limpiado — modo automático", None).await;
         }
 
-        // FIX: SetConfig reconstruye el grafo con el nuevo pipeline config
-        AgentCommand::SetConfig { config } => {
-            // Buscar el pipeline actualizado en la nueva config
-            match config.pipelines.iter().find(|p| p.id == ctx.pipeline_id) {
-                None => AgentResponse::err("Pipeline no encontrado en nueva config"),
-                Some(pl) => {
-                    match PipelineGraph::build(
-                        &pl.nodes,
-                        &pl.edges,
-                        &config.shared_connections,
-                        pool,
-                    ).await {
-                        Err(e) => AgentResponse::err(format!("Error reconstruyendo grafo: {e}")),
-                        Ok(new_graph) => {
-                            *shared.graph.write().await = new_graph;
-                            *shared.process_cfg.write().await = config;
-                            AgentResponse::ok(serde_json::json!({
-                                "msg": "config actualizado, grafo reconstruido"
-                            }))
+        // ── Reload config ─────────────────────────────────────────────────────
+        AgentCommand::Reload => {
+            match fetch_config(pool, shared.process_id).await {
+                Err(e) => {
+                    error!("Reload: no se pudo leer config: {e}");
+                    write_cmd_result(pool, shared, "reload", false,
+                        &format!("Error leyendo config: {e}"), None).await;
+                }
+                Ok(cfg) => {
+                    match cfg.pipelines.iter().find(|p| p.id == shared.pipeline_id) {
+                        None => {
+                            write_cmd_result(pool, shared, "reload", false,
+                                "Pipeline no encontrado en la nueva config", None).await;
+                        }
+                        Some(pl) => {
+                            match PipelineGraph::build(
+                                &pl.nodes, &pl.edges, &cfg.shared_connections, pool
+                            ).await {
+                                Err(e) => {
+                                    error!("Reload: error construyendo grafo: {e}");
+                                    write_cmd_result(pool, shared, "reload", false,
+                                        &format!("Error en grafo: {e}"), None).await;
+                                }
+                                Ok(new_graph) => {
+                                    *shared.graph.write().await = new_graph;
+                                    let msg = format!("Config recargada — {} nodos",
+                                        pl.nodes.len());
+                                    info!("{msg}");
+                                    write_cmd_result(pool, shared, "reload", true, &msg, None).await;
+                                }
+                            }
                         }
                     }
                 }
             }
         }
 
-        AgentCommand::Override { action } => {
-            *shared.override_act.lock().await = Some(action);
-            AgentResponse::ok(serde_json::json!({"override": true}))
-        }
-
-        AgentCommand::ClearOverride => {
-            *shared.override_act.lock().await = None;
-            AgentResponse::ok(serde_json::json!({"override": false}))
-        }
-
+        // ── Checkpoint ────────────────────────────────────────────────────────
         AgentCommand::Checkpoint => {
-            info!("Checkpoint recibido");
-            let state = shared.state.lock().await.clone();
-            let args_stub = ArgsStub {
-                api_url:     ctx.api_url.clone(),
-                api_token:   ctx.api_token.clone(),
-                process_id:  ctx.process_id.to_string(),
-                pipeline_id: ctx.pipeline_id.clone(),
-            };
-            if let Err(e) = post_state_raw(&args_stub, &state).await {
-                warn!("Checkpoint: no se pudo guardar estado: {e}");
-            }
-            AgentResponse::ok(serde_json::json!({"msg": "checkpoint ok"}))
+            info!("Checkpoint solicitado");
+            save_state(pool, shared).await;
+            write_cmd_result(pool, shared, "checkpoint", true, "Estado guardado", None).await;
         }
 
-        AgentCommand::Stop => {
-            *shared.stop_flag.lock().await = true;
-            AgentResponse::ok(serde_json::json!({"msg": "deteniendo"}))
-        }
-
-        // SelfTest: dry-run de un ciclo sin actuadores, reporta estado por nodo
+        // ── SelfTest ──────────────────────────────────────────────────────────
         AgentCommand::SelfTest => {
-            run_self_test(shared, ctx, pool).await
+            let t0 = Instant::now();
+            let result = {
+                let mut graph = shared.graph.write().await;
+                graph.run_cycle_dry(pool, 1.0).await
+            };
+            let elapsed = t0.elapsed().as_millis();
+
+            match result {
+                Err(e) => {
+                    write_cmd_result(pool, shared, "self_test", false,
+                        &format!("Dry-run falló: {e}"), None).await;
+                }
+                Ok(signals) => {
+                    let is_ready = shared.graph.read().await.is_ready();
+                    let nodes: Vec<serde_json::Value> = signals.iter().map(|(id, sig)| {
+                        serde_json::json!({
+                            "node_id": id,
+                            "signal": match sig {
+                                agrodash_shared::Signal::Vector(v) =>
+                                    serde_json::json!({"type":"vector","values":v}),
+                                agrodash_shared::Signal::Action(a) =>
+                                    serde_json::json!({"type":"action","value":format!("{a:?}")}),
+                            }
+                        })
+                    }).collect();
+
+                    let data = serde_json::json!({
+                        "elapsed_ms": elapsed,
+                        "is_ready":   is_ready,
+                        "nodes":      nodes,
+                    });
+
+                    let msg = format!("Dry-run ok en {elapsed}ms, is_ready={is_ready}");
+                    info!("{msg}");
+                    write_cmd_result(pool, shared, "self_test", true, &msg, Some(data)).await;
+                }
+            }
         }
+    }
+
+    true // continuar
+}
+
+// ── Helpers de escritura ──────────────────────────────────────────────────────
+
+async fn write_cmd_result(
+    pool:    &PgPool,
+    shared:  &AgentShared,
+    cmd:     &str,
+    ok:      bool,
+    message: &str,
+    data:    Option<serde_json::Value>,
+) {
+    let result = AgentCmdResult {
+        pipeline_id: shared.pipeline_id.clone(),
+        cmd:         cmd.to_string(),
+        ok,
+        message:     message.to_string(),
+        data,
+        ts:          Utc::now().to_rfc3339(),
+    };
+
+    let _ = sqlx::query!(
+        r#"INSERT INTO agent_cmd_results
+           (pipeline_id, process_id, cmd, ok, message, data, ts)
+           VALUES ($1, $2, $3, $4, $5, $6, now())"#,
+        shared.pipeline_id,
+        shared.process_id,
+        result.cmd,
+        result.ok,
+        result.message,
+        result.data,
+    )
+    .execute(pool)
+    .await;
+
+    if !ok {
+        warn!("[{}] cmd={cmd} error: {message}", shared.pipeline_id);
     }
 }
 
-// ── Self-test (dry-run) ───────────────────────────────────────────────────────
+async fn save_state(pool: &PgPool, shared: &AgentShared) {
+    let cycle = *shared.cycle.lock().await;
+    let state = shared.graph.read().await.save_state(&shared.pipeline_id, cycle);
 
-async fn run_self_test(
-    shared: &AgentShared,
-    ctx:    &RunCtx,
-    pool:   &PgPool,
-) -> AgentResponse {
-    let t0 = Instant::now();
-    let interval = {
-        let cfg = shared.process_cfg.read().await;
-        let pl  = cfg.pipelines.iter().find(|p| p.id == ctx.pipeline_id);
-        Duration::from_secs_f64(pl.map(|p| p.loop_interval_seconds).unwrap_or(60.0))
-    };
+    let _ = sqlx::query!(
+        r#"INSERT INTO pipeline_states (process_id, pipeline_id, state, updated_at)
+           VALUES ($1, $2, $3, now())
+           ON CONFLICT (process_id, pipeline_id)
+           DO UPDATE SET state = $3, updated_at = now()"#,
+        shared.process_id,
+        shared.pipeline_id,
+        serde_json::to_value(&state).unwrap_or_default(),
+    )
+    .execute(pool)
+    .await;
+}
 
-    // Dry-run: None override para no forzar actuadores, pero sí corremos el ciclo
-    let result = {
-        let mut graph = shared.graph.write().await;
-        graph.run_cycle_dry(pool, interval.as_secs_f64()).await
-    };
+async fn persist_overrides(pool: &PgPool, shared: &AgentShared) {
+    let ovs = shared.override_acts.read().await.clone();
+    let json = serde_json::to_value(&ovs).unwrap_or_default();
 
-    let elapsed_ms = t0.elapsed().as_millis();
+    let _ = sqlx::query!(
+        r#"INSERT INTO pipeline_states (process_id, pipeline_id, override_action, updated_at)
+           VALUES ($1, $2, $3, now())
+           ON CONFLICT (process_id, pipeline_id)
+           DO UPDATE SET override_action = $3, updated_at = now()"#,
+        shared.process_id,
+        shared.pipeline_id,
+        json,
+    )
+    .execute(pool)
+    .await;
+}
 
-    match result {
-        Err(e) => AgentResponse::err(format!("Dry-run falló: {e}")),
-        Ok(signals) => {
-            let node_results: Vec<serde_json::Value> = signals.iter().map(|(id, sig)| {
-                serde_json::json!({
-                    "node_id": id,
-                    "signal":  match sig {
-                        Signal::Vector(v) => serde_json::json!({"type":"vector","values":v}),
-                        Signal::Action(a) => serde_json::json!({"type":"action","value":format!("{a:?}")}),
+async fn mark_stopped(pool: &PgPool, process_id: Uuid) {
+    let _ = sqlx::query!(
+        "UPDATE processes SET status='stopped', updated_at=now() WHERE id=$1",
+        process_id
+    )
+    .execute(pool)
+    .await;
+}
+
+async fn write_agent_error(pool: &PgPool, process_id: Uuid, pipeline_id: &str, msg: &str) {
+    let _ = sqlx::query!(
+        "INSERT INTO process_logs (process_id, level, source, message)
+         VALUES ($1, 'error', $2, $3)",
+        process_id,
+        format!("agent:{pipeline_id}"),
+        msg,
+    )
+    .execute(pool)
+    .await;
+}
+
+async fn write_readings(
+    pool:     &PgPool,
+    shared:   &AgentShared,
+    raw:      &Option<Vec<f64>>,
+    filtered: &Option<Vec<f64>>,
+    p_diag:   &Option<Vec<f64>>,
+    act_str:  &str,
+) {
+    let _ = sqlx::query!(
+        r#"INSERT INTO process_readings
+           (process_id, pipeline_id, raw, filtered, p_diag, actuator)
+           VALUES ($1, $2, $3, $4, $5, $6)"#,
+        shared.process_id,
+        shared.pipeline_id,
+        raw.as_ref().and_then(|v| serde_json::to_value(v).ok()),
+        filtered.as_ref().and_then(|v| serde_json::to_value(v).ok()),
+        p_diag.as_ref().and_then(|v| serde_json::to_value(v).ok()),
+        act_str,
+    )
+    .execute(pool)
+    .await;
+
+    // Actualizar last_seen_at del proceso
+    let _ = sqlx::query!(
+        "UPDATE processes SET last_seen_at=now() WHERE id=$1",
+        shared.process_id
+    )
+    .execute(pool)
+    .await;
+}
+
+// ── DB reads ──────────────────────────────────────────────────────────────────
+
+async fn fetch_config(pool: &PgPool, process_id: Uuid) -> Result<ProcessConfig> {
+    let row = sqlx::query!(
+        "SELECT config FROM processes WHERE id = $1",
+        process_id
+    )
+    .fetch_one(pool).await?;
+
+    serde_json::from_value(row.config).context("Config inválida")
+}
+
+async fn fetch_state(pool: &PgPool, process_id: Uuid, pipeline_id: &str) -> Result<AgentState> {
+    let row = sqlx::query!(
+        "SELECT state FROM pipeline_states WHERE process_id=$1 AND pipeline_id=$2",
+        process_id, pipeline_id,
+    )
+    .fetch_optional(pool).await?;
+
+    match row {
+        Some(r) => serde_json::from_value(r.state).context("Estado inválido"),
+        None    => Ok(AgentState::default()),
+    }
+}
+
+async fn load_overrides(
+    pool:        &PgPool,
+    process_id:  Uuid,
+    pipeline_id: &str,
+) -> HashMap<String, NodeAction> {
+    let row = sqlx::query!(
+        "SELECT override_action FROM pipeline_states WHERE process_id=$1 AND pipeline_id=$2",
+        process_id, pipeline_id,
+    )
+    .fetch_optional(pool).await;
+
+    match row {
+        Ok(Some(r)) if r.override_action.is_some() => {
+            serde_json::from_value(r.override_action.unwrap()).unwrap_or_default()
+        }
+        _ => HashMap::new(),
+    }
+}
+
+// ── Signal helpers ────────────────────────────────────────────────────────────
+
+fn actuator_state_str(signals: &HashMap<String, agrodash_shared::Signal>) -> String {
+    signals.values().find_map(|s| match s {
+        agrodash_shared::Signal::Action(a) => Some(match a {
+            NodeAction::On   => "on",
+            NodeAction::Off  => "off",
+            NodeAction::Hold => "hold",
+        }),
+        _ => None,
+    })
+    .unwrap_or("hold")
+    .to_string()
+}
+
+async fn extract_readings(
+    signals: &HashMap<String, agrodash_shared::Signal>,
+    shared:  &AgentShared,
+) -> (Option<Vec<f64>>, Option<Vec<f64>>, Option<Vec<f64>>) {
+    let graph = shared.graph.read().await;
+
+    let raw = signals.values().find_map(|s| match s {
+        agrodash_shared::Signal::Vector(v) => Some(v.clone()),
+        _ => None,
+    });
+
+    let kalman_state = graph.node_state_by_type("kalman");
+    let filtered = kalman_state.as_ref()
+        .and_then(|ns| ns.data.get("x"))
+        .and_then(|v| serde_json::from_value::<Vec<f64>>(v.clone()).ok())
+        .or_else(|| {
+            for kind in &["ewma", "moving_avg", "lowpass"] {
+                if let Some(ns) = graph.node_state_by_type(kind) {
+                    if let Some(v) = ns.data.get("y") {
+                        if let Ok(vec) = serde_json::from_value::<Vec<f64>>(v.clone()) {
+                            return Some(vec);
+                        }
                     }
-                })
-            }).collect();
+                }
+            }
+            None
+        });
 
-            AgentResponse::ok(serde_json::json!({
-                "status":     "ok",
-                "elapsed_ms": elapsed_ms,
-                "is_ready":   shared.graph.read().await.is_ready(),
-                "nodes":      node_results,
-            }))
-        }
-    }
-}
+    let p_diag = kalman_state.as_ref()
+        .and_then(|ns| ns.data.get("p"))
+        .and_then(|v| serde_json::from_value::<Vec<f64>>(v.clone()).ok());
 
-// ── Stub para post_state sin Args ─────────────────────────────────────────────
-
-struct ArgsStub {
-    api_url:     String,
-    api_token:   String,
-    process_id:  String,
-    pipeline_id: String,
-}
-
-async fn post_state_raw(args: &ArgsStub, state: &AgentState) -> Result<()> {
-    reqwest::Client::new()
-        .post(format!("{}/processes/{}/agent-state/{}",
-            args.api_url, args.process_id, args.pipeline_id))
-        .bearer_auth(&args.api_token)
-        .json(state)
-        .send().await?;
-    Ok(())
-}
-
-// ── API helpers ───────────────────────────────────────────────────────────────
-
-async fn fetch_config(args: &Args) -> Result<ProcessConfig> {
-    reqwest::Client::new()
-        .get(format!("{}/processes/{}/config", args.api_url, args.process_id))
-        .bearer_auth(&args.api_token)
-        .send().await?
-        .json::<ProcessConfig>().await
-        .context("No se pudo parsear config")
-}
-
-async fn fetch_state(args: &Args) -> Result<AgentState> {
-    reqwest::Client::new()
-        .get(format!("{}/processes/{}/agent-state/{}",
-            args.api_url, args.process_id, args.pipeline_id))
-        .bearer_auth(&args.api_token)
-        .send().await?
-        .json::<AgentState>().await
-        .context("No se pudo cargar estado")
-}
-
-async fn post_state(args: &Args, state: &AgentState) -> Result<()> {
-    reqwest::Client::new()
-        .post(format!("{}/processes/{}/agent-state/{}",
-            args.api_url, args.process_id, args.pipeline_id))
-        .bearer_auth(&args.api_token)
-        .json(state)
-        .send().await?;
-    Ok(())
-}
-
-async fn post_error(args: &Args, msg: &str) -> Result<()> {
-    reqwest::Client::new()
-        .post(format!("{}/processes/{}/agent-error", args.api_url, args.process_id))
-        .bearer_auth(&args.api_token)
-        .json(&serde_json::json!({
-            "error":       msg,
-            "pipeline_id": args.pipeline_id,
-        }))
-        .send().await?;
-    Ok(())
+    (raw, filtered, p_diag)
 }

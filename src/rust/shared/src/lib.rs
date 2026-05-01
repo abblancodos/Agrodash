@@ -340,38 +340,60 @@ pub struct FullAgentState {
     pub last_signals:    HashMap<String, SignalSnapshot>,
 }
 
-// ── Protocolo socket ──────────────────────────────────────────────────────────
+// ── Protocolo NOTIFY ─────────────────────────────────────────────────────────
+//
+// Canal API → Agente: NOTIFY "agent_cmd_{pipeline_id}" con payload JSON.
+// Canal Agente → todos: escribe en pipeline_states y process_readings.
+//
+// Diseño desired-state:
+//   - Stop      → API escribe processes.status='stopping', luego NOTIFY
+//   - Override  → API escribe pipeline_states.override_action, luego NOTIFY
+//   - Reload    → API actualizó processes.config, agente re-lee de DB
+//   - Checkpoint→ agente guarda estado en DB inmediatamente
+//   - SelfTest  → agente corre dry-run, escribe en process_self_test
+//
+// Si el agente no está escuchando cuando llega el NOTIFY, no importa:
+// al arrancar lee el desired state de la DB directamente.
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum AgentCommand {
-    GetState,
-    GetConfig,
-    /// Recarga el ProcessConfig completo y reconstruye el grafo del pipeline.
-    SetConfig    { config: ProcessConfig },
-    Override     { action: NodeAction },
-    ClearOverride,
-    Checkpoint,
+    /// Detener el agente. El desired state ya está en processes.status='stopping'.
     Stop,
-    /// Ejecuta un ciclo dry-run (sin actuadores) y reporta el estado de cada nodo.
-    /// Usado por el self-test de infraestructura.
+
+    /// Aplicar o limpiar override de actuador.
+    /// El desired state ya está en pipeline_states.override_action.
+    /// Si actuator_id es None y hay un solo actuador, lo aplica a ese.
+    /// Si hay múltiples actuadores y no se especifica, el agente responde con error descriptivo.
+    Override {
+        action:      NodeAction,
+        actuator_id: Option<String>,
+    },
+
+    /// Limpiar override — volver a modo automático.
+    ClearOverride {
+        actuator_id: Option<String>,
+    },
+
+    /// La config del proceso cambió en DB — re-leer y reconstruir grafo.
+    /// No se envía la config en el payload para evitar el límite de 8KB de NOTIFY.
+    Reload,
+
+    /// Guardar estado en DB inmediatamente (antes del intervalo normal).
+    Checkpoint,
+
+    /// Dry-run de un ciclo sin actuadores — resultado en process_self_test.
     SelfTest,
 }
 
+/// Respuesta que el agente escribe en process_cmd_results tras ejecutar un comando.
+/// La API la puede leer para health checks y self-test.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentResponse {
-    pub ok:    bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data:  Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-impl AgentResponse {
-    pub fn ok(data: impl Serialize) -> Self {
-        Self { ok: true, data: Some(serde_json::to_value(data).unwrap_or_default()), error: None }
-    }
-    pub fn err(msg: impl ToString) -> Self {
-        Self { ok: false, data: None, error: Some(msg.to_string()) }
-    }
+pub struct AgentCmdResult {
+    pub pipeline_id: String,
+    pub cmd:         String,
+    pub ok:          bool,
+    pub message:     String,
+    pub data:        Option<serde_json::Value>,
+    pub ts:          String,
 }

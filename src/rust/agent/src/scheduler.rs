@@ -54,12 +54,12 @@ impl PipelineGraph {
         }
     }
 
-    /// Ciclo normal — incluye actuadores con override opcional.
+    /// Ciclo normal — override por actuator_id (HashMap vacío = modo automático).
     pub async fn run_cycle(
         &mut self,
         pool:         &PgPool,
         dt:           f64,
-        override_act: &Option<NodeAction>,
+        overrides:    &HashMap<String, NodeAction>,
     ) -> Result<HashMap<String, Signal>> {
         let mut signals: HashMap<String, Signal> = HashMap::new();
 
@@ -70,7 +70,7 @@ impl PipelineGraph {
                 .context(format!("Nodo '{node_id}' no encontrado"))?;
 
             let output = if node.is_actuator() {
-                if let Some(action) = override_act {
+                if let Some(action) = overrides.get(node_id) {
                     node.execute_override(action.clone()).await?
                 } else {
                     node.execute(inputs, dt, pool).await?
@@ -126,6 +126,14 @@ impl PipelineGraph {
             last_signals: HashMap::new(),
             cycle,
         }
+    }
+
+    /// IDs de todos los nodos actuador del grafo.
+    pub fn actuator_ids(&self) -> Vec<String> {
+        self.nodes.iter()
+            .filter(|(_, n)| n.is_actuator())
+            .map(|(id, _)| id.clone())
+            .collect()
     }
 
     pub fn is_ready(&self) -> bool {

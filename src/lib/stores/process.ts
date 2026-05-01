@@ -260,13 +260,16 @@ function createProcessStore() {
       const res = await fetch(`${API}/api/v1/processes/${id}/stop`, {
         method: 'POST', credentials: 'include',
       });
-      if (!res.ok) {
+      // 202 Accepted = stop en progreso (async)
+      // 200/204      = ya estaba detenido
+      if (!res.ok && res.status !== 202) {
         const d = await res.json().catch(() => ({}));
         throw new Error(d.error ?? `HTTP ${res.status}`);
       }
+      // Marcar como 'stopping' — el poll actualizará a 'stopped' cuando el agente confirme
       update(s => ({
         ...s,
-        process: s.process ? { ...s.process, status: 'stopped' } : s.process,
+        process: s.process ? { ...s.process, status: 'stopping' as any } : s.process,
       }));
     },
 

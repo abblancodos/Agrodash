@@ -267,7 +267,8 @@
   .ctrl-error    { font-size:calc(11px * var(--font-scale)); color:#e05454; font-family:'DM Mono',monospace; }
 
   .status-badge   { font-size:calc(10px * var(--font-scale)); font-family:'DM Mono',monospace; padding:2px 7px; border-radius:10px; background:var(--bg-inset); color:var(--text-muted); }
-  .status-running { background:#EAF3DE; color:#3B6D11; }
+  .status-running  { background:#EAF3DE; color:#3B6D11; }
+  .status-stopping { background:#FEF3C7; color:#92400E; }
   .status-error   { background:#FCEBEB; color:#A32D2D; }
 
   .action-btn { padding:calc(5px * var(--font-scale)) calc(12px * var(--font-scale)); border-radius:6px; border:0.5px solid var(--border-default); background:none; cursor:pointer; font-size:calc(12px * var(--font-scale)); font-family:'DM Mono',monospace; color:var(--text-secondary); transition:background .15s; }

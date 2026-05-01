@@ -347,7 +347,7 @@ pub async fn start_process(
     let cfg: ProcessConfig = serde_json::from_value(row.config)
         .map_err(|e| err(format!("Config inválida: {e}")))?;
 
-    // Marcar como running
+    // 1. Desired state: marcar como running en DB
     sqlx::query!(
         "UPDATE processes SET status='running', updated_at=now() WHERE id=$1",
         process_id
@@ -356,7 +356,7 @@ pub async fn start_process(
     .await
     .map_err(err)?;
 
-    // Spawnear un agente por pipeline
+    // 2. Spawnar agentes (ellos leen el desired state al arrancar)
     for pipeline in &cfg.pipelines {
         state.manager.spawn(process_id, pipeline.id.clone()).await;
     }
@@ -373,6 +373,10 @@ pub async fn start_process(
 }
 
 // ── POST /processes/:id/stop ──────────────────────────────────────────────────
+//
+// Patrón async: escribe desired state en DB → NOTIFY → retorna 202.
+// El agente se detiene en su próximo ciclo y escribe status='stopped'.
+// El frontend detecta el cambio de status en el próximo poll.
 
 pub async fn stop_process(
     State(state): State<AppState>,
@@ -381,26 +385,42 @@ pub async fn stop_process(
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
     require_process_role(&state.pool, process_id, claims.sub, "operator").await?;
 
-    // Detener agentes (graceful: checkpoint → kill)
-    state.manager.stop_process(process_id).await;
+    let row = sqlx::query!(
+        "SELECT status FROM processes WHERE id=$1", process_id
+    )
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(err)?
+    .ok_or_else(not_found)?;
 
+    if row.status == "stopped" {
+        return Ok(StatusCode::ACCEPTED); // ya está detenido
+    }
+
+    // 1. Escribir desired state: 'stopping'
     sqlx::query!(
-        "UPDATE processes SET status='stopped', updated_at=now() WHERE id=$1",
+        "UPDATE processes SET status='stopping', updated_at=now() WHERE id=$1",
         process_id
     )
     .execute(&state.pool)
     .await
     .map_err(err)?;
 
+    // 2. NOTIFY a cada agente activo (y a cualquiera que esté escuchando)
+    state.manager.stop_process(process_id).await;
+
+    // 3. Log
     sqlx::query!(
-        "INSERT INTO process_logs (process_id, source, message, user_id) VALUES ($1,'system','Proceso detenido',$2)",
+        "INSERT INTO process_logs (process_id, source, message, user_id)
+         VALUES ($1, 'system', 'Proceso deteniéndose', $2)",
         process_id, claims.sub
     )
     .execute(&state.pool)
     .await
     .ok();
 
-    Ok(StatusCode::NO_CONTENT)
+    // 202 Accepted — el stop ocurre de forma async
+    Ok(StatusCode::ACCEPTED)
 }
 
 // ── POST /processes/:id/test — self-test de infraestructura ───────────────────
@@ -670,9 +690,9 @@ pub async fn self_test(
 
 // ── POST /processes/:id/command ───────────────────────────────────────────────
 //
-// Traduce el comando HTTP del frontend al AgentCommand correcto y lo
-// envía vía socket Unix al agente del pipeline especificado.
-// Body: { cmd: "Override"|"ClearOverride"|"Checkpoint", pipeline_id: "...", action?: "on"|"off" }
+// Traduce el comando HTTP al AgentCommand y lo envía vía PG NOTIFY.
+// Para Override/ClearOverride: escribe desired state en DB primero.
+// Body: { cmd, pipeline_id, action?, actuator_id? }
 
 pub async fn send_command(
     State(state): State<AppState>,
@@ -684,9 +704,18 @@ pub async fn send_command(
 
     let cmd_str     = body.get("cmd").and_then(|v| v.as_str()).unwrap_or("");
     let pipeline_id = body.get("pipeline_id").and_then(|v| v.as_str()).unwrap_or("");
+    let actuator_id = body.get("actuator_id").and_then(|v| v.as_str()).map(String::from);
 
-    // Traducir cmd string → AgentCommand
-    let agent_cmd: agrodash_shared::AgentCommand = match cmd_str {
+    if pipeline_id.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "pipeline_id requerido"}))));
+    }
+
+    let key = crate::agent_manager::AgentKey {
+        process_id,
+        pipeline_id: pipeline_id.to_string(),
+    };
+
+    let agent_cmd = match cmd_str {
         "Override" => {
             let action_str = body.get("action").and_then(|v| v.as_str()).unwrap_or("hold");
             let action = match action_str {
@@ -694,34 +723,53 @@ pub async fn send_command(
                 "off" => agrodash_shared::NodeAction::Off,
                 _     => agrodash_shared::NodeAction::Hold,
             };
-            agrodash_shared::AgentCommand::Override { action }
+
+            // Desired state: escribir override en pipeline_states
+            let json_action = serde_json::to_value(&action).unwrap_or_default();
+            sqlx::query!(
+                r#"INSERT INTO pipeline_states (process_id, pipeline_id, override_action, updated_at)
+                   VALUES ($1, $2, $3, now())
+                   ON CONFLICT (process_id, pipeline_id)
+                   DO UPDATE SET override_action = $3, updated_at = now()"#,
+                process_id, pipeline_id,
+                serde_json::json!({ actuator_id.clone().unwrap_or_else(|| "__all__".into()): json_action }),
+            )
+            .execute(&state.pool)
+            .await
+            .map_err(err)?;
+
+            agrodash_shared::AgentCommand::Override { action, actuator_id }
         }
-        "ClearOverride" => agrodash_shared::AgentCommand::ClearOverride,
-        "Checkpoint"    => agrodash_shared::AgentCommand::Checkpoint,
-        "SelfTest"      => agrodash_shared::AgentCommand::SelfTest,
+
+        "ClearOverride" => {
+            // Desired state: limpiar override
+            sqlx::query!(
+                r#"INSERT INTO pipeline_states (process_id, pipeline_id, override_action, updated_at)
+                   VALUES ($1, $2, NULL, now())
+                   ON CONFLICT (process_id, pipeline_id)
+                   DO UPDATE SET override_action = NULL, updated_at = now()"#,
+                process_id, pipeline_id,
+            )
+            .execute(&state.pool)
+            .await
+            .map_err(err)?;
+
+            agrodash_shared::AgentCommand::ClearOverride { actuator_id }
+        }
+
+        "Checkpoint" => agrodash_shared::AgentCommand::Checkpoint,
+        "Reload"     => agrodash_shared::AgentCommand::Reload,
+        "SelfTest"   => agrodash_shared::AgentCommand::SelfTest,
+
         other => return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({"error": format!("Comando desconocido: {other}")})),
         )),
     };
 
-    // Construir key y enviar al socket del agente
-    let key = crate::agent_manager::AgentKey {
-        process_id,
-        pipeline_id: pipeline_id.to_string(),
-    };
-
-    let response = state.manager.socket_cmd(&key, agent_cmd).await
-        .ok_or_else(|| (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "El agente no responde — puede estar iniciando o detenido"})),
-        ))?;
-
-    if !response.ok {
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": response.error.unwrap_or_else(|| "Error en agente".into())})),
-        ));
+    // NOTIFY al agente — fire and forget
+    if let Err(e) = state.manager.notify(&key, agent_cmd).await {
+        warn!("NOTIFY falló para {pipeline_id}: {e} — el desired state en DB garantiza ejecución al reiniciar");
     }
 
     // Log
@@ -737,7 +785,7 @@ pub async fn send_command(
     .await
     .ok();
 
-    Ok(Json(response.data.unwrap_or(json!({"ok": true}))))
+    Ok(Json(json!({"accepted": true, "cmd": cmd_str, "pipeline_id": pipeline_id})))
 }
 
 // ── GET /processes/:id/state ──────────────────────────────────────────────────
