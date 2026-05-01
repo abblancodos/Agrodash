@@ -56,17 +56,16 @@ export interface PipelineAgentState {
 }
 
 export interface Process {
-  id:            string;
-  name:          string;
-  description:   string | null;
-  type:          string;
-  status:        'running' | 'stopped' | 'error' | 'unknown';
-  config:        ProcessConfig | null;
-  last_seen_at:  string | null;
-  owner_id:      string;
-  created_at:    string;
-  user_role:     string | null;
-  active_agents: number;
+  id:           string;
+  name:         string;
+  description:  string | null;
+  type:         string;
+  status:       'running' | 'stopped' | 'error' | 'unknown';
+  config:       ProcessConfig | null;
+  last_seen_at: string | null;
+  owner_id:     string;
+  created_at:   string;
+  user_role:    string | null;
 }
 
 export interface ProcessLog {
@@ -90,21 +89,18 @@ export interface ProcessReading {
   actuator:    string | null;
 }
 
-// ── Self-test types ───────────────────────────────────────────────────────────
+export type TestStatus = 'ok' | 'warn' | 'error' | 'info';
 
-export type CheckStatus = 'ok' | 'warn' | 'error';
-
-export interface CheckResult {
-  name:        string;
-  status:      CheckStatus;
-  detail:      string;
-  latency_ms?: number;
+export interface TestCheck {
+  name:   string;
+  status: TestStatus;
+  detail: string;
+  nodes?: any[];
 }
 
-export interface SelfTestReport {
-  overall:     CheckStatus;
-  checks:      CheckResult[];
-  duration_ms: number;
+export interface SelfTestResult {
+  overall: TestStatus;
+  checks:  TestCheck[];
 }
 
 // ── Store state ───────────────────────────────────────────────────────────────
@@ -115,6 +111,8 @@ interface ProcessStoreState {
   logs:           ProcessLog[];
   loading:        boolean;
   error:          string | null;
+  testResult:     SelfTestResult | null;
+  testLoading:    boolean;
 }
 
 const INITIAL: ProcessStoreState = {
@@ -123,6 +121,8 @@ const INITIAL: ProcessStoreState = {
   logs:           [],
   loading:        false,
   error:          null,
+  testResult:     null,
+  testLoading:    false,
 };
 
 function createProcessStore() {
@@ -173,7 +173,7 @@ function createProcessStore() {
     },
 
     // ── SSE ────────────────────────────────────────────────────────────────
-    startSSE(id: string, intervalSecs = 5) {
+    startSSE(id: string, intervalSecs = 10) {
       this.stopSSE();
       const url = `${API}/api/v1/processes/${id}/stream?interval_secs=${intervalSecs}`;
 
@@ -195,8 +195,8 @@ function createProcessStore() {
                 ? payload.new_logs : [];
               const logs = newLogs.length
                 ? (() => {
-                    const existingIds   = new Set(s.logs.map(l => l.id).filter(Boolean));
-                    const existingTsMsg = new Set(s.logs.map(l => `${l.ts}|${l.message}`));
+                    const existingIds     = new Set(s.logs.map(l => l.id).filter(Boolean));
+                    const existingTsMsg   = new Set(s.logs.map(l => `${l.ts}|${l.message}`));
                     const fresh = newLogs.filter(l =>
                       (!l.id || !existingIds.has(l.id)) &&
                       !existingTsMsg.has(`${l.ts}|${l.message}`)
@@ -223,6 +223,17 @@ function createProcessStore() {
       };
 
       connect();
+
+      // Pausar SSE cuando la pestaña no está visible para no acumular buffer
+      const handleVisibility = () => {
+        if (document.hidden) {
+          sseSource?.close();
+          sseSource = null;
+        } else {
+          connect();
+        }
+      };
+      document.addEventListener('visibilitychange', handleVisibility);
     },
 
     stopSSE() {
@@ -230,19 +241,7 @@ function createProcessStore() {
       sseSource = null;
     },
 
-    // ── Comandos ──────────────────────────────────────────────────────────
-    async command(id: string, cmd: Record<string, any>): Promise<any> {
-      const res = await fetch(`${API}/api/v1/processes/${id}/command`, {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(cmd),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-      return data;
-    },
-
-    // ── Start / Stop ──────────────────────────────────────────────────────
+    // ── Ciclo de vida del proceso ──────────────────────────────────────────
     async start(id: string): Promise<void> {
       const res = await fetch(`${API}/api/v1/processes/${id}/start`, {
         method: 'POST', credentials: 'include',
@@ -271,20 +270,42 @@ function createProcessStore() {
       }));
     },
 
-    // ── Self-test ─────────────────────────────────────────────────────────
-    async selfTest(id: string, healthOnly = false): Promise<SelfTestReport> {
-      const res = await fetch(
-        `${API}/api/v1/processes/${id}/test?health_only=${healthOnly}`,
-        { method: 'POST', credentials: 'include' }
-      );
+    // ── Self-test ──────────────────────────────────────────────────────────
+    async selfTest(id: string, healthOnly = true): Promise<SelfTestResult> {
+      update(s => ({ ...s, testLoading: true, testResult: null }));
+      try {
+        const res = await fetch(`${API}/api/v1/processes/${id}/test?health_only=${healthOnly}`, {
+          method: 'POST', credentials: 'include',
+        });
+        const data: SelfTestResult = await res.json();
+        if (!res.ok) throw new Error((data as any).error ?? `HTTP ${res.status}`);
+        update(s => ({ ...s, testResult: data, testLoading: false }));
+        return data;
+      } catch (e: any) {
+        update(s => ({ ...s, testLoading: false }));
+        throw e;
+      }
+    },
+
+    clearTestResult() {
+      update(s => ({ ...s, testResult: null }));
+    },
+
+    // ── Comandos (override) ────────────────────────────────────────────────
+    async command(id: string, cmd: Record<string, any>): Promise<any> {
+      const res = await fetch(`${API}/api/v1/processes/${id}/command`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cmd),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-      return data as SelfTestReport;
+      return data;
     },
 
     // ── Readings ──────────────────────────────────────────────────────────
     async fetchReadings(
-      id: string,
+      id:         string,
       pipelineId: string,
       sinceHours: number,
       limit = 500

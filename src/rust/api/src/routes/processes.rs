@@ -411,11 +411,19 @@ pub async fn stop_process(
 //
 // Retorna: { overall: "ok"|"warn"|"error", checks: [...] }
 
+#[derive(Deserialize)]
+pub struct SelfTestQuery {
+    pub health_only: Option<bool>,
+}
+
 pub async fn self_test(
     State(state): State<AppState>,
     claims: Claims,
     Path(process_id): Path<Uuid>,
+    Query(q): Query<SelfTestQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // health_only=true: solo ping de socket a agentes activos, sin checks de DB/MQTT/HTTP
+    let health_only = q.health_only.unwrap_or(false);
     require_process_role(&state.pool, process_id, claims.sub, "operator").await?;
 
     let row = sqlx::query!(
@@ -431,6 +439,29 @@ pub async fn self_test(
         .map_err(|e| err(format!("Config inválida: {e}")))?;
 
     let mut checks: Vec<Value> = vec![];
+
+    if health_only {
+        // Modo rápido: solo verificar que los agentes responden
+        let sockets = state.manager.process_sockets(process_id);
+        if sockets.is_empty() {
+            checks.push(json!({"name":"agent","status":"warn","detail":"Sin agentes activos"}));
+        } else {
+            for (pipeline_id, _) in &sockets {
+                let key = crate::agent_manager::AgentKey { process_id, pipeline_id: pipeline_id.clone() };
+                let t0 = std::time::Instant::now();
+                let resp = state.manager.socket_cmd(&key, agrodash_shared::AgentCommand::GetState).await;
+                let ms = t0.elapsed().as_millis();
+                match resp {
+                    None => checks.push(json!({"name":format!("agent:{pipeline_id}"),"status":"error","detail":"Socket no responde"})),
+                    Some(r) if !r.ok => checks.push(json!({"name":format!("agent:{pipeline_id}"),"status":"error","detail":r.error.unwrap_or_default()})),
+                    Some(_) => checks.push(json!({"name":format!("agent:{pipeline_id}"),"status":"ok","detail":format!("responde en {ms}ms")})),
+                }
+            }
+        }
+        let overall = if checks.iter().any(|c| c["status"] == "error") { "error" }
+            else if checks.iter().any(|c| c["status"] == "warn") { "warn" } else { "ok" };
+        return Ok(Json(json!({"overall": overall, "checks": checks})));
+    }
 
     // ── 1. Verificar sensores (última lectura en DB) ───────────────────────
     for pipeline in &cfg.pipelines {
@@ -638,43 +669,75 @@ pub async fn self_test(
 }
 
 // ── POST /processes/:id/command ───────────────────────────────────────────────
+//
+// Traduce el comando HTTP del frontend al AgentCommand correcto y lo
+// envía vía socket Unix al agente del pipeline especificado.
+// Body: { cmd: "Override"|"ClearOverride"|"Checkpoint", pipeline_id: "...", action?: "on"|"off" }
 
 pub async fn send_command(
     State(state): State<AppState>,
     claims: Claims,
     Path(process_id): Path<Uuid>,
-    Json(mut body): Json<Value>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_process_role(&state.pool, process_id, claims.sub, "operator").await?;
 
-    let row = sqlx::query!(
-        "SELECT control_url, api_key FROM processes WHERE id = $1",
-        process_id
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(err)?
-    .ok_or_else(not_found)?;
+    let cmd_str     = body.get("cmd").and_then(|v| v.as_str()).unwrap_or("");
+    let pipeline_id = body.get("pipeline_id").and_then(|v| v.as_str()).unwrap_or("");
 
-    body["_user_id"] = json!(claims.sub.to_string());
+    // Traducir cmd string → AgentCommand
+    let agent_cmd: agrodash_shared::AgentCommand = match cmd_str {
+        "Override" => {
+            let action_str = body.get("action").and_then(|v| v.as_str()).unwrap_or("hold");
+            let action = match action_str {
+                "on"  => agrodash_shared::NodeAction::On,
+                "off" => agrodash_shared::NodeAction::Off,
+                _     => agrodash_shared::NodeAction::Hold,
+            };
+            agrodash_shared::AgentCommand::Override { action }
+        }
+        "ClearOverride" => agrodash_shared::AgentCommand::ClearOverride,
+        "Checkpoint"    => agrodash_shared::AgentCommand::Checkpoint,
+        "SelfTest"      => agrodash_shared::AgentCommand::SelfTest,
+        other => return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Comando desconocido: {other}")})),
+        )),
+    };
 
-    let result = control_post(&row.control_url, &row.api_key, "/command", body.clone())
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, Json(json!({"error": e}))))?;
+    // Construir key y enviar al socket del agente
+    let key = crate::agent_manager::AgentKey {
+        process_id,
+        pipeline_id: pipeline_id.to_string(),
+    };
 
-    let cmd = body.get("cmd").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let response = state.manager.socket_cmd(&key, agent_cmd).await
+        .ok_or_else(|| (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "El agente no responde — puede estar iniciando o detenido"})),
+        ))?;
+
+    if !response.ok {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": response.error.unwrap_or_else(|| "Error en agente".into())})),
+        ));
+    }
+
+    // Log
     sqlx::query!(
-        r#"
-        INSERT INTO process_logs (process_id, level, source, message, data, user_id)
-        VALUES ($1, 'info', 'user', $2, $3, $4)
-        "#,
-        process_id, format!("cmd:{cmd}"), body, claims.sub,
+        "INSERT INTO process_logs (process_id, level, source, message, data, user_id)
+         VALUES ($1, 'info', 'user', $2, $3, $4)",
+        process_id,
+        format!("cmd:{cmd_str}:{pipeline_id}"),
+        body,
+        claims.sub,
     )
     .execute(&state.pool)
     .await
     .ok();
 
-    Ok(Json(result))
+    Ok(Json(response.data.unwrap_or(json!({"ok": true}))))
 }
 
 // ── GET /processes/:id/state ──────────────────────────────────────────────────
