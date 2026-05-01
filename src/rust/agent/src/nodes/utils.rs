@@ -6,7 +6,7 @@ use anyhow::Result;
 use sqlx::PgPool;
 use super::{NodeInstance, expect_vector};
 
-// ── Concat — une vectores de múltiples entradas ───────────────────────────────
+// ── Concat — une vectores de múltiples entradas ──────────────────────
 
 pub struct ConcatNode { id: String }
 impl ConcatNode { pub fn new(id: String) -> Self { Self { id } } }
