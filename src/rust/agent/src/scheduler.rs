@@ -115,17 +115,50 @@ impl PipelineGraph {
         Ok(signals)
     }
 
-    pub fn save_state(&self, pipeline_id: &str, cycle: u64) -> AgentState {
+    pub fn save_state(&self, pipeline_id: &str, cycle: u64, label: &str, override_active: bool) -> AgentState {
         let node_states: HashMap<String, NodeState> = self.nodes.iter()
             .map(|(id, node)| (id.clone(), node.save_state()))
             .collect();
 
         AgentState {
-            pipeline_id:  pipeline_id.to_string(),
+            pipeline_id:     pipeline_id.to_string(),
             node_states,
-            last_signals: HashMap::new(),
+            last_signals:    HashMap::new(),
             cycle,
+            is_ready:        self.is_ready(),
+            override_active,
+            label:           label.to_string(),
         }
+    }
+
+    /// Recoger scope_values — para cada Logger del grafo, retorna {tag: señal}
+    /// usando las señales del ciclo actual. El agente llama esto después de run_cycle.
+    pub fn collect_scope_values(
+        &self,
+        signals: &HashMap<String, Signal>,
+    ) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+
+        for (node_id, node) in &self.nodes {
+            let state = node.save_state();
+            if state.node_type != "logger" { continue; }
+
+            let tag = state.data.get("tag")
+                .and_then(|v| v.as_str())
+                .unwrap_or(node_id)
+                .to_string();
+
+            // La señal del Logger es la que él mismo emitió (= la de su input)
+            if let Some(sig) = signals.get(node_id) {
+                let val = match sig {
+                    Signal::Vector(v) => serde_json::json!(v),
+                    Signal::Action(a) => serde_json::json!(format!("{a:?}").to_lowercase()),
+                };
+                map.insert(tag, val);
+            }
+        }
+
+        serde_json::Value::Object(map)
     }
 
     /// IDs de todos los nodos actuador del grafo.

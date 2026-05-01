@@ -243,7 +243,15 @@ async fn run_loop(
                 let act_str   = actuator_state_str(&signals);
                 let (raw, filtered, p_diag) = extract_readings(&signals, &shared).await;
 
-                write_readings(pool, &shared, &raw, &filtered, &p_diag, &act_str).await;
+                // Recoger scope_values de los Logger del grafo
+                let scope_values = shared.graph.read().await.collect_scope_values(&signals);
+                let scope_json = if scope_values.as_object().map(|m| !m.is_empty()).unwrap_or(false) {
+                    Some(scope_values)
+                } else {
+                    None
+                };
+
+                write_readings(pool, &shared, &raw, &filtered, &p_diag, &act_str, scope_json).await;
 
                 info!("Ciclo {cycle} ready={is_ready} act={act_str}");
 
@@ -478,7 +486,10 @@ async fn write_cmd_result(
 
 async fn save_state(pool: &PgPool, shared: &AgentShared) {
     let cycle = *shared.cycle.lock().await;
-    let state = shared.graph.read().await.save_state(&shared.pipeline_id, cycle);
+    let override_active = !shared.override_acts.read().await.is_empty();
+    let state = shared.graph.read().await.save_state(
+        &shared.pipeline_id, cycle, &shared.pipeline_label, override_active
+    );
 
     let _ = sqlx::query!(
         r#"INSERT INTO pipeline_states (process_id, pipeline_id, state, updated_at)
@@ -532,23 +543,25 @@ async fn write_agent_error(pool: &PgPool, process_id: Uuid, pipeline_id: &str, m
 }
 
 async fn write_readings(
-    pool:     &PgPool,
-    shared:   &AgentShared,
-    raw:      &Option<Vec<f64>>,
-    filtered: &Option<Vec<f64>>,
-    p_diag:   &Option<Vec<f64>>,
-    act_str:  &str,
+    pool:         &PgPool,
+    shared:       &AgentShared,
+    raw:          &Option<Vec<f64>>,
+    filtered:     &Option<Vec<f64>>,
+    p_diag:       &Option<Vec<f64>>,
+    act_str:      &str,
+    scope_values: Option<serde_json::Value>,
 ) {
     let _ = sqlx::query!(
         r#"INSERT INTO process_readings
-           (process_id, pipeline_id, raw, filtered, p_diag, actuator)
-           VALUES ($1, $2, $3, $4, $5, $6)"#,
+           (process_id, pipeline_id, raw, filtered, p_diag, actuator, scope_values)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
         shared.process_id,
         shared.pipeline_id,
         raw.as_ref().and_then(|v| serde_json::to_value(v).ok()),
         filtered.as_ref().and_then(|v| serde_json::to_value(v).ok()),
         p_diag.as_ref().and_then(|v| serde_json::to_value(v).ok()),
         act_str,
+        scope_values,
     )
     .execute(pool)
     .await;

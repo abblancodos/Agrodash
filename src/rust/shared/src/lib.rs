@@ -304,11 +304,14 @@ pub enum Reduction {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AgentState {
-    pub pipeline_id:  String,
-    /// Estado por nodo — keyed por node_id
-    pub node_states:  HashMap<String, NodeState>,
-    pub last_signals: HashMap<String, SignalSnapshot>,
-    pub cycle:        u64,
+    pub pipeline_id:     String,
+    pub node_states:     HashMap<String, NodeState>,
+    pub last_signals:    HashMap<String, SignalSnapshot>,
+    pub cycle:           u64,
+    /// Agregados al nivel raíz para que el frontend los lea directamente
+    pub is_ready:        bool,
+    pub override_active: bool,
+    pub label:           String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
