@@ -102,6 +102,50 @@
     return node?.data?.total_on ?? null;
   }
 
+  // Para cada Logger, seguir el edge upstream y leer el estado del nodo fuente
+  function getLoggerData(pid: string): { tag: string; nodeType: string; data: any }[] {
+    const pl = pipelines.find((p: any) => p.id === pid);
+    const s  = states[pid];
+    if (!pl || !s) return [];
+
+    return (pl.nodes ?? [])
+      .filter((n: any) => n.type === 'logger')
+      .map((n: any) => {
+        const upstreamId    = (pl.edges ?? []).find((e: any) => e.target === n.id)?.source;
+        const upstreamState = upstreamId ? s.node_states?.[upstreamId] : null;
+        return {
+          tag:      n.tag || n.id,
+          nodeType: upstreamState?.node_type ?? 'unknown',
+          data:     upstreamState?.data ?? {},
+        };
+      })
+      .filter(l => l.nodeType !== 'unknown');
+  }
+
+  // Formatear el valor de un nodo según su tipo
+  function fmtNodeValue(nodeType: string, data: any): string {
+    switch (nodeType) {
+      case 'kalman':
+      case 'ewma':
+      case 'lowpass':
+      case 'moving_avg':
+        return (data.x ?? data.y ?? []).map((v: number) => v.toFixed(4)).join(', ');
+      case 'mahalanobis':
+        return `d=${data.last_d?.toFixed(3) ?? '—'}  ${data.hyst ?? ''}`;
+      case 'hysteresis':
+        return data.state ?? '—';
+      case 'mqtt_actuator':
+      case 'http_actuator':
+        return data.last_action ?? '—';
+      case 'postgres_sensor':
+        return '(fuente)';
+      default:
+        if (Array.isArray(data.x)) return data.x.map((v: number) => v.toFixed(4)).join(', ');
+        if (Array.isArray(data.y)) return data.y.map((v: number) => v.toFixed(4)).join(', ');
+        return JSON.stringify(data).slice(0, 40);
+    }
+  }
+
   function fmtSeconds(s: number): string {
     if (s < 60)   return `${s.toFixed(0)}s`;
     if (s < 3600) return `${(s/60).toFixed(1)}min`;
@@ -266,6 +310,20 @@
                 {/if}
               </div>
 
+              <!-- Logger values — siguiendo edges upstream -->
+              {@const loggerData = getLoggerData(pl.id)}
+              {#if loggerData.length}
+                <div class="logger-row">
+                  {#each loggerData as lv (lv.tag)}
+                    <div class="logger-item">
+                      <span class="logger-tag">{lv.tag}</span>
+                      <span class="logger-sub">{lv.nodeType}</span>
+                      <span class="logger-val">{fmtNodeValue(lv.nodeType, lv.data)}</span>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+
               <!-- Chart — componente aislado, maneja su propio lifecycle -->
               <PipelineChart
                 {processId}
@@ -374,6 +432,12 @@
   .val-item  { display:flex; flex-direction:column; gap:2px; }
   .val-label { font-size:calc(10px * var(--font-scale)); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .val-num   { font-size:calc(14px * var(--font-scale)); font-family:'DM Mono',monospace; font-weight:500; color:var(--text-primary); }
+
+  .logger-row  { display:flex; flex-wrap:wrap; gap:calc(8px * var(--font-scale)); padding:calc(6px * var(--font-scale)) 0; border-top:0.5px solid var(--border-subtle); }
+  .logger-item { display:flex; flex-direction:column; gap:1px; min-width:80px; }
+  .logger-tag  { font-size:calc(9px * var(--font-scale)); color:var(--text-muted); font-family:'DM Mono',monospace; text-transform:uppercase; letter-spacing:.06em; }
+  .logger-sub  { font-size:calc(8px * var(--font-scale)); color:var(--text-muted); font-family:'DM Mono',monospace; opacity:0.6; }
+  .logger-val  { font-size:calc(13px * var(--font-scale)); font-family:'DM Mono',monospace; color:var(--text-primary); }
 
   .override-row { display:flex; align-items:center; gap:6px; padding-top:calc(6px * var(--font-scale)); border-top:0.5px solid var(--border-subtle); flex-wrap:wrap; }
   .ov-label { font-size:calc(11px * var(--font-scale)); color:var(--text-muted); font-family:'DM Mono',monospace; }

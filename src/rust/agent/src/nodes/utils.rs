@@ -66,7 +66,12 @@ impl NodeInstance for LoggerNode {
         Ok(None)
     }
     fn save_state(&self) -> NodeState {
-        NodeState { node_id: self.id.clone(), node_type: "logger".into(), data: serde_json::json!({}), is_ready: true }
+        NodeState {
+            node_id:   self.id.clone(),
+            node_type: "logger".into(),
+            data:      serde_json::json!({ "tag": self.tag }),
+            is_ready:  true,
+        }
     }
     fn load_state(&mut self, _: &NodeState) {}
 }
