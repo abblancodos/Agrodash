@@ -74,14 +74,14 @@
   }
 
   // ── Labels del pipeline seleccionado ──────────────────────────────────────
-  const sensorLabels = $derived(() => {
+  const sensorLabels = $derived.by(() => {
     const pl = pipelines.find((p: any) => p.id === selectedPipeline);
     return pl?.nodes.find((n: any) => n.type === 'postgres_sensor')
       ?.sensors?.map((s: any) => s.label) ?? [];
   });
 
   // Loggers del pipeline: cada uno con su tag y el nodo upstream que observa
-  const loggerDefs = $derived(() => {
+  const loggerDefs = $derived.by(() => {
     const pl = pipelines.find((p: any) => p.id === selectedPipeline);
     if (!pl) return [];
     return (pl.nodes ?? [])
@@ -94,20 +94,18 @@
   });
 
   // Alias para compatibilidad con los toggles
-  const availableTags = $derived(() =>
-    loggerDefs().map((l: any) => ({ id: l.id, tag: l.tag }))
-  );
+  const availableTags = $derived(loggerDefs.map((l: any) => ({ id: l.id, tag: l.tag })));
 
   // Inicializar todos los tags como activos cuando cambia el pipeline
   $effect(() => {
-    const tags = availableTags();
+    const tags = availableTags;
     if (tags.length) {
       selectedTags = new Set(tags.map((t: any) => t.tag));
     }
   });
 
   // ── Estadísticas del pipeline seleccionado ────────────────────────────────
-  const pipelineStats = $derived(() => {
+  const pipelineStats = $derived.by(() => {
     const s = states[selectedPipeline];
     if (!s) return null;
 
@@ -242,7 +240,7 @@
 
       for (let i = 0; i < nDims; i++) {
         const color = COLORS[i % COLORS.length];
-        const label = sensorLabels()[i] ?? `s${i+1}`;
+        const label = sensorLabels[i] ?? `s${i+1}`;
 
         if (chartMode !== 'filtered') {
           datasets.push({
@@ -582,8 +580,7 @@
   {/if}
 
   <!-- Stats panel -->
-  {@const st = pipelineStats()}
-  {#if st}
+  {#if pipelineStats}
     <div class="stats-panel">
 
       <!-- Kalman -->
@@ -669,11 +666,10 @@
   {/if}
 
   <!-- Toggles de Logger tags -->
-  {@const tags = availableTags()}
-  {#if tags.length}
+  {#if availableTags.length}
     <div class="tags-panel">
       <span class="tags-title">señales logger</span>
-      {#each tags as t (t.id)}
+      {#each availableTags as t (t.id)}
         <label class="tag-toggle" class:active={selectedTags.has(t.tag)}
           onclick={() => {
             const s = new Set(selectedTags);
