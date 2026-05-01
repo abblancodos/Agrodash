@@ -69,8 +69,7 @@
   // ── Chart.js (igual a SensorChart) ────────────────────────────────────────
   const COLORS = ['#4a90d9','#3da85a','#e07b54','#7c6fcd','#e8a838','#d47cb0','#78c4b8','#8a9bb0'];
 
-  // Map de canvases por pipeline_id — actualizado via acción use:mountCanvas
-  const canvasMap = new Map<string, HTMLCanvasElement>();
+  let canvasEl = $state<HTMLCanvasElement | null>(null);
   let charts    = $state<Record<string, any>>({});
   let rdLoading = $state<Record<string, boolean>>({});
   let rdEmpty   = $state<Record<string, boolean>>({});
@@ -101,7 +100,7 @@
   }
 
   function renderChart(pipelineId: string, data: ProcessReading[]) {
-    const canvas = canvasMap.get(pipelineId);
+    const canvas = canvasEl;
     if (!canvas) return;
 
     const labels = data.map(r => formatLabel(r.ts));
@@ -255,17 +254,15 @@
     return () => obs.disconnect();
   });
 
-  // Acción Svelte: registra el canvas en el Map cuando se monta
-  function mountCanvas(node: HTMLCanvasElement, pipelineId: string) {
-    canvasMap.set(pipelineId, node);
-    // Trigger render ahora que el canvas está disponible
-    loadAndRender(pipelineId);
-    return {
-      destroy() { canvasMap.delete(pipelineId); }
-    };
-  }
+  // $effect reacciona cuando canvasEl cambia (canvas montado en DOM)
+  $effect(() => {
+    const id = expanded;
+    const canvas = canvasEl;
+    if (!id || !canvas) return;
+    loadAndRender(id);
+  });
 
-  // mountCanvas (acción use:) se encarga de cargar cuando el canvas se monta
+  // dummy comment
 
   onDestroy(() => {
     for (const c of Object.values(charts)) c?.destroy();
@@ -459,7 +456,7 @@
                 {:else if rdEmpty[pl.id]}
                   <div class="chart-empty">Sin lecturas en las últimas 2h</div>
                 {:else}
-                  <canvas use:mountCanvas={pl.id}></canvas>
+                  <canvas bind:this={canvasEl}></canvas>
                 {/if}
               </div>
 

@@ -722,7 +722,7 @@ pub async fn stream_state(
 
             let row = sqlx::query!(
                 r#"
-                SELECT status, last_state, last_seen_at,
+                SELECT status, last_seen_at,
                        (
                            SELECT json_agg(json_build_object(
                                'ts', l.ts, 'level', l.level,
@@ -746,9 +746,11 @@ pub async fn stream_state(
                         .map(|t| t.to_rfc3339())
                         .or(last_seen.clone());
 
+                    // SSE solo manda status + last_seen_at + logs nuevos.
+                    // last_state (JSON grande con node_states) se omite aquí
+                    // y se carga una sola vez en GET /processes/:id al montar.
                     let payload = json!({
                         "status":      r.status,
-                        "last_state":  r.last_state,
                         "last_seen_at": r.last_seen_at,
                         "new_logs":    r.new_logs,
                     });
