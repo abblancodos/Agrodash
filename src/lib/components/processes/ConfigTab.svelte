@@ -132,9 +132,14 @@
   }
 
   function removePipeline(idx: number) {
-    if (!draft || draft.pipelines.length <= 1) return;
+    if (!draft) return;
+    const pl = draft.pipelines[idx];
+    const msg = draft.pipelines.length <= 1
+      ? `¿Eliminar el único pipeline "${pl.label}"? El proceso quedará sin pipelines.`
+      : `¿Eliminar "${pl.label}"?`;
+    if (!confirm(msg)) return;
     draft.pipelines = draft.pipelines.filter((_, i) => i !== idx);
-    activePl = Math.min(activePl, draft.pipelines.length - 1);
+    activePl = Math.max(0, Math.min(activePl, draft.pipelines.length - 1));
     markDirty();
   }
 

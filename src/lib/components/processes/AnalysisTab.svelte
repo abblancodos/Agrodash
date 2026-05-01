@@ -1,11 +1,14 @@
 <!-- src/lib/components/processes/AnalysisTab.svelte -->
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
+  import Chart from 'chart.js/auto';
   import { processStore, type ProcessReading } from '$lib/stores/process';
 
   let { processId }: { processId: string } = $props();
 
   const proc      = $derived($processStore.process);
   const pipelines = $derived(proc?.config?.pipelines ?? []);
+  const states    = $derived($processStore.pipelineStates);
 
   let selectedPipeline = $state('');
   let chartMode        = $state<'raw' | 'filtered' | 'both'>('both');
@@ -22,7 +25,6 @@
 
   const COLORS = ['#4a90d9','#3da85a','#e07b54','#7c6fcd','#e8a838','#d47cb0','#78c4b8','#8a9bb0'];
 
-  // Seleccionar primer pipeline por defecto
   $effect(() => {
     if (pipelines.length && !selectedPipeline) {
       selectedPipeline = pipelines[0].id;
@@ -41,6 +43,7 @@
     loading = true;
     try {
       readings = await processStore.fetchReadings(processId, selectedPipeline, hours, 1000);
+      renderCharts();
     } catch {}
     finally { loading = false; }
   }
@@ -50,103 +53,316 @@
     if (preset) load(preset.hours);
   }
 
-  // Labels del pipeline seleccionado
-  const labels = $derived(() => {
+  // ── Labels del pipeline seleccionado ──────────────────────────────────────
+  const sensorLabels = $derived(() => {
     const pl = pipelines.find((p: any) => p.id === selectedPipeline);
-    const src = pl?.nodes.find((n: any) => n.type === 'postgres_sensor');
-    return src?.sensors?.map((s: any) => s.label) ?? [];
+    return pl?.nodes.find((n: any) => n.type === 'postgres_sensor')
+      ?.sensors?.map((s: any) => s.label) ?? [];
   });
 
-  // ── SVG chart ─────────────────────────────────────────────────────────────
-  const W = 800; const H = 260;
-  const PAD = { top: 10, right: 20, bottom: 40, left: 56 };
-  const iw = W - PAD.left - PAD.right;
-  const ih = H - PAD.top  - PAD.bottom;
+  // ── Estadísticas del pipeline seleccionado ────────────────────────────────
+  const pipelineStats = $derived(() => {
+    const s = states[selectedPipeline];
+    if (!s) return null;
 
-  const chartData = $derived(() => {
-    if (readings.length < 2) return null;
-    const n = readings[0].filtered?.length ?? readings[0].raw?.length ?? 0;
-    if (!n) return null;
+    const nodeVals = Object.values(s.node_states ?? {});
+    const kalman   = nodeVals.find((n: any) => n.node_type === 'kalman');
+    const mah      = nodeVals.find((n: any) => n.node_type === 'mahalanobis');
+    const actuator = nodeVals.find((n: any) =>
+      n.node_type === 'mqtt_actuator' || n.node_type === 'http_actuator');
 
-    const allVals: number[] = [];
-    for (const r of readings) {
-      if (chartMode !== 'filtered') r.raw?.forEach(v => allVals.push(v));
-      if (chartMode !== 'raw')      r.filtered?.forEach(v => allVals.push(v));
-    }
-    if (!allVals.length) return null;
+    // Estadísticas de readings
+    const vwcVals = readings
+      .map(r => (r.filtered ?? r.raw)?.[0])
+      .filter((v): v is number => v != null);
 
-    const minV = Math.min(...allVals);
-    const maxV = Math.max(...allVals);
-    const rv = maxV - minV || 1;
-    const minT = new Date(readings[0].ts).getTime();
-    const maxT = new Date(readings[readings.length-1].ts).getTime();
-    const rt = maxT - minT || 1;
+    const mean = vwcVals.length
+      ? vwcVals.reduce((a, b) => a + b, 0) / vwcVals.length
+      : null;
+    const std  = mean != null && vwcVals.length > 1
+      ? Math.sqrt(vwcVals.reduce((a, v) => a + (v - mean) ** 2, 0) / vwcVals.length)
+      : null;
+    const minV = vwcVals.length ? Math.min(...vwcVals) : null;
+    const maxV = vwcVals.length ? Math.max(...vwcVals) : null;
 
-    const sx = (ts: string) => ((new Date(ts).getTime() - minT) / rt) * iw;
-    const sy = (v: number)  => ih - ((v - minV) / rv) * ih;
+    // Tiempo ON
+    const onReadings = readings.filter(r => r.actuator === 'on').length;
+    const pctOn = readings.length ? (onReadings / readings.length * 100) : null;
 
-    const rawPaths:  string[] = Array(n).fill('');
-    const filtPaths: string[] = Array(n).fill('');
+    return {
+      // Kalman
+      x:       kalman?.data?.x?.[0] ?? null,
+      p:       kalman?.data?.p?.[0] ?? null,
+      n:       kalman?.data?.n ?? null,
+      // Mahalanobis
+      last_d:  mah?.data?.last_d ?? null,
+      hyst:    mah?.data?.hyst ?? null,
+      // Actuador
+      act:     actuator?.data?.last_action ?? null,
+      total_on: actuator?.data?.total_on ?? null,
+      // Estadísticas de la serie
+      mean, std, minV, maxV, pctOn,
+      cycle:   s.cycle,
+      ready:   s.is_ready,
+    };
+  });
 
-    for (const r of readings) {
-      const x = sx(r.ts);
-      for (let i = 0; i < n; i++) {
-        if (chartMode !== 'filtered' && r.raw?.[i] != null) {
-          const y = sy(r.raw[i]);
-          rawPaths[i] += rawPaths[i] ? ` L${x.toFixed(1)},${y.toFixed(1)}` : `M${x.toFixed(1)},${y.toFixed(1)}`;
+  // ── Chart.js ──────────────────────────────────────────────────────────────
+  let canvasSignal: HTMLCanvasElement | null = null;
+  let canvasMah:    HTMLCanvasElement | null = null;
+  let chartSignal:  Chart | null = null;
+  let chartMah:     Chart | null = null;
+
+  function cssVar(n: string) {
+    return getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  }
+
+  function formatTs(iso: string): string {
+    const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z');
+    return d.toLocaleTimeString('es-CR', {
+      month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+  }
+
+  function renderCharts() {
+    if (!readings.length) return;
+    const labels = readings.map(r => formatTs(r.ts));
+    const tick   = cssVar('--chart-tick');
+    const grid   = cssVar('--chart-grid');
+
+    const nDims = readings.find(r => r.filtered?.length)?.filtered?.length
+               ?? readings.find(r => r.raw?.length)?.raw?.length ?? 1;
+
+    // ── Chart 1: señal raw + filtered + bandas ON ──────────────────────────
+    if (canvasSignal) {
+      const datasets: any[] = [];
+
+      for (let i = 0; i < nDims; i++) {
+        const color = COLORS[i % COLORS.length];
+        const label = sensorLabels()[i] ?? `s${i+1}`;
+
+        if (chartMode !== 'filtered') {
+          datasets.push({
+            label: `${label} (crudo)`,
+            data:  readings.map(r => r.raw?.[i] ?? null),
+            borderColor: color + '66',
+            backgroundColor: 'transparent',
+            borderWidth: 1,
+            borderDash: [4, 3],
+            pointRadius: 0,
+            fill: false,
+            tension: 0.2,
+          });
         }
-        if (chartMode !== 'raw' && r.filtered?.[i] != null) {
-          const y = sy(r.filtered[i]);
-          filtPaths[i] += filtPaths[i] ? ` L${x.toFixed(1)},${y.toFixed(1)}` : `M${x.toFixed(1)},${y.toFixed(1)}`;
+        if (chartMode !== 'raw') {
+          datasets.push({
+            label: `${label} (filtrado)`,
+            data:  readings.map(r => r.filtered?.[i] ?? null),
+            borderColor: color,
+            backgroundColor: color + '18',
+            borderWidth: 1.8,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            fill: i === 0,
+            tension: 0.3,
+          });
         }
+      }
+
+      // Banda de actuador como dataset de fondo
+      datasets.push({
+        label: 'actuador ON',
+        data:  readings.map(r => r.actuator === 'on' ? Infinity : null),
+        borderColor: 'transparent',
+        backgroundColor: 'rgba(61,168,90,0.08)',
+        fill: 'stack',
+        pointRadius: 0,
+        tension: 0,
+        yAxisID: 'yAct',
+      });
+
+      if (chartSignal) {
+        chartSignal.data.labels   = labels;
+        chartSignal.data.datasets = datasets;
+        chartSignal.update('none');
+      } else if (canvasSignal) {
+        chartSignal = new Chart(canvasSignal, {
+          type: 'line',
+          data: { labels, datasets },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            animation: { duration: 200 },
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: {
+                display: true, position: 'top',
+                labels: { color: tick, font: { size: 9, family: "'DM Mono',monospace" }, boxWidth: 12, padding: 8,
+                  filter: (item: any) => item.text !== 'actuador ON' },
+              },
+              tooltip: {
+                backgroundColor: cssVar('--chart-tooltip-bg'),
+                titleColor: cssVar('--chart-tooltip-title'),
+                bodyColor: cssVar('--chart-tooltip-body'),
+                borderColor: cssVar('--chart-tooltip-border'),
+                borderWidth: 1, padding: 8,
+                callbacks: {
+                  label: (ctx: any) => ctx.dataset.label === 'actuador ON' ? null
+                    : ` ${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(4) ?? '—'}`,
+                  afterBody: (items: any[]) => {
+                    const i = items[0]?.dataIndex;
+                    if (i == null) return [];
+                    const r = readings[i];
+                    const lines = [];
+                    if (r?.actuator) lines.push(`actuador: ${r.actuator}`);
+                    if (r?.p_diag?.[0] != null) lines.push(`P: ${r.p_diag[0].toExponential(2)}`);
+                    return lines;
+                  },
+                },
+              },
+            },
+            scales: {
+              x: {
+                ticks: { color: tick, font: { size: 9, family: "'DM Mono',monospace" }, maxTicksLimit: 8, maxRotation: 0 },
+                grid: { color: grid }, border: { color: grid },
+              },
+              y: {
+                ticks: { color: tick, font: { size: 9, family: "'DM Mono',monospace" }, maxTicksLimit: 5 },
+                grid: { color: grid }, border: { color: grid },
+              },
+              yAct: { display: false, min: 0, max: 1 },
+            },
+          },
+        });
       }
     }
 
-    const ticks = Array.from({length: 5}, (_, i) => ({
-      y: sy(minV + (rv * i) / 4),
-      label: (minV + (rv * i) / 4).toFixed(3),
-    }));
+    // ── Chart 2: distancia Mahalanobis en el tiempo ────────────────────────
+    // Los p_diag están en process_readings — usamos p_diag[0] como proxy de incertidumbre
+    // y necesitamos leer last_d del pipeline_states histórico
+    // Por ahora graficamos p_diag[0] (incertidumbre Kalman) que sí tenemos
+    if (canvasMah) {
+      const pData = readings.map(r => r.p_diag?.[0] ?? null);
+      const hasPData = pData.some(v => v != null);
 
-    const xTicks = [0, 0.25, 0.5, 0.75, 1].map(f => ({
-      x: f * iw,
-      label: new Date(minT + f * rt).toLocaleTimeString('es-CR', {
-        month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', hour12: false,
-      }),
-    }));
+      if (!hasPData) {
+        if (chartMah) { chartMah.destroy(); chartMah = null; }
+        return;
+      }
 
-    // Bandas de actuador ON
-    const actBands: {x0: number; x1: number}[] = [];
-    for (let i = 1; i < readings.length; i++) {
-      if (readings[i].actuator === 'on') {
-        actBands.push({ x0: sx(readings[i-1].ts), x1: sx(readings[i].ts) });
+      const mahDatasets = [
+        {
+          label: 'incertidumbre P (Kalman)',
+          data:  pData,
+          borderColor: '#7c6fcd',
+          backgroundColor: '#7c6fcd18',
+          borderWidth: 1.5,
+          pointRadius: 0,
+          fill: true,
+          tension: 0.3,
+        },
+      ];
+
+      if (chartMah) {
+        chartMah.data.labels   = labels;
+        chartMah.data.datasets = mahDatasets;
+        chartMah.update('none');
+      } else if (canvasMah) {
+        chartMah = new Chart(canvasMah, {
+          type: 'line',
+          data: { labels, datasets: mahDatasets },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            animation: { duration: 200 },
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: {
+                display: true, position: 'top',
+                labels: { color: tick, font: { size: 9, family: "'DM Mono',monospace" }, boxWidth: 12, padding: 8 },
+              },
+              tooltip: {
+                backgroundColor: cssVar('--chart-tooltip-bg'),
+                titleColor: cssVar('--chart-tooltip-title'),
+                bodyColor: cssVar('--chart-tooltip-body'),
+                borderColor: cssVar('--chart-tooltip-border'),
+                borderWidth: 1, padding: 8,
+                callbacks: {
+                  label: (ctx: any) => ` ${ctx.dataset.label}: ${ctx.parsed.y?.toExponential(3) ?? '—'}`,
+                },
+              },
+            },
+            scales: {
+              x: {
+                ticks: { color: tick, font: { size: 9, family: "'DM Mono',monospace" }, maxTicksLimit: 8, maxRotation: 0 },
+                grid: { color: grid }, border: { color: grid },
+              },
+              y: {
+                ticks: { color: tick, font: { size: 9, family: "'DM Mono',monospace" }, maxTicksLimit: 4 },
+                grid: { color: grid }, border: { color: grid },
+              },
+            },
+          },
+        });
       }
     }
+  }
 
-    return { n, rawPaths, filtPaths, ticks, xTicks, actBands };
+  // Observar tema
+  let obs: MutationObserver | null = null;
+  onMount(() => {
+    obs = new MutationObserver(() => {
+      for (const c of [chartSignal, chartMah]) {
+        if (!c) continue;
+        const tick = cssVar('--chart-tick');
+        const grid = cssVar('--chart-grid');
+        (c.options.scales as any).x.ticks.color = tick;
+        (c.options.scales as any).x.grid.color  = grid;
+        (c.options.scales as any).y.ticks.color = tick;
+        (c.options.scales as any).y.grid.color  = grid;
+        c.update('none');
+      }
+    });
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
   });
+
+  onDestroy(() => {
+    chartSignal?.destroy();
+    chartMah?.destroy();
+    obs?.disconnect();
+  });
+
+  function fmtSeconds(s: number): string {
+    if (s < 60)   return `${s.toFixed(0)}s`;
+    if (s < 3600) return `${(s/60).toFixed(1)}min`;
+    return `${(s/3600).toFixed(2)}h`;
+  }
+
+  function mahColor(d: number | null): string {
+    if (d == null) return 'var(--text-muted)';
+    if (d > 2.0) return '#e07b54';
+    if (d > 0.8) return '#e8a838';
+    return '#3da85a';
+  }
 </script>
 
 <div class="analysis">
 
   <!-- Toolbar -->
   <div class="toolbar">
-    <!-- Selector de pipeline -->
     <div class="pl-selector">
       {#each pipelines as pl (pl.id)}
         <button class="pl-btn" class:active={selectedPipeline === pl.id}
-          onclick={() => selectedPipeline = pl.id}>{pl.label}</button>
+          onclick={() => { selectedPipeline = pl.id; }}>
+          {pl.label}
+        </button>
       {/each}
     </div>
-
     <div class="toolbar-right">
-      <!-- Modo -->
       <div class="btn-group">
-        <button class="cmbtn" class:active={chartMode==='raw'}      onclick={() => chartMode='raw'}>crudo</button>
-        <button class="cmbtn" class:active={chartMode==='filtered'} onclick={() => chartMode='filtered'}>filtrado</button>
-        <button class="cmbtn" class:active={chartMode==='both'}     onclick={() => chartMode='both'}>ambos</button>
+        <button class="cmbtn" class:active={chartMode==='raw'}      onclick={() => { chartMode='raw';      refresh(); }}>crudo</button>
+        <button class="cmbtn" class:active={chartMode==='filtered'} onclick={() => { chartMode='filtered'; refresh(); }}>filtrado</button>
+        <button class="cmbtn" class:active={chartMode==='both'}     onclick={() => { chartMode='both';     refresh(); }}>ambos</button>
       </div>
-      <!-- Tiempo -->
       <div class="btn-group">
         {#each PRESETS as p (p.label)}
           <button class="cmbtn" class:active={timePreset===p.label}
@@ -157,70 +373,112 @@
     </div>
   </div>
 
-  <!-- Chart -->
+  <!-- Stats panel -->
+  {@const st = pipelineStats()}
+  {#if st}
+    <div class="stats-panel">
+
+      <!-- Kalman -->
+      <div class="stats-group">
+        <span class="stats-group-title">Kalman</span>
+        <div class="stats-row">
+          <div class="stat">
+            <span class="stat-l">x̂ estimado</span>
+            <span class="stat-v">{st.x?.toFixed(4) ?? '—'}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-l">incertidumbre P</span>
+            <span class="stat-v">{st.p != null ? st.p.toExponential(3) : '—'}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-l">muestras</span>
+            <span class="stat-v">{st.n ?? '—'}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-l">estado</span>
+            <span class="stat-v" style="color:{st.ready ? '#3da85a' : '#e8a838'}">
+              {st.ready ? 'convergido' : 'warmup'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mahalanobis -->
+      <div class="stats-group">
+        <span class="stats-group-title">Mahalanobis</span>
+        <div class="stats-row">
+          <div class="stat">
+            <span class="stat-l">distancia d</span>
+            <span class="stat-v" style="color:{mahColor(st.last_d)}">
+              {st.last_d?.toFixed(4) ?? '—'}
+            </span>
+          </div>
+          <div class="stat">
+            <span class="stat-l">decisión</span>
+            <span class="stat-v">{st.hyst ?? '—'}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-l">actuador</span>
+            <span class="stat-v" style="color:{st.act === 'on' ? '#3da85a' : st.act === 'off' ? '#e05454' : 'var(--text-muted)'}">
+              {st.act?.toUpperCase() ?? '—'}
+            </span>
+          </div>
+          <div class="stat">
+            <span class="stat-l">total ON</span>
+            <span class="stat-v">{st.total_on != null ? fmtSeconds(st.total_on) : '—'}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Serie -->
+      <div class="stats-group">
+        <span class="stats-group-title">Serie ({timePreset})</span>
+        <div class="stats-row">
+          <div class="stat">
+            <span class="stat-l">media</span>
+            <span class="stat-v">{st.mean?.toFixed(4) ?? '—'}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-l">desv. estándar</span>
+            <span class="stat-v">{st.std?.toFixed(4) ?? '—'}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-l">mín</span>
+            <span class="stat-v">{st.minV?.toFixed(4) ?? '—'}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-l">máx</span>
+            <span class="stat-v">{st.maxV?.toFixed(4) ?? '—'}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-l">% tiempo ON</span>
+            <span class="stat-v">{st.pctOn != null ? st.pctOn.toFixed(1) + '%' : '—'}</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  {/if}
+
+  <!-- Chart 1: señal -->
   {#if loading}
     <div class="chart-msg">cargando...</div>
+  {:else if readings.length < 2}
+    <div class="chart-msg">sin lecturas en este rango</div>
   {:else}
-    {@const cd = chartData()}
-    {#if !cd}
-      <div class="chart-msg">sin lecturas en este rango</div>
-    {:else}
+    <div class="chart-wrap">
+      <div class="chart-label">señal · raw vs filtrado · bandas = actuador ON</div>
+      <div class="chart-body">
+        <canvas bind:this={canvasSignal}></canvas>
+      </div>
+    </div>
+
+    <!-- Chart 2: incertidumbre Kalman -->
+    {#if readings.some(r => r.p_diag?.length)}
       <div class="chart-wrap">
-        <svg viewBox="0 0 {W} {H}" class="chart-svg" preserveAspectRatio="xMidYMid meet">
-          <g transform="translate({PAD.left},{PAD.top})">
-
-            <!-- Bandas actuador ON -->
-            {#each cd.actBands as band (band.x0)}
-              <rect x={band.x0} y="0" width={band.x1 - band.x0} height={ih}
-                fill="rgba(61,168,90,0.08)"/>
-            {/each}
-
-            <!-- Grid Y -->
-            {#each cd.ticks as tick (tick.label)}
-              <line x1="0" y1={tick.y} x2={iw} y2={tick.y} stroke="var(--border-subtle)" stroke-width="0.5"/>
-              <text x="-8" y={tick.y+4} text-anchor="end" font-size="9" fill="var(--text-muted)">{tick.label}</text>
-            {/each}
-
-            <!-- Grid X -->
-            {#each cd.xTicks as tick (tick.label)}
-              <text x={tick.x} y={ih+22} text-anchor="middle" font-size="8" fill="var(--text-muted)">{tick.label}</text>
-            {/each}
-
-            <!-- Paths crudos -->
-            {#if chartMode !== 'filtered'}
-              {#each cd.rawPaths as path, i (i)}
-                <path d={path} stroke={COLORS[i%COLORS.length]} stroke-width="1"
-                  stroke-dasharray="3,3" stroke-opacity="0.45" fill="none"/>
-              {/each}
-            {/if}
-
-            <!-- Paths filtrados -->
-            {#if chartMode !== 'raw'}
-              {#each cd.filtPaths as path, i (i)}
-                <path d={path} stroke={COLORS[i%COLORS.length]} stroke-width="1.8" fill="none"/>
-              {/each}
-            {/if}
-
-          </g>
-        </svg>
-
-        <!-- Leyenda -->
-        <div class="legend">
-          {#each labels().slice(0, cd.n) as label, i (i)}
-            <div class="li">
-              <span class="ld" style="background:{COLORS[i%COLORS.length]}"></span>
-              <span class="ll">{label}</span>
-            </div>
-          {/each}
-          {#if chartMode === 'both'}
-            <div class="li">
-              <span class="ll muted">— — crudo &nbsp;·&nbsp; — filtrado</span>
-            </div>
-          {/if}
-          <div class="li">
-            <span class="act-band-sample"></span>
-            <span class="ll muted">actuador ON</span>
-          </div>
+        <div class="chart-label">incertidumbre Kalman (P) — converge hacia 0</div>
+        <div class="chart-body chart-body--sm">
+          <canvas bind:this={canvasMah}></canvas>
         </div>
       </div>
     {/if}
@@ -229,29 +487,35 @@
 </div>
 
 <style>
-  .analysis { display: flex; flex-direction: column; gap: calc(12px * var(--font-scale)); }
+  .analysis { display:flex; flex-direction:column; gap:calc(12px * var(--font-scale)); }
 
-  .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-  .toolbar-right { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  /* Toolbar */
+  .toolbar       { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+  .toolbar-right { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .pl-selector   { display:flex; gap:4px; flex-wrap:wrap; }
+  .pl-btn { padding:calc(5px * var(--font-scale)) calc(12px * var(--font-scale)); border:0.5px solid var(--border-default); border-radius:6px; background:none; cursor:pointer; font-size:calc(12px * var(--font-scale)); color:var(--text-muted); font-family:'DM Mono',monospace; }
+  .pl-btn:hover { background:var(--interactive-hover); }
+  .pl-btn.active { background:var(--bg-elevated); color:var(--text-primary); border-color:var(--text-primary); }
+  .btn-group { display:flex; gap:3px; }
+  .cmbtn { padding:calc(4px * var(--font-scale)) calc(10px * var(--font-scale)); border:0.5px solid var(--border-default); border-radius:6px; background:none; cursor:pointer; font-size:calc(11px * var(--font-scale)); color:var(--text-muted); font-family:'DM Mono',monospace; }
+  .cmbtn:hover { background:var(--interactive-hover); }
+  .cmbtn.active { background:var(--bg-elevated); color:var(--text-primary); }
+  .cmbtn:disabled { opacity:0.5; }
 
-  .pl-selector { display: flex; gap: 4px; flex-wrap: wrap; }
-  .pl-btn { padding: calc(5px * var(--font-scale)) calc(12px * var(--font-scale)); border: 0.5px solid var(--border-default); border-radius: 6px; background: none; cursor: pointer; font-size: calc(12px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; }
-  .pl-btn:hover { background: var(--interactive-hover); color: var(--text-secondary); }
-  .pl-btn.active { background: var(--bg-elevated); color: var(--text-primary); border-color: var(--text-primary); }
+  /* Stats panel */
+  .stats-panel { display:flex; flex-wrap:wrap; gap:calc(10px * var(--font-scale)); }
+  .stats-group { background:var(--bg-elevated); border:0.5px solid var(--border-subtle); border-radius:8px; padding:calc(10px * var(--font-scale)) calc(14px * var(--font-scale)); flex:1; min-width:200px; }
+  .stats-group-title { font-size:calc(10px * var(--font-scale)); font-family:'DM Mono',monospace; color:var(--text-muted); letter-spacing:.08em; display:block; margin-bottom:calc(8px * var(--font-scale)); }
+  .stats-row { display:flex; flex-wrap:wrap; gap:calc(12px * var(--font-scale)); }
+  .stat { display:flex; flex-direction:column; gap:2px; }
+  .stat-l { font-size:calc(10px * var(--font-scale)); color:var(--text-muted); font-family:'DM Mono',monospace; white-space:nowrap; }
+  .stat-v { font-size:calc(15px * var(--font-scale)); font-family:'DM Mono',monospace; font-weight:500; color:var(--text-primary); }
 
-  .btn-group { display: flex; gap: 3px; }
-  .cmbtn { padding: calc(4px * var(--font-scale)) calc(10px * var(--font-scale)); border: 0.5px solid var(--border-default); border-radius: 6px; background: none; cursor: pointer; font-size: calc(11px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; }
-  .cmbtn:hover { background: var(--interactive-hover); }
-  .cmbtn.active { background: var(--bg-elevated); color: var(--text-primary); }
-  .cmbtn:disabled { opacity: 0.5; }
-
-  .chart-msg { font-size: calc(12px * var(--font-scale)); color: var(--text-muted); text-align: center; padding: 60px 0; }
-  .chart-wrap { background: var(--bg-elevated); border: 0.5px solid var(--border-subtle); border-radius: 8px; padding: calc(8px * var(--font-scale)); }
-  .chart-svg { width: 100%; display: block; }
-  .legend { display: flex; flex-wrap: wrap; gap: 10px; padding: 6px 4px 2px; }
-  .li { display: flex; align-items: center; gap: 5px; }
-  .ld { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .ll { font-size: calc(10px * var(--font-scale)); color: var(--text-secondary); font-family: 'DM Mono', monospace; }
-  .ll.muted { color: var(--text-muted); }
-  .act-band-sample { width: 16px; height: 10px; background: rgba(61,168,90,0.2); border-radius: 2px; flex-shrink: 0; }
+  /* Charts */
+  .chart-msg  { font-size:calc(12px * var(--font-scale)); color:var(--text-muted); text-align:center; padding:60px 0; }
+  .chart-wrap { background:var(--bg-elevated); border:0.5px solid var(--border-subtle); border-radius:8px; padding:calc(10px * var(--font-scale)); display:flex; flex-direction:column; gap:6px; }
+  .chart-label { font-size:calc(10px * var(--font-scale)); color:var(--text-muted); font-family:'DM Mono',monospace; }
+  .chart-body { height:calc(180px * var(--font-scale)); position:relative; }
+  .chart-body canvas { width:100% !important; height:100% !important; }
+  .chart-body--sm { height:calc(100px * var(--font-scale)); }
 </style>

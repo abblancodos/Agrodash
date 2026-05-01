@@ -77,15 +77,35 @@
     return filt?.data?.y ?? filt?.data?.x_hat ?? null;
   }
 
+  function getKalmanP(pid: string): number[] | null {
+    const kalman = Object.values(states[pid]?.node_states ?? {})
+      .find((n: any) => n.node_type === 'kalman');
+    return kalman?.data?.p ?? null;
+  }
+
   function getSensorLabels(pid: string): string[] {
     return pipelines.find((p: any) => p.id === pid)
       ?.nodes.find((n: any) => n.type === 'postgres_sensor')
       ?.sensors?.map((s: any) => s.label) ?? [];
   }
 
-  function getMahalanobis(pid: string): number | null {
-    return Object.values(states[pid]?.node_states ?? {})
-      .find((n: any) => n.node_type === 'mahalanobis')?.data?.last_d ?? null;
+  function getMahalanobis(pid: string): { d: number; hyst: string } | null {
+    const node = Object.values(states[pid]?.node_states ?? {})
+      .find((n: any) => n.node_type === 'mahalanobis');
+    if (!node?.data) return null;
+    return { d: node.data.last_d ?? 0, hyst: node.data.hyst ?? '—' };
+  }
+
+  function getTotalOn(pid: string): number | null {
+    const node = Object.values(states[pid]?.node_states ?? {})
+      .find((n: any) => n.node_type === 'mqtt_actuator' || n.node_type === 'http_actuator');
+    return node?.data?.total_on ?? null;
+  }
+
+  function fmtSeconds(s: number): string {
+    if (s < 60)   return `${s.toFixed(0)}s`;
+    if (s < 3600) return `${(s/60).toFixed(1)}min`;
+    return `${(s/3600).toFixed(2)}h`;
   }
 
   const activeCount = $derived(pipelines.filter((p: any) => getActuatorState(p.id) === 'on').length);
@@ -172,7 +192,6 @@
         {@const actState   = getActuatorState(pl.id)}
         {@const vals       = getFilteredValues(pl.id)}
         {@const sLabels    = getSensorLabels(pl.id)}
-        {@const mah        = getMahalanobis(pl.id)}
         {@const isExpanded = expanded === pl.id}
         {@const isOn       = actState === 'on'}
 
@@ -199,31 +218,53 @@
           </button>
 
           {#if isExpanded}
+            {@const mah      = getMahalanobis(pl.id)}
+            {@const kalmanP  = getKalmanP(pl.id)}
+            {@const totalOn  = getTotalOn(pl.id)}
             <div class="card-detail">
 
-              <!-- Valores actuales -->
-              {#if vals?.length || mah != null || states[pl.id]?.cycle}
-                <div class="vals-grid">
-                  {#each vals ?? [] as v, i (i)}
-                    <div class="val-item">
-                      <span class="val-label" style="color:{COLORS[i % COLORS.length]}">{sLabels[i] ?? `s${i+1}`}</span>
-                      <span class="val-num">{v.toFixed(4)}</span>
-                    </div>
-                  {/each}
-                  {#if mah != null}
-                    <div class="val-item">
-                      <span class="val-label" style="color:#888">d mah</span>
-                      <span class="val-num">{mah.toFixed(3)}</span>
-                    </div>
-                  {/if}
-                  {#if states[pl.id]?.cycle}
-                    <div class="val-item">
-                      <span class="val-label" style="color:#888">ciclo</span>
-                      <span class="val-num">{states[pl.id].cycle}</span>
-                    </div>
+              <!-- Stats row: Kalman + Mahalanobis + actuador -->
+              <div class="stats-row">
+                <!-- Sensor filtrado (Kalman x) -->
+                {#each vals ?? [] as v, i (i)}
+                  <div class="stat-block">
+                    <span class="stat-label" style="color:{COLORS[i % COLORS.length]}">{sLabels[i] ?? `s${i+1}`} (filtrado)</span>
+                    <span class="stat-val">{v.toFixed(4)}</span>
+                    {#if kalmanP?.[i] != null}
+                      <span class="stat-sub">P = {kalmanP[i].toExponential(2)}</span>
+                    {/if}
+                  </div>
+                {/each}
+
+                <!-- Mahalanobis -->
+                {#if mah != null}
+                  <div class="stat-block">
+                    <span class="stat-label">distancia Mahalanobis</span>
+                    <span class="stat-val" style="color:{mah.d > 2.0 ? '#e07b54' : mah.d > 0.8 ? '#e8a838' : '#3da85a'}">{mah.d.toFixed(3)}</span>
+                    <span class="stat-sub">decisión: {mah.hyst}</span>
+                  </div>
+                {/if}
+
+                <!-- Actuador -->
+                <div class="stat-block">
+                  <span class="stat-label">actuador</span>
+                  <span class="stat-val act-val" class:act-on={actState === 'on'} class:act-off={actState === 'off'}>
+                    {actState?.toUpperCase() ?? '—'}
+                  </span>
+                  {#if totalOn != null}
+                    <span class="stat-sub">total ON: {fmtSeconds(totalOn)}</span>
                   {/if}
                 </div>
-              {/if}
+
+                <!-- Ciclo -->
+                {#if states[pl.id]?.cycle}
+                  <div class="stat-block">
+                    <span class="stat-label">ciclo</span>
+                    <span class="stat-val">{states[pl.id].cycle}</span>
+                    <span class="stat-sub">{states[pl.id].is_ready ? 'convergido' : 'warmup'}</span>
+                  </div>
+                {/if}
+              </div>
 
               <!-- Chart — componente aislado, maneja su propio lifecycle -->
               <PipelineChart
@@ -318,6 +359,16 @@
   .act-pill.off { background:#FCEBEB; color:#A32D2D; }
 
   .card-detail { padding:calc(12px * var(--font-scale)) calc(14px * var(--font-scale)); border-top:0.5px solid var(--border-subtle); display:flex; flex-direction:column; gap:calc(12px * var(--font-scale)); }
+
+  /* Stats row */
+  .stats-row  { display:flex; flex-wrap:wrap; gap:calc(12px * var(--font-scale)); }
+  .stat-block { display:flex; flex-direction:column; gap:2px; min-width:90px; }
+  .stat-label { font-size:calc(10px * var(--font-scale)); color:var(--text-muted); font-family:'DM Mono',monospace; white-space:nowrap; }
+  .stat-val   { font-size:calc(18px * var(--font-scale)); font-family:'DM Mono',monospace; font-weight:500; color:var(--text-primary); }
+  .stat-sub   { font-size:calc(10px * var(--font-scale)); color:var(--text-muted); font-family:'DM Mono',monospace; }
+  .act-val    { color:var(--text-muted); }
+  .act-val.act-on  { color:#3da85a; }
+  .act-val.act-off { color:#e05454; }
 
   .vals-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:calc(6px * var(--font-scale)); }
   .val-item  { display:flex; flex-direction:column; gap:2px; }
