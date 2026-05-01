@@ -38,6 +38,9 @@ pub struct PipelineConfig {
     pub label: String,
     /// Segundos entre ejecuciones del loop.
     pub loop_interval_seconds: f64,
+    /// Conexiones propias de este pipeline (override de shared_connections).
+    #[serde(default)]
+    pub connections: Option<SharedConnections>,
     /// Nodos del grafo.
     pub nodes: Vec<NodeConfig>,
     /// Edges dirigidos entre nodos.
@@ -93,7 +96,7 @@ pub enum NodeKind {
     HttpActuator(HttpActuatorConfig),
 
     // ── Utilidades ────────────────────────────────────────────────────────────
-    /// Registra el valor que pasa por él en process_readings sin modificarlo.
+    /// Registra el valor que pasa por él sin modificarlo.
     Logger { tag: String },
     /// Selecciona componentes específicas del vector.
     Select { indices: Vec<usize> },
@@ -107,10 +110,8 @@ pub enum NodeKind {
 pub struct EdgeConfig {
     pub from: String,   // node id
     pub to:   String,   // node id
-    /// Puerto de salida (para nodos con múltiples salidas, futuro).
     #[serde(default)]
     pub from_port: Option<String>,
-    /// Puerto de entrada (para nodos con múltiples entradas).
     #[serde(default)]
     pub to_port:   Option<String>,
 }
@@ -211,8 +212,7 @@ pub struct SprtConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MqttActuatorConfig {
     /// "shared" → usar shared_connections.mqtt
-    /// "pipeline:<id>" → usar conexiones del pipeline indicado
-    /// Omitido → conexión propia definida en connection
+    /// Omitido → conexión inline
     pub connection:  ConnectionRef,
     pub topic:       String,
     pub payload_on:  String,
@@ -230,7 +230,7 @@ pub struct HttpActuatorConfig {
     pub method:     Option<String>,
 }
 
-/// Referencia a una conexión — compartida, de otro pipeline, o propia.
+/// Referencia a una conexión — compartida o inline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ConnectionRef {
@@ -320,7 +320,6 @@ pub struct NodeState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignalSnapshot {
     pub node_id:  String,
-    /// El valor de la señal en el último ciclo
     pub signal:   Signal,
 }
 
@@ -329,7 +328,7 @@ pub struct SignalSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullAgentState {
     pub pipeline_id:     String,
-    pub label:           String,
+    pub label:           String,       // label legible, no el id
     pub cycle:           u64,
     pub is_ready:        bool,
     pub override_active: bool,
@@ -366,5 +365,47 @@ impl AgentResponse {
     }
     pub fn err(msg: impl ToString) -> Self {
         Self { ok: false, data: None, error: Some(msg.to_string()) }
+    }
+}
+
+// ── Self-test ─────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckStatus {
+    Ok,
+    Warn,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckResult {
+    pub name:   String,
+    pub status: CheckStatus,
+    pub detail: String,
+    /// Latencia en ms si aplica (ping MQTT, HTTP, DB)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SelfTestReport {
+    /// "ok" | "warn" | "error" — peor status entre todos los checks
+    pub overall: CheckStatus,
+    pub checks:  Vec<CheckResult>,
+    /// Duración total del test en ms
+    pub duration_ms: u64,
+}
+
+impl SelfTestReport {
+    pub fn new(checks: Vec<CheckResult>, duration_ms: u64) -> Self {
+        let overall = checks.iter().fold(CheckStatus::Ok, |acc, c| {
+            match (&acc, &c.status) {
+                (_, CheckStatus::Error)                        => CheckStatus::Error,
+                (CheckStatus::Ok, CheckStatus::Warn)           => CheckStatus::Warn,
+                _                                              => acc,
+            }
+        });
+        Self { overall, checks, duration_ms }
     }
 }

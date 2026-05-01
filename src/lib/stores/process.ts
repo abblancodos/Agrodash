@@ -56,16 +56,17 @@ export interface PipelineAgentState {
 }
 
 export interface Process {
-  id:           string;
-  name:         string;
-  description:  string | null;
-  type:         string;
-  status:       'running' | 'stopped' | 'error' | 'unknown';
-  config:       ProcessConfig | null;
-  last_seen_at: string | null;
-  owner_id:     string;
-  created_at:   string;
-  user_role:    string | null;
+  id:            string;
+  name:          string;
+  description:   string | null;
+  type:          string;
+  status:        'running' | 'stopped' | 'error' | 'unknown';
+  config:        ProcessConfig | null;
+  last_seen_at:  string | null;
+  owner_id:      string;
+  created_at:    string;
+  user_role:     string | null;
+  active_agents: number;
 }
 
 export interface ProcessLog {
@@ -87,6 +88,23 @@ export interface ProcessReading {
   p_diag:      number[] | null;
   decision:    number | null;
   actuator:    string | null;
+}
+
+// ── Self-test types ───────────────────────────────────────────────────────────
+
+export type CheckStatus = 'ok' | 'warn' | 'error';
+
+export interface CheckResult {
+  name:        string;
+  status:      CheckStatus;
+  detail:      string;
+  latency_ms?: number;
+}
+
+export interface SelfTestReport {
+  overall:     CheckStatus;
+  checks:      CheckResult[];
+  duration_ms: number;
 }
 
 // ── Store state ───────────────────────────────────────────────────────────────
@@ -122,7 +140,6 @@ function createProcessStore() {
           fetch(`${API}/api/v1/processes/${id}/logs?limit=100`, { credentials: 'include' }).then(r => r.json()),
         ]);
 
-        // Cargar estado de cada pipeline
         const pipelineStates: Record<string, PipelineAgentState> = {};
         const pipelines: PipelineConfig[] = proc.config?.pipelines ?? [];
 
@@ -178,7 +195,7 @@ function createProcessStore() {
                 ? payload.new_logs : [];
               const logs = newLogs.length
                 ? (() => {
-                    const existingIds = new Set(s.logs.map(l => l.id).filter(Boolean));
+                    const existingIds   = new Set(s.logs.map(l => l.id).filter(Boolean));
                     const existingTsMsg = new Set(s.logs.map(l => `${l.ts}|${l.message}`));
                     const fresh = newLogs.filter(l =>
                       (!l.id || !existingIds.has(l.id)) &&
@@ -199,10 +216,7 @@ function createProcessStore() {
             sseSource.close();
             sseSource = null;
             reconnectAttempts++;
-            if (reconnectAttempts > 10) {
-              console.warn('[SSE] too many reconnect attempts, giving up');
-              return;
-            }
+            if (reconnectAttempts > 10) return;
             setTimeout(connect, Math.min(5000 * reconnectAttempts, 30000));
           }
         };
@@ -228,6 +242,46 @@ function createProcessStore() {
       return data;
     },
 
+    // ── Start / Stop ──────────────────────────────────────────────────────
+    async start(id: string): Promise<void> {
+      const res = await fetch(`${API}/api/v1/processes/${id}/start`, {
+        method: 'POST', credentials: 'include',
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error ?? `HTTP ${res.status}`);
+      }
+      update(s => ({
+        ...s,
+        process: s.process ? { ...s.process, status: 'running' } : s.process,
+      }));
+    },
+
+    async stop(id: string): Promise<void> {
+      const res = await fetch(`${API}/api/v1/processes/${id}/stop`, {
+        method: 'POST', credentials: 'include',
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error ?? `HTTP ${res.status}`);
+      }
+      update(s => ({
+        ...s,
+        process: s.process ? { ...s.process, status: 'stopped' } : s.process,
+      }));
+    },
+
+    // ── Self-test ─────────────────────────────────────────────────────────
+    async selfTest(id: string, healthOnly = false): Promise<SelfTestReport> {
+      const res = await fetch(
+        `${API}/api/v1/processes/${id}/test?health_only=${healthOnly}`,
+        { method: 'POST', credentials: 'include' }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      return data as SelfTestReport;
+    },
+
     // ── Readings ──────────────────────────────────────────────────────────
     async fetchReadings(
       id: string,
@@ -241,7 +295,7 @@ function createProcessStore() {
         { credentials: 'include' }
       );
       const data = await res.json();
-      return (data.readings ?? []).reverse(); // oldest first
+      return (data.readings ?? []).reverse();
     },
 
     // ── Config update ─────────────────────────────────────────────────────
@@ -255,7 +309,6 @@ function createProcessStore() {
         const d = await res.json();
         throw new Error(d.error ?? `HTTP ${res.status}`);
       }
-      // Update config in store directly — don't reload to avoid resetting the canvas
       update(s => ({
         ...s,
         process: s.process ? { ...s.process, config } : s.process,
@@ -269,15 +322,12 @@ function createProcessStore() {
           `${API}/api/v1/processes/${processId}/agent-state/${pipelineId}`,
           { credentials: 'include' }
         );
-        if (!res.ok) return; // agent not running — ignore silently
+        if (!res.ok) return;
         const state = await res.json();
         if (state && !state.error) {
           update(s => ({
             ...s,
-            pipelineStates: {
-              ...s.pipelineStates,
-              [pipelineId]: state,
-            }
+            pipelineStates: { ...s.pipelineStates, [pipelineId]: state },
           }));
         }
       } catch {}

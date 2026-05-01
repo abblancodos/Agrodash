@@ -1,18 +1,67 @@
 <!-- src/lib/components/processes/ControlTab.svelte -->
 <script lang="ts">
-  import { processStore, canOperate, type ProcessReading } from '$lib/stores/process';
+  import {
+    processStore, canOperate,
+    type ProcessReading, type SelfTestReport, type CheckStatus,
+  } from '$lib/stores/process';
 
   let { processId }: { processId: string } = $props();
 
-  const proc     = $derived($processStore.process);
+  const proc      = $derived($processStore.process);
   const pipelines = $derived(proc?.config?.pipelines ?? []);
-  const states   = $derived($processStore.pipelineStates);
+  const states    = $derived($processStore.pipelineStates);
 
-  let expanded   = $state<string | null>(null);
-  let readings   = $state<Record<string, ProcessReading[]>>({});
-  let rdLoading  = $state<Record<string, boolean>>({});
-  let ovBusy     = $state<string | null>(null);
-  let ovError    = $state('');
+  // ── Estado del proceso ────────────────────────────────────────────────────
+  const procStatus = $derived(proc?.status ?? 'unknown');
+  const isRunning  = $derived(procStatus === 'running');
+
+  let ctrlBusy  = $state(false);
+  let ctrlError = $state('');
+
+  async function toggleProcess() {
+    ctrlBusy = true; ctrlError = '';
+    try {
+      if (isRunning) {
+        await processStore.stop(processId);
+      } else {
+        await processStore.start(processId);
+      }
+    } catch (e: any) {
+      ctrlError = e.message;
+    } finally {
+      ctrlBusy = false;
+    }
+  }
+
+  // ── Self-test ─────────────────────────────────────────────────────────────
+  let testReport  = $state<SelfTestReport | null>(null);
+  let testLoading = $state(false);
+  let testError   = $state('');
+
+  async function runTest(healthOnly: boolean) {
+    testLoading = true; testError = ''; testReport = null;
+    try {
+      testReport = await processStore.selfTest(processId, healthOnly);
+    } catch (e: any) {
+      testError = e.message;
+    } finally {
+      testLoading = false;
+    }
+  }
+
+  function statusColor(s: CheckStatus): string {
+    return s === 'ok' ? '#3da85a' : s === 'warn' ? '#e07b20' : '#e05454';
+  }
+  function statusSymbol(s: CheckStatus): string {
+    return s === 'ok' ? '✓' : s === 'warn' ? '⚠' : '✗';
+  }
+
+  // ── Pipeline detail ───────────────────────────────────────────────────────
+  let expanded  = $state<string | null>(null);
+  let readings  = $state<Record<string, ProcessReading[]>>({});
+  let rdLoading = $state<Record<string, boolean>>({});
+  let ovBusy    = $state<string | null>(null);
+  let ovError   = $state('');
 
   const COLORS = ['#4a90d9','#3da85a','#e07b54','#7c6fcd','#e8a838','#d47cb0','#78c4b8','#8a9bb0'];
 
@@ -82,7 +131,6 @@
     return states[pipelineId]?.is_ready ?? false;
   }
 
-  // ── Mini SVG chart ────────────────────────────────────────────────────────
   function buildMiniChart(pipelineId: string): string | null {
     const data = readings[pipelineId];
     if (!data?.length) return null;
@@ -110,7 +158,6 @@
     return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:60px">${paths.join('')}</svg>`;
   }
 
-  // ── Contadores globales ───────────────────────────────────────────────────
   const activeCount = $derived(
     pipelines.filter((p: any) => getActuatorState(p.id) === 'on').length
   );
@@ -121,7 +168,7 @@
 
 <div class="ctrl">
 
-  <!-- Barra global -->
+  <!-- ── Barra global ─────────────────────────────────────────────────────── -->
   <div class="global-bar">
     <div class="global-stats">
       <span class="gs-item">
@@ -133,13 +180,77 @@
         <span class="gs-num">{readyCount}/{pipelines.length}</span>
         <span class="gs-label">listos</span>
       </span>
+      <span class="gs-sep">·</span>
+      <span class="gs-item">
+        <span class="status-dot" class:running={isRunning} class:stopped={procStatus==='stopped'} class:error={procStatus==='error'}></span>
+        <span class="gs-label">{procStatus}</span>
+      </span>
     </div>
+
     <div class="global-right">
-      {#if Object.keys(states).length === 0 && pipelines.length > 0}
-        <span class="agent-offline">agente no iniciado — configurá y guardá los pipelines primero</span>
+      {#if ctrlError}
+        <span class="ctrl-error">{ctrlError}</span>
+      {/if}
+
+      <!-- Self-test (solo infra, no health-only) -->
+      {#if $canOperate}
+        <button
+          class="test-btn"
+          disabled={testLoading}
+          onclick={() => runTest(isRunning)}
+          title={isRunning ? 'Health check de agentes activos' : 'Verificar infraestructura antes de arrancar'}
+        >
+          {testLoading ? '...' : isRunning ? '⚕ health' : '⚕ test infra'}
+        </button>
+
+        <!-- Start / Stop -->
+        <button
+          class="ctrl-btn"
+          class:running={isRunning}
+          disabled={ctrlBusy || procStatus === 'error'}
+          onclick={toggleProcess}
+        >
+          {#if ctrlBusy}
+            ...
+          {:else if isRunning}
+            ⏹ detener
+          {:else}
+            ▶ iniciar
+          {/if}
+        </button>
       {/if}
     </div>
   </div>
+
+  <!-- ── Resultado del self-test ──────────────────────────────────────────── -->
+  {#if testReport}
+    <div class="test-panel">
+      <div class="test-header">
+        <span class="test-overall" style="color:{statusColor(testReport.overall)}">
+          {statusSymbol(testReport.overall)}
+          {testReport.overall === 'ok' ? 'todo bien' : testReport.overall === 'warn' ? 'advertencias' : 'errores detectados'}
+        </span>
+        <span class="test-duration">{testReport.duration_ms}ms</span>
+        <button class="test-close" onclick={() => testReport = null}>✕</button>
+      </div>
+      <div class="test-checks">
+        {#each testReport.checks as check}
+          <div class="check-row">
+            <span class="check-sym" style="color:{statusColor(check.status)}">{statusSymbol(check.status)}</span>
+            <span class="check-name">{check.name}</span>
+            <span class="check-detail">{check.detail}</span>
+            {#if check.latency_ms != null}
+              <span class="check-lat">{check.latency_ms}ms</span>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </div>
+  {/if}
+
+  {#if testError}
+    <div class="test-error">Error al ejecutar test: {testError}</div>
+  {/if}
 
   {#if pipelines.length === 0}
     <div class="empty">
@@ -147,7 +258,7 @@
     </div>
 
   {:else}
-    <!-- Grid de cards -->
+    <!-- ── Grid de pipelines ───────────────────────────────────────────────── -->
     <div class="pipeline-list">
       {#each pipelines as pl (pl.id)}
         {@const actState  = getActuatorState(pl.id)}
@@ -160,13 +271,15 @@
 
         <div class="pipeline-card" class:valve-on={isOn} class:expanded={isExpanded}>
 
-          <!-- Cabecera — siempre visible, click para expandir -->
           <button class="card-header" onclick={() => toggleExpand(pl.id)}>
             <div class="ch-left">
               <span class="chevron" class:open={isExpanded}>▶</span>
               <span class="pl-label">{pl.label}</span>
               {#if !ready}
                 <span class="badge badge-warmup">warmup</span>
+              {/if}
+              {#if !isRunning}
+                <span class="badge badge-offline">offline</span>
               {/if}
             </div>
             <div class="ch-right">
@@ -181,11 +294,9 @@
             </div>
           </button>
 
-          <!-- Detalle expandido -->
           {#if isExpanded}
             <div class="card-detail">
 
-              <!-- Valores actuales por sensor -->
               {#if vals?.length}
                 <div class="vals-grid">
                   {#each vals as v, i (i)}
@@ -199,7 +310,6 @@
                 </div>
               {/if}
 
-              <!-- Stats de decisión -->
               <div class="decision-row">
                 {#if mah != null}
                   <span class="ds-item">
@@ -215,20 +325,16 @@
                 {/if}
               </div>
 
-              <!-- Mini chart -->
               {#if rdLoading[pl.id]}
                 <div class="chart-loading">cargando chart...</div>
               {:else}
                 {@const svg = buildMiniChart(pl.id)}
                 {#if svg}
-                  <div class="mini-chart">
-                    {@html svg}
-                  </div>
+                  <div class="mini-chart">{@html svg}</div>
                 {/if}
               {/if}
 
-              <!-- Override -->
-              {#if $canOperate}
+              {#if $canOperate && isRunning}
                 <div class="override-row">
                   <span class="ov-label">override</span>
                   <button class="ovbtn ovbtn--on"
@@ -246,6 +352,10 @@
                 </div>
               {/if}
 
+              {#if ovError}
+                <span class="ov-error">{ovError}</span>
+              {/if}
+
             </div>
           {/if}
         </div>
@@ -258,25 +368,59 @@
 <style>
   .ctrl { display: flex; flex-direction: column; gap: calc(12px * var(--font-scale)); }
 
+  /* ── Global bar ─────────────────────────────────────────────────────────── */
   .global-bar { display: flex; align-items: center; justify-content: space-between; padding: calc(8px * var(--font-scale)) calc(14px * var(--font-scale)); background: var(--bg-elevated); border-radius: 8px; border: 0.5px solid var(--border-subtle); }
   .global-stats { display: flex; align-items: center; gap: 10px; }
-  .gs-item { display: flex; align-items: baseline; gap: 4px; }
+  .gs-item { display: flex; align-items: center; gap: 4px; }
   .gs-num { font-size: calc(16px * var(--font-scale)); font-weight: 600; font-family: 'DM Mono', monospace; color: var(--text-primary); }
   .gs-label { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); }
   .gs-sep { color: var(--border-default); }
   .global-right { display: flex; align-items: center; gap: 8px; }
-  .agent-offline { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; font-style: italic; }
 
+  /* status dot */
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); }
+  .status-dot.running { background: #3da85a; }
+  .status-dot.stopped { background: var(--text-muted); }
+  .status-dot.error   { background: #e05454; }
+
+  /* ctrl buttons */
+  .ctrl-btn { padding: calc(5px * var(--font-scale)) calc(14px * var(--font-scale)); border-radius: 6px; border: 0.5px solid var(--border-default); background: none; cursor: pointer; font-size: calc(12px * var(--font-scale)); font-family: 'DM Mono', monospace; color: var(--text-secondary); transition: background .15s, color .15s; }
+  .ctrl-btn:hover:not(:disabled) { background: var(--interactive-hover); }
+  .ctrl-btn:disabled { opacity: 0.4; cursor: default; }
+  .ctrl-btn.running { color: #e05454; border-color: #e0545444; }
+  .ctrl-btn.running:hover:not(:disabled) { background: #FCEBEB; }
+  .ctrl-error { font-size: calc(11px * var(--font-scale)); color: #e05454; font-family: 'DM Mono', monospace; }
+
+  .test-btn { padding: calc(4px * var(--font-scale)) calc(10px * var(--font-scale)); border-radius: 6px; border: 0.5px solid var(--border-default); background: none; cursor: pointer; font-size: calc(11px * var(--font-scale)); font-family: 'DM Mono', monospace; color: var(--text-muted); }
+  .test-btn:hover:not(:disabled) { background: var(--interactive-hover); color: var(--text-secondary); }
+  .test-btn:disabled { opacity: 0.4; cursor: default; }
+
+  /* ── Self-test panel ────────────────────────────────────────────────────── */
+  .test-panel { background: var(--bg-surface); border: 0.5px solid var(--border-default); border-radius: 10px; overflow: hidden; }
+  .test-header { display: flex; align-items: center; gap: 10px; padding: calc(10px * var(--font-scale)) calc(14px * var(--font-scale)); border-bottom: 0.5px solid var(--border-subtle); }
+  .test-overall { font-size: calc(12px * var(--font-scale)); font-family: 'DM Mono', monospace; font-weight: 600; }
+  .test-duration { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; margin-left: auto; }
+  .test-close { margin-left: 8px; background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: calc(12px * var(--font-scale)); padding: 2px 4px; }
+  .test-close:hover { color: var(--text-secondary); }
+
+  .test-checks { display: flex; flex-direction: column; }
+  .check-row { display: flex; align-items: baseline; gap: calc(8px * var(--font-scale)); padding: calc(6px * var(--font-scale)) calc(14px * var(--font-scale)); border-bottom: 0.5px solid var(--border-subtle); }
+  .check-row:last-child { border-bottom: none; }
+  .check-sym { font-size: calc(12px * var(--font-scale)); font-weight: 600; flex-shrink: 0; width: 14px; }
+  .check-name { font-size: calc(12px * var(--font-scale)); font-family: 'DM Mono', monospace; color: var(--text-primary); flex-shrink: 0; min-width: 160px; }
+  .check-detail { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); flex: 1; }
+  .check-lat { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); font-family: 'DM Mono', monospace; flex-shrink: 0; }
+  .test-error { font-size: calc(12px * var(--font-scale)); color: #e05454; padding: 8px; font-family: 'DM Mono', monospace; }
+
+  /* ── Empty ──────────────────────────────────────────────────────────────── */
   .empty { color: var(--text-muted); font-size: calc(13px * var(--font-scale)); padding: 32px 0; text-align: center; line-height: 1.6; }
 
-  /* Lista de pipelines */
+  /* ── Pipeline list ──────────────────────────────────────────────────────── */
   .pipeline-list { display: flex; flex-direction: column; gap: calc(6px * var(--font-scale)); }
-
   .pipeline-card { background: var(--bg-surface); border: 0.5px solid var(--border-default); border-radius: 10px; overflow: hidden; transition: border-color .15s; }
   .pipeline-card.valve-on { border-color: #3da85a66; }
   .pipeline-card.expanded { border-color: var(--text-primary); }
 
-  /* Header */
   .card-header { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: calc(12px * var(--font-scale)) calc(14px * var(--font-scale)); background: none; border: none; cursor: pointer; text-align: left; transition: background .1s; }
   .card-header:hover { background: var(--interactive-hover); }
   .ch-left { display: flex; align-items: center; gap: calc(8px * var(--font-scale)); }
@@ -285,14 +429,14 @@
   .chevron.open { transform: rotate(90deg); }
   .pl-label { font-size: calc(14px * var(--font-scale)); font-weight: 500; color: var(--text-primary); }
 
-  .badge-warmup { font-size: calc(10px * var(--font-scale)); padding: 1px 7px; border-radius: 10px; background: var(--bg-inset); color: var(--text-muted); font-family: 'DM Mono', monospace; }
+  .badge-warmup  { font-size: calc(10px * var(--font-scale)); padding: 1px 7px; border-radius: 10px; background: var(--bg-inset); color: var(--text-muted); font-family: 'DM Mono', monospace; }
+  .badge-offline { font-size: calc(10px * var(--font-scale)); padding: 1px 7px; border-radius: 10px; background: var(--bg-inset); color: var(--text-muted); font-family: 'DM Mono', monospace; }
 
   .val-preview { font-size: calc(14px * var(--font-scale)); font-family: 'DM Mono', monospace; font-weight: 500; }
   .act-indicator { font-size: calc(11px * var(--font-scale)); font-family: 'DM Mono', monospace; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: var(--bg-inset); color: var(--text-muted); }
   .act-indicator.on  { background: #EAF3DE; color: #3B6D11; }
   .act-indicator.off { background: #FCEBEB; color: #A32D2D; }
 
-  /* Detalle */
   .card-detail { padding: calc(12px * var(--font-scale)) calc(14px * var(--font-scale)); border-top: 0.5px solid var(--border-subtle); display: flex; flex-direction: column; gap: calc(10px * var(--font-scale)); }
 
   .vals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: calc(6px * var(--font-scale)); }
@@ -317,4 +461,5 @@
   .ovbtn--off { color: #e05454; border-color: #e0545444; } .ovbtn--off:hover { background: #FCEBEB; }
   .ovbtn--auto:hover { background: var(--interactive-hover); }
   .ov-active-badge { font-size: calc(10px * var(--font-scale)); padding: 2px 7px; border-radius: 10px; background: #FEF3C7; color: #92400E; font-family: 'DM Mono', monospace; }
+  .ov-error { font-size: calc(11px * var(--font-scale)); color: #e05454; font-family: 'DM Mono', monospace; }
 </style>

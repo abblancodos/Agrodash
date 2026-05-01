@@ -35,23 +35,23 @@ pub struct AgentManagerConfig {
 impl Default for AgentManagerConfig {
     fn default() -> Self {
         Self {
-            agent_bin:     PathBuf::from(
+            agent_bin: PathBuf::from(
                 std::env::var("AGENT_BIN")
                     .unwrap_or_else(|_| "/app/agrodash-agent".into())
             ),
-            api_url:       std::env::var("API_INTERNAL_URL")
-                               .unwrap_or_else(|_| "http://localhost:3000/api/v1".into()),
-            api_token:     std::env::var("AGENT_TOKEN")
-                               .unwrap_or_else(|_| "internal-token".into()),
-            sock_dir:      PathBuf::from("/run/agents"),
-            database_url:  std::env::var("DATABASE_URL").unwrap_or_default(),
-            max_restarts:  5,
+            api_url: std::env::var("API_INTERNAL_URL")
+                .unwrap_or_else(|_| "http://localhost:3000/api/v1".into()),
+            api_token: std::env::var("AGENT_TOKEN")
+                .unwrap_or_else(|_| "internal-token".into()),
+            sock_dir: PathBuf::from("/run/agents"),
+            database_url: std::env::var("DATABASE_URL").unwrap_or_default(),
+            max_restarts: 5,
             restart_delay: Duration::from_secs(5),
         }
     }
 }
 
-// ── AgentKey — identifica un agente concreto ──────────────────────────────────
+// ── AgentKey ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AgentKey {
@@ -112,7 +112,8 @@ impl AgentManager {
         match self.spawn_child(&key).await {
             Ok(child) => {
                 let entry = AgentEntry { key: key.clone(), child, restarts: 0 };
-                self.agents.write().await.insert(key.clone(), Mutex::new(entry));
+                self.agents.write().await
+                    .insert(key.clone(), Mutex::new(entry));
                 info!("Agente {}/{} spawnado", process_id, pipeline_id);
 
                 let mgr = Arc::clone(self);
@@ -152,6 +153,7 @@ impl AgentManager {
 
         sleep(Duration::from_secs(4)).await;
 
+        // Remover todos y matar
         let mut agents = self.agents.write().await;
         for entry in agents.values() {
             let mut e = entry.lock().await;
@@ -169,7 +171,6 @@ impl AgentManager {
     ) -> Option<AgentResponse> {
         let sock = self.sock_path(key);
 
-        // Esperar hasta 3s a que el socket exista
         for _ in 0..6 {
             if sock.exists() { break; }
             sleep(Duration::from_millis(500)).await;
@@ -188,10 +189,8 @@ impl AgentManager {
         serde_json::from_str(&line).ok()
     }
 
-    /// Retorna los sockets activos de un proceso para el SSE.
+    /// Sockets activos de un proceso para el SSE.
     pub fn process_sockets(&self, process_id: Uuid) -> Vec<(String, PathBuf)> {
-        // Sync — solo lee keys
-        // En producción esto se haría async; por simplicidad usamos try_read
         if let Ok(agents) = self.agents.try_read() {
             agents.keys()
                 .filter(|k| k.process_id == process_id)
@@ -200,6 +199,14 @@ impl AgentManager {
         } else {
             vec![]
         }
+    }
+
+    /// Número de agentes activos para un proceso.
+    pub async fn active_count(&self, process_id: Uuid) -> usize {
+        self.agents.read().await
+            .keys()
+            .filter(|k| k.process_id == process_id)
+            .count()
     }
 
     // ── Internos ──────────────────────────────────────────────────────────────
@@ -223,11 +230,17 @@ impl AgentManager {
     }
 
     async fn stop_agent(&self, key: &AgentKey) {
+        // Checkpoint graceful
         let _ = self.socket_cmd(key, AgentCommand::Checkpoint).await;
         sleep(Duration::from_secs(3)).await;
-        let agents = self.agents.write().await;
-        if let Some(entry) = agents.get(key) {
-            let _ = entry.lock().await.child.kill().await;
+
+        // IMPORTANTE: remover del mapa ANTES de matar.
+        // Así el monitor loop ve que la key ya no existe y no intenta reiniciar.
+        let entry = self.agents.write().await.remove(key);
+        if let Some(entry) = entry {
+            let mut e = entry.lock().await;
+            let _ = e.child.kill().await;
+            info!("Agente {}/{} detenido", key.process_id, key.pipeline_id);
         }
     }
 
@@ -236,22 +249,39 @@ impl AgentManager {
 
         loop {
             // Esperar muerte del child
-            let exit = {
+            let exit_status = {
                 let agents = self.agents.read().await;
                 if let Some(entry) = agents.get(&key) {
                     entry.lock().await.child.wait().await.ok()
-                } else { break; }
+                } else {
+                    // La key fue removida por stop_agent — salir limpiamente
+                    info!("Monitor {}/{}: agente removido intencionalmente, no reiniciar",
+                        key.process_id, key.pipeline_id);
+                    break;
+                }
             };
 
-            let code = exit.and_then(|s| s.code()).unwrap_or(-1);
+            // Verificar nuevamente después de esperar (puede haber sido removido durante wait)
+            {
+                let agents = self.agents.read().await;
+                if !agents.contains_key(&key) {
+                    info!("Monitor {}/{}: removido durante wait, no reiniciar",
+                        key.process_id, key.pipeline_id);
+                    break;
+                }
+            }
+
+            let code = exit_status.and_then(|s| s.code()).unwrap_or(-1);
             warn!("Agente {}/{} terminó con código {code}",
                 key.process_id, key.pipeline_id);
 
             let restarts = {
                 let agents = self.agents.read().await;
-                agents.get(&key)
-                    .map(|e| futures::executor::block_on(async { e.lock().await.restarts }))
-                    .unwrap_or(0)
+                if let Some(entry) = agents.get(&key) {
+                    entry.lock().await.restarts
+                } else {
+                    break;
+                }
             };
 
             if restarts >= self.cfg.max_restarts {
@@ -263,9 +293,16 @@ impl AgentManager {
             }
 
             warn!("Reiniciando {}/{} en {}s (intento {})",
-                key.process_id, key.pipeline_id, delay.as_secs(), restarts);
+                key.process_id, key.pipeline_id, delay.as_secs(), restarts + 1);
             sleep(delay).await;
             delay = (delay * 2).min(Duration::from_secs(60));
+
+            // Verificar una vez más antes de reiniciar
+            if !self.agents.read().await.contains_key(&key) {
+                info!("Monitor {}/{}: removido durante backoff, no reiniciar",
+                    key.process_id, key.pipeline_id);
+                break;
+            }
 
             match self.spawn_child(&key).await {
                 Ok(child) => {
@@ -275,7 +312,8 @@ impl AgentManager {
                         e.child    = child;
                         e.restarts += 1;
                     }
-                    info!("Agente {}/{} reiniciado", key.process_id, key.pipeline_id);
+                    info!("Agente {}/{} reiniciado (intento {})",
+                        key.process_id, key.pipeline_id, restarts + 1);
                 }
                 Err(e) => {
                     error!("No se pudo reiniciar {}/{}: {e}",

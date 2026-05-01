@@ -6,7 +6,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use agrodash_shared::{
     NodeConfig, NodeKind, NodeState, Signal, NodeAction,
-    SharedConnections, ConnectionRef, MqttConnection,
+    SharedConnections, ConnectionRef, MqttConnection, HttpConnection,
 };
 use sqlx::PgPool;
 
@@ -33,7 +33,6 @@ pub trait NodeInstance: Send + Sync {
         &mut self,
         action: NodeAction,
     ) -> Result<Option<Signal>> {
-        // Por defecto no hace nada — solo los actuadores lo implementan
         let _ = action;
         Ok(None)
     }
@@ -54,10 +53,19 @@ pub trait NodeInstance: Send + Sync {
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 pub async fn build(
-    cfg:                 &NodeConfig,
-    shared_connections:  &Option<SharedConnections>,
-    pool:                &PgPool,
+    cfg:                &NodeConfig,
+    shared_connections: &Option<SharedConnections>,
+    pipeline_connections: &Option<SharedConnections>,
+    pool:               &PgPool,
 ) -> Result<Box<dyn NodeInstance>> {
+    // Resolver helper: intenta pipeline-level primero, luego shared
+    let resolve_mqtt = |conn_ref: &ConnectionRef| -> Result<MqttConnection> {
+        resolve_mqtt_connection(conn_ref, pipeline_connections, shared_connections)
+    };
+    let resolve_http = |conn_ref: &ConnectionRef| -> Result<HttpConnection> {
+        resolve_http_connection(conn_ref, pipeline_connections, shared_connections)
+    };
+
     match &cfg.kind {
         // Fuentes
         NodeKind::PostgresSensor(c) => {
@@ -113,44 +121,85 @@ pub async fn build(
 
         // Actuadores
         NodeKind::MqttActuator(c) => {
-            let conn = resolve_mqtt_connection(&c.connection, shared_connections)?;
+            let conn = resolve_mqtt(&c.connection)?;
             Ok(Box::new(actuators::MqttActuatorNode::new(
                 cfg.id.clone(), c.clone(), conn,
             ).await?))
         }
         NodeKind::HttpActuator(c) => {
-            Ok(Box::new(actuators::HttpActuatorNode::new(cfg.id.clone(), c.clone())))
+            let conn = resolve_http(&c.connection)?;
+            Ok(Box::new(actuators::HttpActuatorNode::new(
+                cfg.id.clone(), c.clone(), conn,
+            )))
         }
     }
 }
 
-// ── Resolver conexiones ───────────────────────────────────────────────────────
+// ── Resolvers de conexión ─────────────────────────────────────────────────────
+//
+// Jerarquía de resolución:
+//   1. Inline dentro del propio ConnectionRef
+//   2. pipeline.connections (override local)
+//   3. process.shared_connections
+//
+// Si ninguno tiene lo que se pide → error claro.
 
 fn resolve_mqtt_connection(
-    conn_ref:           &ConnectionRef,
-    shared_connections: &Option<SharedConnections>,
+    conn_ref:             &ConnectionRef,
+    pipeline_connections: &Option<SharedConnections>,
+    shared_connections:   &Option<SharedConnections>,
 ) -> Result<MqttConnection> {
     match conn_ref {
-        ConnectionRef::Named(name) if name == "shared" => {
-            shared_connections
-                .as_ref()
-                .and_then(|sc| sc.mqtt.clone())
-                .ok_or_else(|| anyhow::anyhow!(
-                    "Se referencia 'shared' pero no hay shared_connections.mqtt definido"
-                ))
-        }
         ConnectionRef::Inline(inline) => {
             inline.mqtt.clone().ok_or_else(|| anyhow::anyhow!(
-                "Conexión inline sin campo mqtt"
+                "Conexión inline sin campo 'mqtt'"
             ))
         }
-        ConnectionRef::Named(other) => {
-            anyhow::bail!("Referencia de conexión desconocida: '{}'", other)
+        ConnectionRef::Named(name) => {
+            // busca primero en pipeline, luego en shared
+            let from_pipeline = pipeline_connections
+                .as_ref()
+                .and_then(|c| c.mqtt.clone());
+            let from_shared = shared_connections
+                .as_ref()
+                .and_then(|c| c.mqtt.clone());
+
+            from_pipeline.or(from_shared).ok_or_else(|| anyhow::anyhow!(
+                "Referencia MQTT '{}': no se encontró en pipeline.connections ni en shared_connections",
+                name
+            ))
         }
     }
 }
 
-// ── Helper para extraer vector de señal ──────────────────────────────────────
+fn resolve_http_connection(
+    conn_ref:             &ConnectionRef,
+    pipeline_connections: &Option<SharedConnections>,
+    shared_connections:   &Option<SharedConnections>,
+) -> Result<HttpConnection> {
+    match conn_ref {
+        ConnectionRef::Inline(inline) => {
+            inline.http.clone().ok_or_else(|| anyhow::anyhow!(
+                "Conexión inline sin campo 'http'"
+            ))
+        }
+        ConnectionRef::Named(name) => {
+            let from_pipeline = pipeline_connections
+                .as_ref()
+                .and_then(|c| c.http.clone());
+            let from_shared = shared_connections
+                .as_ref()
+                .and_then(|c| c.http.clone());
+
+            from_pipeline.or(from_shared).ok_or_else(|| anyhow::anyhow!(
+                "Referencia HTTP '{}': no se encontró en pipeline.connections ni en shared_connections",
+                name
+            ))
+        }
+    }
+}
+
+// ── Helpers de señal ──────────────────────────────────────────────────────────
 
 pub fn expect_vector(signal: &Signal, node_id: &str) -> Result<Vec<f64>> {
     match signal {

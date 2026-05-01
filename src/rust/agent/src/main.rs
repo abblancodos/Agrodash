@@ -38,6 +38,7 @@ struct AgentShared {
     override_act: Mutex<Option<NodeAction>>,
     stop_flag:    Mutex<bool>,
     process_cfg:  RwLock<ProcessConfig>,
+    pipeline_label: String,     // label legible del pipeline
 }
 
 #[derive(Clone)]
@@ -64,12 +65,15 @@ async fn main() -> Result<()> {
         .cloned()
         .context(format!("Pipeline '{}' no encontrado", args.pipeline_id))?;
 
+    let pipeline_label = pipeline.label.clone();
+
     let saved_state = fetch_state(&args).await.unwrap_or_default();
 
     let mut graph = PipelineGraph::build(
         &pipeline.nodes,
         &pipeline.edges,
         &proc_config.shared_connections,
+        &pipeline.connections,
         &pool,
     ).await?;
 
@@ -84,14 +88,15 @@ async fn main() -> Result<()> {
     };
 
     let shared = Arc::new(AgentShared {
-        graph:        RwLock::new(graph),
-        state:        Mutex::new(saved_state),
-        override_act: Mutex::new(None),
-        stop_flag:    Mutex::new(false),
-        process_cfg:  RwLock::new(proc_config),
+        graph:          RwLock::new(graph),
+        state:          Mutex::new(saved_state),
+        override_act:   Mutex::new(None),
+        stop_flag:      Mutex::new(false),
+        process_cfg:    RwLock::new(proc_config),
+        pipeline_label,
     });
 
-    // Socket
+    // Socket Unix
     let sock_path = args.sock_path.clone().unwrap_or_else(|| {
         PathBuf::from(format!("/run/agents/{}/{}.sock", args.process_id, args.pipeline_id))
     });
@@ -126,32 +131,38 @@ async fn run_loop(args: &Args, pool: &PgPool, shared: Arc<AgentShared>, ctx: Run
         };
 
         match result {
-            Ok(signals) => {
-                let cycle   = shared.state.lock().await.cycle + 1;
+            Ok(cycle_result) => {
+                let cycle    = shared.state.lock().await.cycle + 1;
                 let is_ready = shared.graph.read().await.is_ready();
-                let state   = shared.graph.read().await.save_state(&ctx.pipeline_id, cycle);
+                let state    = shared.graph.read().await.save_state(&ctx.pipeline_id, cycle);
 
-                // Escribir a process_readings
-                let act_str = signals.values()
-                    .find_map(|s| match s {
-                        agrodash_shared::Signal::Action(a) => Some(match a {
-                            NodeAction::On   => "on",
-                            NodeAction::Off  => "off",
-                            NodeAction::Hold => "hold",
-                        }),
-                        _ => None,
-                    })
-                    .unwrap_or("hold");
+                // Escribir process_readings con raw, filtered, p_diag y actuator
+                let raw_json      = cycle_result.raw.as_ref()
+                    .map(|v| serde_json::to_value(v).ok())
+                    .flatten();
+                let filtered_json = cycle_result.filtered.as_ref()
+                    .map(|v| serde_json::to_value(v).ok())
+                    .flatten();
+                let p_diag_json   = cycle_result.p_diag.as_ref()
+                    .map(|v| serde_json::to_value(v).ok())
+                    .flatten();
 
                 let _ = sqlx::query!(
-                    r#"INSERT INTO process_readings (process_id, pipeline_id, actuator)
-                       VALUES ($1::uuid, $2, $3)"#,
-                    ctx.process_id, ctx.pipeline_id, act_str,
+                    r#"INSERT INTO process_readings
+                       (process_id, pipeline_id, raw, filtered, p_diag, decision, actuator)
+                       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)"#,
+                    ctx.process_id,
+                    ctx.pipeline_id,
+                    raw_json,
+                    filtered_json,
+                    p_diag_json,
+                    cycle_result.decision,
+                    cycle_result.actuator,
                 )
                 .execute(pool)
                 .await;
 
-                info!("Ciclo {cycle} ready={is_ready} act={act_str}");
+                info!("Ciclo {cycle} ready={is_ready} act={}", cycle_result.actuator);
 
                 if let Err(e) = post_state(args, &state).await {
                     warn!("No se pudo postear estado: {e}");
@@ -182,7 +193,9 @@ async fn run_socket_server(path: PathBuf, shared: Arc<AgentShared>, ctx: RunCtx)
         let (stream, _) = listener.accept().await?;
         let sh = shared.clone(); let cx = ctx.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_conn(stream, sh, cx).await { warn!("Conn error: {e}"); }
+            if let Err(e) = handle_conn(stream, sh, cx).await {
+                warn!("Conn error: {e}");
+            }
         });
     }
 }
@@ -209,7 +222,7 @@ async fn dispatch(cmd: AgentCommand, shared: &AgentShared, ctx: &RunCtx) -> Agen
             let ov       = shared.override_act.lock().await.clone();
             let full = FullAgentState {
                 pipeline_id:     ctx.pipeline_id.clone(),
-                label:           ctx.pipeline_id.clone(),
+                label:           shared.pipeline_label.clone(),   // label correcto
                 cycle:           state.cycle,
                 is_ready,
                 override_active: ov.is_some(),
@@ -222,9 +235,24 @@ async fn dispatch(cmd: AgentCommand, shared: &AgentShared, ctx: &RunCtx) -> Agen
             let cfg = shared.process_cfg.read().await.clone();
             AgentResponse::ok(cfg)
         }
-        AgentCommand::SetConfig { config: _ } => {
-            // Reconstruir grafo con nuevo config
-            AgentResponse::ok(serde_json::json!({"msg": "config actualizado, efectivo en próximo ciclo"}))
+        AgentCommand::SetConfig { config } => {
+            // Hot-reload: actualizar label y reconstruir grafo si es posible.
+            // El rebuild necesita pool, que no tenemos aquí, así que solo
+            // actualizamos el config y el label. El cambio estructural requiere restart.
+            let new_label = config.label.clone();
+            let mut proc_cfg = shared.process_cfg.write().await;
+            if let Some(pl) = proc_cfg.pipelines.iter_mut()
+                .find(|p| p.id == config.id)
+            {
+                *pl = config;
+            }
+            drop(proc_cfg);
+            // Nota: el label del AgentShared no es mutable post-construcción.
+            // Para cambios de label, el manager debe reiniciar el agente.
+            AgentResponse::ok(serde_json::json!({
+                "msg": "config actualizado — para cambios estructurales reiniciá el agente",
+                "new_label": new_label,
+            }))
         }
         AgentCommand::Override { action } => {
             *shared.override_act.lock().await = Some(action);
@@ -235,7 +263,7 @@ async fn dispatch(cmd: AgentCommand, shared: &AgentShared, ctx: &RunCtx) -> Agen
             AgentResponse::ok(serde_json::json!({"override": false}))
         }
         AgentCommand::Checkpoint => {
-            info!("Checkpoint");
+            info!("Checkpoint solicitado");
             AgentResponse::ok(serde_json::json!({"msg": "ok"}))
         }
         AgentCommand::Stop => {
@@ -244,6 +272,8 @@ async fn dispatch(cmd: AgentCommand, shared: &AgentShared, ctx: &RunCtx) -> Agen
         }
     }
 }
+
+// ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 async fn fetch_config(args: &Args) -> Result<ProcessConfig> {
     reqwest::Client::new()
