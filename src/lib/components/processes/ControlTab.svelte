@@ -311,10 +311,9 @@
               </div>
 
               <!-- Logger values — siguiendo edges upstream -->
-              {@const loggerData = getLoggerData(pl.id)}
-              {#if loggerData.length}
+              {#if getLoggerData(pl.id).length > 0}
                 <div class="logger-row">
-                  {#each loggerData as lv (lv.tag)}
+                  {#each getLoggerData(pl.id) as lv (lv.tag)}
                     <div class="logger-item">
                       <span class="logger-tag">{lv.tag}</span>
                       <span class="logger-sub">{lv.nodeType}</span>
