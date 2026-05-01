@@ -14,6 +14,7 @@ use tokio::time::interval;
 use uuid::Uuid;
 
 use crate::auth::Claims;
+use tracing::warn;
 use crate::AppState;
 use agrodash_shared::{AgentCommand, ProcessConfig};
 
@@ -461,23 +462,71 @@ pub async fn self_test(
     let mut checks: Vec<Value> = vec![];
 
     if health_only {
-        // Modo rápido: solo verificar que los agentes responden
-        let sockets = state.manager.process_sockets(process_id);
-        if sockets.is_empty() {
-            checks.push(json!({"name":"agent","status":"warn","detail":"Sin agentes activos"}));
-        } else {
-            for (pipeline_id, _) in &sockets {
-                let key = crate::agent_manager::AgentKey { process_id, pipeline_id: pipeline_id.clone() };
-                let t0 = std::time::Instant::now();
-                let resp = state.manager.socket_cmd(&key, agrodash_shared::AgentCommand::GetState).await;
-                let ms = t0.elapsed().as_millis();
-                match resp {
-                    None => checks.push(json!({"name":format!("agent:{pipeline_id}"),"status":"error","detail":"Socket no responde"})),
-                    Some(r) if !r.ok => checks.push(json!({"name":format!("agent:{pipeline_id}"),"status":"error","detail":r.error.unwrap_or_default()})),
-                    Some(_) => checks.push(json!({"name":format!("agent:{pipeline_id}"),"status":"ok","detail":format!("responde en {ms}ms")})),
-                }
-            }
+        // Modo rápido: verificar agentes activos leyendo últimos resultados de comandos en DB
+        // y comparando last_seen_at del proceso.
+        let active = state.manager.active_pipelines(process_id).await;
+
+        if active.is_empty() {
+            checks.push(json!({"name":"agent","status":"warn","detail":"Sin agentes trackeados por el manager"}));
         }
+
+        // Para cada pipeline, verificar last_seen_at y último cmd_result
+        for pipeline in &cfg.pipelines {
+            let pl_id = &pipeline.id;
+            let in_manager = active.contains(pl_id);
+
+            // Último resultado de comando del agente
+            let last_result = sqlx::query!(
+                r#"SELECT cmd, ok, message, ts
+                   FROM agent_cmd_results
+                   WHERE pipeline_id = $1
+                   ORDER BY ts DESC LIMIT 1"#,
+                pl_id,
+            )
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten();
+
+            // last_seen_at del proceso
+            let last_seen = sqlx::query_scalar!(
+                "SELECT last_seen_at FROM processes WHERE id = $1",
+                process_id,
+            )
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten()
+            .flatten();
+
+            let age_secs = last_seen.map(|ts| {
+                chrono::Utc::now()
+                    .signed_duration_since(
+                        chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(ts, chrono::Utc)
+                    )
+                    .num_seconds()
+            });
+
+            let (status, detail) = match (in_manager, age_secs, last_result) {
+                (_, Some(age), _) if age > 120 =>
+                    ("warn", format!("Último dato hace {age}s — posible problema")),
+                (true, Some(age), Some(r)) =>
+                    ("ok", format!("activo, último dato hace {age}s, último cmd: {}", r.message)),
+                (true, Some(age), None) =>
+                    ("ok", format!("activo, último dato hace {age}s")),
+                (false, _, _) =>
+                    ("warn", format!("Pipeline {pl_id} no está en el manager — puede estar arrancando")),
+                _ =>
+                    ("warn", "Sin datos recientes".to_string()),
+            };
+
+            checks.push(json!({
+                "name":   format!("agent:{pl_id}"),
+                "status": status,
+                "detail": detail,
+            }));
+        }
+
         let overall = if checks.iter().any(|c| c["status"] == "error") { "error" }
             else if checks.iter().any(|c| c["status"] == "warn") { "warn" } else { "ok" };
         return Ok(Json(json!({"overall": overall, "checks": checks})));
@@ -623,48 +672,66 @@ pub async fn self_test(
         }
     }
 
-    // ── 4. Agent dry-run (solo si está running) ───────────────────────────
+    // ── 4. Agent self-test (solo si está running) ───────────────────────────
+    // Envía SelfTest vía NOTIFY y espera el resultado en agent_cmd_results.
     if row.status == "running" {
-        // process_sockets retorna Vec<(pipeline_id: String, sock_path: PathBuf)>
-        let sockets = state.manager.process_sockets(process_id);
-        if sockets.is_empty() {
+        let active = state.manager.active_pipelines(process_id).await;
+
+        if active.is_empty() {
             checks.push(json!({
-                "name":   "agent:dry-run",
+                "name":   "agent:self-test",
                 "status": "warn",
-                "detail": "Proceso marcado como running pero sin agentes activos",
+                "detail": "Sin agentes activos en el manager",
             }));
         } else {
-            for (pipeline_id, _sock_path) in &sockets {
-                let key = crate::agent_manager::AgentKey {
-                    process_id,
-                    pipeline_id: pipeline_id.clone(),
-                };
-                let t0      = std::time::Instant::now();
-                let result  = state.manager.socket_cmd(&key, AgentCommand::SelfTest).await;
-                let elapsed = t0.elapsed().as_millis();
+            for pipeline_id in &active {
+                let key = AgentKey { process_id, pipeline_id: pipeline_id.clone() };
+
+                // Borrar resultado anterior para este pipeline
+                let _ = sqlx::query!(
+                    "DELETE FROM agent_cmd_results WHERE pipeline_id=$1 AND cmd='self_test'",
+                    pipeline_id,
+                )
+                .execute(&state.pool)
+                .await;
+
+                // Enviar SelfTest vía NOTIFY
+                let _ = state.manager.notify(&key, AgentCommand::SelfTest).await;
+
+                // Esperar resultado (máx 8s)
+                let mut result = None;
+                for _ in 0..8 {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    let row = sqlx::query!(
+                        "SELECT ok, message, data FROM agent_cmd_results
+                         WHERE pipeline_id=$1 AND cmd='self_test'
+                         ORDER BY ts DESC LIMIT 1",
+                        pipeline_id,
+                    )
+                    .fetch_optional(&state.pool)
+                    .await
+                    .ok()
+                    .flatten();
+                    if let Some(r) = row { result = Some(r); break; }
+                }
 
                 match result {
                     None => checks.push(json!({
                         "name":   format!("agent:{pipeline_id}"),
-                        "status": "error",
-                        "detail": "Socket no responde",
+                        "status": "warn",
+                        "detail": "Sin respuesta en 8s — el agente puede estar en warmup",
                     })),
-                    Some(resp) if !resp.ok => checks.push(json!({
+                    Some(r) if !r.ok => checks.push(json!({
                         "name":   format!("agent:{pipeline_id}"),
                         "status": "error",
-                        "detail": resp.error.unwrap_or_default(),
+                        "detail": r.message,
                     })),
-                    Some(resp) => {
-                        let data = resp.data.unwrap_or(json!({}));
-                        checks.push(json!({
-                            "name":   format!("agent:{pipeline_id}"),
-                            "status": "ok",
-                            "detail": format!("dry-run ok en {elapsed}ms, is_ready={}",
-                                data.get("is_ready").and_then(|v| v.as_bool()).unwrap_or(false),
-                            ),
-                            "nodes": data.get("nodes"),
-                        }));
-                    }
+                    Some(r) => checks.push(json!({
+                        "name":   format!("agent:{pipeline_id}"),
+                        "status": "ok",
+                        "detail": r.message,
+                        "nodes":  r.data,
+                    })),
                 }
             }
         }
