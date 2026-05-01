@@ -59,14 +59,18 @@
     if (expanded === id) { expanded = null; destroyChart(id); return; }
     if (expanded)        { destroyChart(expanded); }
     expanded = id;
-    // Cargar datos en el próximo tick para que el canvas esté montado
-    setTimeout(() => loadAndRender(id), 50);
+    // Mostrar skeleton inmediatamente — mountCanvas dispara loadAndRender
+    rdLoading = { ...rdLoading, [id]: true };
+    rdEmpty   = { ...rdEmpty,   [id]: false };
+    // Reset chart existente para forzar re-fetch al expandir
+    if (charts[id]) { charts[id].destroy(); charts = { ...charts, [id]: null }; }
   }
 
   // ── Chart.js (igual a SensorChart) ────────────────────────────────────────
   const COLORS = ['#4a90d9','#3da85a','#e07b54','#7c6fcd','#e8a838','#d47cb0','#78c4b8','#8a9bb0'];
 
-  let canvases  = $state<Record<string, HTMLCanvasElement | null>>({});
+  // Map de canvases por pipeline_id — actualizado via acción use:mountCanvas
+  const canvasMap = new Map<string, HTMLCanvasElement>();
   let charts    = $state<Record<string, any>>({});
   let rdLoading = $state<Record<string, boolean>>({});
   let rdEmpty   = $state<Record<string, boolean>>({});
@@ -97,7 +101,7 @@
   }
 
   function renderChart(pipelineId: string, data: ProcessReading[]) {
-    const canvas = canvases[pipelineId];
+    const canvas = canvasMap.get(pipelineId);
     if (!canvas) return;
 
     const labels = data.map(r => formatLabel(r.ts));
@@ -229,6 +233,7 @@
     });
 
     charts = { ...charts, [pipelineId]: newChart };
+
   }
 
   // Observar cambios de tema (dark/light) igual que SensorChart
@@ -249,6 +254,18 @@
     obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => obs.disconnect();
   });
+
+  // Acción Svelte: registra el canvas en el Map cuando se monta
+  function mountCanvas(node: HTMLCanvasElement, pipelineId: string) {
+    canvasMap.set(pipelineId, node);
+    // Trigger render ahora que el canvas está disponible
+    loadAndRender(pipelineId);
+    return {
+      destroy() { canvasMap.delete(pipelineId); }
+    };
+  }
+
+  // mountCanvas (acción use:) se encarga de cargar cuando el canvas se monta
 
   onDestroy(() => {
     for (const c of Object.values(charts)) c?.destroy();
@@ -442,7 +459,7 @@
                 {:else if rdEmpty[pl.id]}
                   <div class="chart-empty">Sin lecturas en las últimas 2h</div>
                 {:else}
-                  <canvas bind:this={canvases[pl.id]}></canvas>
+                  <canvas use:mountCanvas={pl.id}></canvas>
                 {/if}
               </div>
 
