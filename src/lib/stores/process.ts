@@ -287,6 +287,14 @@ function createProcessStore() {
       }
     },
 
+    // Actualización liviana de status desde polling
+    patchStatus(status: string, lastSeenAt: string | null) {
+      update(s => ({
+        ...s,
+        process: s.process ? { ...s.process, status: status as any, last_seen_at: lastSeenAt } : s.process,
+      }));
+    },
+
     clearTestResult() {
       update(s => ({ ...s, testResult: null }));
     },

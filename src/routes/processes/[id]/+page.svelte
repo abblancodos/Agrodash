@@ -24,34 +24,51 @@
 
   function relTime(ts: string | null) {
     if (!ts) return 'nunca';
-    const s = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
-    if (s < 60) return `hace ${s}s`;
+    const s = Math.floor((Date.now() - new Date(ts + (ts.endsWith('Z') ? '' : 'Z')).getTime()) / 1000);
+    if (s < 60)   return `hace ${s}s`;
     if (s < 3600) return `hace ${Math.floor(s/60)}m`;
     return `hace ${Math.floor(s/3600)}h`;
   }
 
-  // Poll pipeline states cada 30s mientras está en control tab
-  let pollInterval: ReturnType<typeof setInterval> | null = null;
+  // ── Polling en vez de SSE ─────────────────────────────────────────────────
+  // El SSE acumula buffer ilimitado y crashea el browser con payloads grandes.
+  // Polling cada 8s es suficiente para una página de control de riego.
+  const API = (import.meta as any).env?.VITE_API_BASE ?? '';
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+  async function pollStatus() {
+    if (document.hidden) return; // no pollear si la pestaña no está visible
+    try {
+      const res  = await fetch(`${API}/api/v1/processes/${id}/state`, { credentials: 'include' });
+      if (!res.ok) return;
+      const data = await res.json();
+      processStore.patchStatus(data.status, data.last_seen_at);
+    } catch {}
+  }
+
+  async function pollPipelineStates() {
+    if (document.hidden || activeTab !== 'control') return;
+    const pipelines = proc?.config?.pipelines ?? [];
+    for (const pl of pipelines) {
+      await processStore.refreshPipelineState(id, pl.id);
+    }
+  }
 
   onMount(async () => {
     await auth.init();
     await processStore.load(id);
-    processStore.startSSE(id, 10);
 
-    // Poll pipeline states
-    pollInterval = setInterval(async () => {
-      if (activeTab !== 'control') return;
-      const pipelines = proc?.config?.pipelines ?? [];
-      for (const pl of pipelines) {
-        await processStore.refreshPipelineState(id, pl.id);
-      }
-    }, 30_000);
+    // Poll status liviano cada 8s
+    pollTimer = setInterval(async () => {
+      await pollStatus();
+      await pollPipelineStates();
+    }, 8_000);
   });
 
   onDestroy(() => {
-    processStore.stopSSE();
+    processStore.stopSSE(); // por si acaso quedó alguno
     processStore.reset();
-    if (pollInterval) clearInterval(pollInterval);
+    if (pollTimer) clearInterval(pollTimer);
   });
 
   const TABS: { id: Tab; label: string }[] = [
