@@ -28,10 +28,13 @@ impl MahalanobisNode {
     }
 
     fn distance(&self, x: &[f64], p: Option<&[f64]>) -> f64 {
-        let n = x.len();
+        // target.len() >= x.len() ya verificado en execute() antes de llamar acá
+        let n = x.len().min(self.cfg.target.len());
         let sigma_inv: Vec<f64> = (0..n).map(|i| {
             if self.cfg.use_kalman_P {
-                if let Some(p) = p { return 1.0 / p[i].max(1e-12); }
+                if let Some(p) = p.filter(|p| i < p.len()) {
+                    return 1.0 / p[i].max(1e-12);
+                }
             }
             let s = self.cfg.sigma.unwrap_or(1.0).max(1e-12);
             1.0 / (s * s)
@@ -44,6 +47,16 @@ impl MahalanobisNode {
 impl NodeInstance for MahalanobisNode {
     async fn execute(&mut self, inputs: Vec<Signal>, _dt: f64, _pool: &PgPool) -> Result<Option<Signal>> {
         let x = expect_vector(inputs.first().ok_or_else(|| anyhow::anyhow!("Mahalanobis sin entrada"))?, &self.id)?;
+        if x.is_empty() {
+            anyhow::bail!("Mahalanobis '{}': vector de entrada vacío", self.id);
+        }
+        if self.cfg.target.is_empty() {
+            anyhow::bail!("Mahalanobis '{}': target no configurado (len=0) — revisá la config del pipeline", self.id);
+        }
+        if x.len() != self.cfg.target.len() {
+            anyhow::bail!("Mahalanobis '{}': dimensión entrada ({}) != dimensión target ({})",
+                self.id, x.len(), self.cfg.target.len());
+        }
         let d = self.distance(&x, self.last_p.as_deref());
         self.last_d = Some(d);
         let prev = self.hyst.clone();
