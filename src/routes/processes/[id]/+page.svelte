@@ -4,15 +4,14 @@
   import { page } from '$app/stores';
   import { auth } from '$lib/stores/auth';
   import { processStore } from '$lib/stores/process';
-  import ControlTab  from '$lib/components/processes/ControlTab.svelte';
-  import AnalysisTab from '$lib/components/processes/AnalysisTab.svelte';
+  import MonitorTab  from '$lib/components/processes/MonitorTab.svelte';
   import LogsTab     from '$lib/components/processes/LogsTab.svelte';
   import ConfigTab   from '$lib/components/processes/ConfigTab.svelte';
 
   const id = $derived($page.params.id);
 
-  type Tab = 'control' | 'analysis' | 'logs' | 'config';
-  let activeTab = $state<Tab>('control');
+  type Tab = 'monitor' | 'logs' | 'config';
+  let activeTab = $state<Tab>('monitor');
 
   const proc    = $derived($processStore.process);
   const loading = $derived($processStore.loading);
@@ -47,35 +46,44 @@
   }
 
   async function pollPipelineStates() {
-    if (document.hidden || activeTab !== 'control') return;
+    if (document.hidden) return;
     const pipelines = proc?.config?.pipelines ?? [];
     for (const pl of pipelines) {
       await processStore.refreshPipelineState(id, pl.id);
     }
   }
 
+  // Intervalo adaptativo: usa el loop_interval del pipeline, mínimo 5s, máximo 30s
+  function pollInterval(): number {
+    const pipelines = proc?.config?.pipelines ?? [];
+    if (!pipelines.length) return 10_000;
+    const minLoop = Math.min(...pipelines.map((p: any) => p.loop_interval_seconds ?? 10));
+    return Math.max(5, Math.min(30, minLoop)) * 1000;
+  }
+
   onMount(async () => {
     await auth.init();
     await processStore.load(id);
 
-    // Poll status liviano cada 8s
-    pollTimer = setInterval(async () => {
+    // Poll adaptativo al loop del pipeline
+    const tick = async () => {
       await pollStatus();
       await pollPipelineStates();
-    }, 8_000);
+      pollTimer = setTimeout(tick, pollInterval()) as any;
+    };
+    pollTimer = setTimeout(tick, pollInterval()) as any;
   });
 
   onDestroy(() => {
     processStore.stopSSE(); // por si acaso quedó alguno
     processStore.reset();
-    if (pollTimer) clearInterval(pollTimer);
+    if (pollTimer) clearTimeout(pollTimer as any);
   });
 
   const TABS: { id: Tab; label: string }[] = [
-    { id: 'control',  label: 'control'   },
-    { id: 'analysis', label: 'análisis'  },
-    { id: 'logs',     label: 'logs'      },
-    { id: 'config',   label: 'configurar'},
+    { id: 'monitor', label: 'monitor'   },
+    { id: 'logs',    label: 'logs'      },
+    { id: 'config',  label: 'configurar'},
   ];
 </script>
 
@@ -115,10 +123,8 @@
     </div>
 
     <div class="tab-body">
-      {#if activeTab === 'control'}
-        <ControlTab processId={id} />
-      {:else if activeTab === 'analysis'}
-        <AnalysisTab processId={id} />
+      {#if activeTab === 'monitor'}
+        <MonitorTab processId={id} />
       {:else if activeTab === 'logs'}
         <LogsTab processId={id} />
       {:else if activeTab === 'config'}
