@@ -2,7 +2,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import Chart from 'chart.js/auto';
-  import { processStore, type ProcessReading } from '$lib/stores/process.svelte';
+  import { processStore, type ProcessReading } from '$lib/stores/process';
 
   interface Props {
     processId:    string;
@@ -220,6 +220,11 @@
 
   // Recargar cuando cambia hours desde el padre
   $effect(() => { void hours; load(); });
+
+  // Re-renderizar cuando canvas se bindea (puede llegar después del primer load)
+  $effect(() => {
+    if (canvas && readings.length && !chart) render();
+  });
 
   let obs: MutationObserver | null = null;
   onMount(() => {

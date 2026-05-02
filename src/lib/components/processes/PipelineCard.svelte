@@ -41,9 +41,32 @@
   });
 
   // ── Actuadores del pipeline ────────────────────────────────────────────────
+  // Combina la configuración del pipeline (fuente de verdad de qué actuadores hay)
+  // con el estado del agente (si está disponible). Así se muestran aunque el
+  // pipeline esté en warmup o el node_state aún no haya llegado.
   const actuators = $derived.by(() => {
+    const ACTUATOR_TYPES = ['mqtt_actuator', 'http_actuator'];
+    // Actuadores configurados en el pipeline
+    const configuredNodes = (pipeline.nodes ?? [])
+      .filter((n: any) => ACTUATOR_TYPES.includes(n.type));
+
+    if (configuredNodes.length) {
+      return configuredNodes.map((n: any) => {
+        // Buscar el estado del agente por node_id (puede ser n.id o n.node_id)
+        const agentState = pipelineState?.node_states?.[n.id] ?? null;
+        return {
+          id:             n.id,
+          type:           n.type,
+          lastAction:     agentState?.data?.last_action ?? null,
+          totalOn:        agentState?.data?.total_on ?? null,
+          overrideActive: !!(pipelineState?.override_active),
+        };
+      });
+    }
+
+    // Fallback: buscar en node_states (por si el id en config difiere)
     return Object.values(pipelineState?.node_states ?? {})
-      .filter((n: any) => n.node_type === 'mqtt_actuator' || n.node_type === 'http_actuator')
+      .filter((n: any) => ACTUATOR_TYPES.includes(n.node_type))
       .map((n: any) => ({
         id:             n.node_id,
         type:           n.node_type,
