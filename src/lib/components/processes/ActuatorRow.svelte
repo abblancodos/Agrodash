@@ -1,14 +1,14 @@
 <!-- src/lib/components/processes/ActuatorRow.svelte -->
 <script lang="ts">
-  import { processStore, canOperate } from '$lib/stores/process';
+  import { processStore } from '$lib/stores/process';
 
   let {
     processId, pipelineId, actuatorId, actuatorType,
-    lastAction, totalOn, overrideActive,
+    lastAction, totalOn, overrideActive, canOperate = false,
   }: {
     processId: string; pipelineId: string; actuatorId: string;
     actuatorType: string; lastAction: string | null;
-    totalOn: number | null; overrideActive: boolean;
+    totalOn: number | null; overrideActive: boolean; canOperate?: boolean;
   } = $props();
 
   let busy = $state(false);
@@ -43,7 +43,7 @@
     {#if totalOn != null}<span class="act-meta">total ON: {fmtOn(totalOn)}</span>{/if}
     {#if overrideActive}<span class="act-badge">override</span>{/if}
   </div>
-  {#if $canOperate}
+  {#if canOperate}
     <div class="act-btns">
       <button class="tog tog--on"   class:active={isOn && overrideActive}  disabled={busy} onclick={() => send('on')}>ON</button>
       <button class="tog tog--off"  class:active={isOff && overrideActive} disabled={busy} onclick={() => send('off')}>OFF</button>

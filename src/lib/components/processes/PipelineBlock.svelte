@@ -103,42 +103,42 @@
       {:else if node.type === 'kalman'}
         <div class="field-row">
           <div class="field">
-            <label>Q</label>
-            <input class="inp mono" value={node.Q ?? 1e-5}
+            <label for="pb-field-1">Q</label>
+            <input id="pb-field-1" class="inp mono" value={node.Q ?? 1e-5}
               oninput={(e) => set('Q', parseFloat((e.target as HTMLInputElement).value))} />
           </div>
           <div class="field">
-            <label>R</label>
-            <input class="inp mono" value={node.R ?? 1e-3}
+            <label for="pb-field-2">R</label>
+            <input id="pb-field-2" class="inp mono" value={node.R ?? 1e-3}
               oninput={(e) => set('R', parseFloat((e.target as HTMLInputElement).value))} />
           </div>
           <div class="field">
-            <label>P₀</label>
-            <input class="inp mono" value={node.P0 ?? 1.0}
+            <label for="pb-field-3">P₀</label>
+            <input id="pb-field-3" class="inp mono" value={node.P0 ?? 1.0}
               oninput={(e) => set('P0', parseFloat((e.target as HTMLInputElement).value))} />
           </div>
           <div class="field">
-            <label>warmup</label>
-            <input class="inp mono" type="number" value={node.warmup_samples ?? 10}
+            <label for="pb-field-4">warmup</label>
+            <input id="pb-field-4" class="inp mono" type="number" value={node.warmup_samples ?? 10}
               oninput={(e) => set('warmup_samples', parseInt((e.target as HTMLInputElement).value))} />
           </div>
         </div>
         <div class="field">
-          <label>convergence threshold</label>
-          <input class="inp mono" value={node.convergence_threshold ?? 5e-4}
+          <label for="pb-field-5">convergence threshold</label>
+          <input id="pb-field-5" class="inp mono" value={node.convergence_threshold ?? 5e-4}
             oninput={(e) => set('convergence_threshold', parseFloat((e.target as HTMLInputElement).value))} />
         </div>
 
       {:else if node.type === 'moving_avg'}
         <div class="field-row">
           <div class="field">
-            <label>ventana</label>
-            <input class="inp mono" type="number" value={node.window_n ?? 10}
+            <label for="pb-field-6">ventana</label>
+            <input id="pb-field-6" class="inp mono" type="number" value={node.window_n ?? 10}
               oninput={(e) => set('window_n', parseInt((e.target as HTMLInputElement).value))} />
           </div>
           <div class="field">
-            <label>warmup</label>
-            <input class="inp mono" type="number" value={node.warmup_samples ?? 10}
+            <label for="pb-field-7">warmup</label>
+            <input id="pb-field-7" class="inp mono" type="number" value={node.warmup_samples ?? 10}
               oninput={(e) => set('warmup_samples', parseInt((e.target as HTMLInputElement).value))} />
           </div>
         </div>
@@ -146,13 +146,13 @@
       {:else if node.type === 'ewma'}
         <div class="field-row">
           <div class="field">
-            <label>alpha</label>
-            <input class="inp mono" value={node.alpha ?? 0.1}
+            <label for="pb-field-8">alpha</label>
+            <input id="pb-field-8" class="inp mono" value={node.alpha ?? 0.1}
               oninput={(e) => set('alpha', parseFloat((e.target as HTMLInputElement).value))} />
           </div>
           <div class="field">
-            <label>warmup</label>
-            <input class="inp mono" type="number" value={node.warmup_samples ?? 10}
+            <label for="pb-field-9">warmup</label>
+            <input id="pb-field-9" class="inp mono" type="number" value={node.warmup_samples ?? 10}
               oninput={(e) => set('warmup_samples', parseInt((e.target as HTMLInputElement).value))} />
           </div>
         </div>
@@ -170,13 +170,13 @@
         </div>
         <div class="field-row">
           <div class="field">
-            <label>threshold act</label>
-            <input class="inp mono" type="number" step="0.1" value={node.threshold_act ?? 2.5}
+            <label for="pb-field-10">threshold act</label>
+            <input id="pb-field-10" class="inp mono" type="number" step="0.1" value={node.threshold_act ?? 2.5}
               oninput={(e) => set('threshold_act', parseFloat((e.target as HTMLInputElement).value))} />
           </div>
           <div class="field">
-            <label>threshold deact</label>
-            <input class="inp mono" type="number" step="0.1" value={node.threshold_deact ?? 1.0}
+            <label for="pb-field-11">threshold deact</label>
+            <input id="pb-field-11" class="inp mono" type="number" step="0.1" value={node.threshold_deact ?? 1.0}
               oninput={(e) => set('threshold_deact', parseFloat((e.target as HTMLInputElement).value))} />
           </div>
         </div>
@@ -199,33 +199,33 @@
             </select>
           </div>
           <div class="field">
-            <label>low</label>
-            <input class="inp mono" type="number" step="0.001" value={node.low ?? 0.08}
+            <label for="pb-field-12">low</label>
+            <input id="pb-field-12" class="inp mono" type="number" step="0.001" value={node.low ?? 0.08}
               oninput={(e) => set('low', parseFloat((e.target as HTMLInputElement).value))} />
           </div>
           <div class="field">
-            <label>high</label>
-            <input class="inp mono" type="number" step="0.001" value={node.high ?? 0.085}
+            <label for="pb-field-13">high</label>
+            <input id="pb-field-13" class="inp mono" type="number" step="0.001" value={node.high ?? 0.085}
               oninput={(e) => set('high', parseFloat((e.target as HTMLInputElement).value))} />
           </div>
         </div>
 
       {:else if node.type === 'mqtt_actuator'}
         <div class="field">
-          <label>topic</label>
-          <input class="inp mono" value={node.topic ?? ''}
+          <label for="pb-field-14">topic</label>
+          <input id="pb-field-14" class="inp mono" value={node.topic ?? ''}
             oninput={(e) => set('topic', (e.target as HTMLInputElement).value)}
             placeholder="relay/control" />
         </div>
         <div class="field-row">
           <div class="field">
-            <label>ON</label>
-            <input class="inp mono" value={node.payload_on ?? 'on'}
+            <label for="pb-field-15">ON</label>
+            <input id="pb-field-15" class="inp mono" value={node.payload_on ?? 'on'}
               oninput={(e) => set('payload_on', (e.target as HTMLInputElement).value)} />
           </div>
           <div class="field">
-            <label>OFF</label>
-            <input class="inp mono" value={node.payload_off ?? 'off'}
+            <label for="pb-field-16">OFF</label>
+            <input id="pb-field-16" class="inp mono" value={node.payload_off ?? 'off'}
               oninput={(e) => set('payload_off', (e.target as HTMLInputElement).value)} />
           </div>
         </div>
@@ -240,21 +240,21 @@
       {:else if node.type === 'http_actuator'}
         <div class="field-row">
           <div class="field">
-            <label>path ON</label>
-            <input class="inp mono" value={node.path_on ?? '/on'}
+            <label for="pb-field-17">path ON</label>
+            <input id="pb-field-17" class="inp mono" value={node.path_on ?? '/on'}
               oninput={(e) => set('path_on', (e.target as HTMLInputElement).value)} />
           </div>
           <div class="field">
-            <label>path OFF</label>
-            <input class="inp mono" value={node.path_off ?? '/off'}
+            <label for="pb-field-18">path OFF</label>
+            <input id="pb-field-18" class="inp mono" value={node.path_off ?? '/off'}
               oninput={(e) => set('path_off', (e.target as HTMLInputElement).value)} />
           </div>
         </div>
 
       {:else if node.type === 'logger'}
         <div class="field">
-          <label>tag</label>
-          <input class="inp mono" value={node.tag ?? ''}
+          <label for="pb-field-19">tag</label>
+          <input id="pb-field-19" class="inp mono" value={node.tag ?? ''}
             oninput={(e) => set('tag', (e.target as HTMLInputElement).value)}
             placeholder="debug" />
         </div>
