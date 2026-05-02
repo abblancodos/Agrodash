@@ -1,6 +1,6 @@
 <!-- src/lib/components/processes/LogsTab.svelte -->
 <script lang="ts">
-  import { processStore } from '$lib/stores/process';
+  import { processStore } from '$lib/stores/process.svelte';
 
   let { processId }: { processId: string } = $props();
 

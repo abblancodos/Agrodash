@@ -1,4 +1,4 @@
-// src/lib/stores/process.ts — Svelte 5 runes
+// src/lib/stores/process.svelte.ts — Svelte 5 runes
 
 const API = (import.meta as any).env?.VITE_API_BASE ?? '';
 
@@ -293,10 +293,7 @@ function createStore() {
 
 export const processStore = createStore();
 
-// ── Compatibilidad Svelte 4 → 5 ───────────────────────────────────────────────
-// Los componentes que usen $processStore necesitan un store compatible.
-// Exportamos un proxy que implementa .subscribe() para compatibilidad.
-// Los componentes nuevos usen processStore directamente sin $.
-
-// canOperate y canAdmin se leen directamente: processStore.canOperate
-// No exportamos derived stores — todos leen del objeto directamente.
+// Todos los componentes leen del objeto directamente:
+//   processStore.canAdmin, processStore.canOperate, etc.
+// No hay derived stores separados — el compilador de Svelte 5
+// procesa las runes correctamente en archivos .svelte.ts

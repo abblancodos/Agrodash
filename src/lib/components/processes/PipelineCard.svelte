@@ -3,7 +3,7 @@
   import LoggerRow    from './LoggerRow.svelte';
   import PipelineChart from './PipelineChart.svelte';
   import ActuatorRow  from './ActuatorRow.svelte';
-  import { processStore, type ProcessReading } from '$lib/stores/process';
+  import { processStore, type ProcessReading } from '$lib/stores/process.svelte';
 
   const canOperate = $derived(['operator','admin'].includes(processStore.process?.user_role ?? ''));
 

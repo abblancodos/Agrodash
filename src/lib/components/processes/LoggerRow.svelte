@@ -3,7 +3,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import Chart from 'chart.js/auto';
-  import type { ProcessReading } from '$lib/stores/process';
+  import type { ProcessReading } from '$lib/stores/process.svelte';
 
   let {
     tag, nodeType, nodeData,

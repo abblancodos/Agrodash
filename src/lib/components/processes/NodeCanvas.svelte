@@ -24,7 +24,7 @@
     return d[type] ?? {};
   }
   import PipelineBlock from './PipelineBlock.svelte';
-  import type { ProcessConfig } from '$lib/stores/process';
+  import type { ProcessConfig } from '$lib/stores/process.svelte';
 
   let {
     pipeline,

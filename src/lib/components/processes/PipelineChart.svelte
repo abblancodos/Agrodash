@@ -2,7 +2,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import Chart from 'chart.js/auto';
-  import { processStore, type ProcessReading } from '$lib/stores/process';
+  import { processStore, type ProcessReading } from '$lib/stores/process.svelte';
 
   interface Props {
     processId:    string;

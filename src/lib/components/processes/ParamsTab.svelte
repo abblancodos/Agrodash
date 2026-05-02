@@ -1,10 +1,12 @@
 <!-- src/lib/components/processes/ParamsTab.svelte -->
 <script lang="ts">
-  import { processStore, canAdmin, processState } from '$lib/stores/process';
+  import { processStore } from '$lib/stores/process.svelte';
 
   let { processId }: { processId: string } = $props();
 
-  const state  = $derived($processState);
+  // Params del primer pipeline con estado disponible
+  const firstPipelineId = $derived(processStore.process?.config?.pipelines?.[0]?.id ?? '');
+  const state  = $derived(firstPipelineId ? (processStore.pipelineStates[firstPipelineId] as any) : null);
   const kalman = $derived(state?.kalman);
 
   let editQ    = $state('');
@@ -78,8 +80,8 @@
           <span class="param-current">{kalman?.Q_base?.[0] != null ? kalman.Q_base[0].toExponential(2) : '—'}</span>
         </div>
         <div class="param-input">
-          <input class="mono" bind:value={editQ} placeholder="1e-5" disabled={!$canAdmin} />
-          {#if $canAdmin}
+          <input class="mono" bind:value={editQ} placeholder="1e-5" disabled={!processStore.canAdmin} />
+          {#if processStore.canAdmin}
             <button class="btn-apply" disabled={saving === 'set_kalman_Q'}
               onclick={() => saveParam('set_kalman_Q', { Q: parseFloat(editQ) }, 'Q')}>
               {saving === 'set_kalman_Q' ? '...' : 'aplicar'}
@@ -94,8 +96,8 @@
           <span class="param-current">{kalman?.R?.[0] != null ? kalman.R[0].toExponential(2) : '—'}</span>
         </div>
         <div class="param-input">
-          <input class="mono" bind:value={editR} placeholder="1e-3" disabled={!$canAdmin} />
-          {#if $canAdmin}
+          <input class="mono" bind:value={editR} placeholder="1e-3" disabled={!processStore.canAdmin} />
+          {#if processStore.canAdmin}
             <button class="btn-apply" disabled={saving === 'set_kalman_R'}
               onclick={() => saveParam('set_kalman_R', { R: parseFloat(editR) }, 'R')}>
               {saving === 'set_kalman_R' ? '...' : 'aplicar'}
@@ -121,7 +123,7 @@
   <section class="section">
     <div class="section-head-row">
       <span class="section-head">Umbrales de humedad</span>
-      {#if $canAdmin}
+      {#if processStore.canAdmin}
         <button class="btn-save-all" disabled={!!saving}
           onclick={saveAllThresholds}>
           guardar todos
@@ -139,14 +141,14 @@
           <div class="thresh-inputs">
             <div class="thresh-field">
               <label>mín</label>
-              <input class="mono" bind:value={thresholds[linea][0]} disabled={!$canAdmin} />
+              <input class="mono" bind:value={thresholds[linea][0]} disabled={!processStore.canAdmin} />
             </div>
             <span class="thresh-sep">–</span>
             <div class="thresh-field">
               <label>máx</label>
-              <input class="mono" bind:value={thresholds[linea][1]} disabled={!$canAdmin} />
+              <input class="mono" bind:value={thresholds[linea][1]} disabled={!processStore.canAdmin} />
             </div>
-            {#if $canAdmin}
+            {#if processStore.canAdmin}
               <button class="btn-apply-sm"
                 disabled={saving === `set_threshold_${linea}`}
                 onclick={() => saveThreshold(linea)}>
@@ -163,7 +165,7 @@
     </div>
   </section>
 
-  {#if !$canAdmin}
+  {#if !processStore.canAdmin}
     <div class="read-only-note">Solo los administradores pueden modificar parámetros.</div>
   {/if}
 </div>

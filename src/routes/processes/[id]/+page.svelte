@@ -3,7 +3,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { page } from '$app/stores';
   import { auth } from '$lib/stores/auth';
-  import { processStore } from '$lib/stores/process';
+  import { processStore } from '$lib/stores/process.svelte';
   import MonitorTab  from '$lib/components/processes/MonitorTab.svelte';
   import LogsTab     from '$lib/components/processes/LogsTab.svelte';
   import ConfigTab   from '$lib/components/processes/ConfigTab.svelte';

@@ -1,6 +1,6 @@
 <!-- src/lib/components/processes/MonitorTab.svelte -->
 <script lang="ts">
-  import { processStore, type ProcessReading } from '$lib/stores/process';
+  import { processStore, type ProcessReading } from '$lib/stores/process.svelte';
   import PipelineCard from './PipelineCard.svelte';
 
   let { processId }: { processId: string } = $props();

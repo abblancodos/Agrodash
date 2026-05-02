@@ -1,6 +1,6 @@
 <!-- src/lib/components/processes/ActuatorRow.svelte -->
 <script lang="ts">
-  import { processStore } from '$lib/stores/process';
+  import { processStore } from '$lib/stores/process.svelte';
 
   let {
     processId, pipelineId, actuatorId, actuatorType,
