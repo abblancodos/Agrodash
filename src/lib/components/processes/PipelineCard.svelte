@@ -3,17 +3,17 @@
   import LoggerRow    from './LoggerRow.svelte';
   import PipelineChart from './PipelineChart.svelte';
   import ActuatorRow  from './ActuatorRow.svelte';
-  import { processStore, type ProcessReading } from '$lib/stores/process.svelte';
+  import { processStore, type ProcessReading } from '$lib/stores/process';
 
   const canOperate = $derived(['operator','admin'].includes(processStore.process?.user_role ?? ''));
 
   let {
-    processId, pipeline, state, readings, rdLoading,
+    processId, pipeline, state: pipelineState, readings, rdLoading,
     timePreset, onSetPreset,
   }: {
     processId:  string;
     pipeline:   any;
-    state:      any;
+    state:      any; // received as pipelineState internally
     readings:   ProcessReading[];
     rdLoading:  boolean;
     timePreset: string;
@@ -29,7 +29,7 @@
       .filter((n: any) => n.type === 'logger')
       .map((n: any, i: number) => {
         const upstreamId    = (pipeline.edges ?? []).find((e: any) => e.target === n.id)?.source;
-        const upstreamState = upstreamId ? state?.node_states?.[upstreamId] : null;
+        const upstreamState = upstreamId ? pipelineState?.node_states?.[upstreamId] : null;
         return {
           id:       n.id,
           tag:      n.tag || n.id,
@@ -42,20 +42,20 @@
 
   // ── Actuadores del pipeline ────────────────────────────────────────────────
   const actuators = $derived.by(() => {
-    return Object.values(state?.node_states ?? {})
+    return Object.values(pipelineState?.node_states ?? {})
       .filter((n: any) => n.node_type === 'mqtt_actuator' || n.node_type === 'http_actuator')
       .map((n: any) => ({
         id:             n.node_id,
         type:           n.node_type,
         lastAction:     n.data?.last_action ?? null,
         totalOn:        n.data?.total_on ?? null,
-        overrideActive: !!(state?.override_active),
+        overrideActive: !!(pipelineState?.override_active),
       }));
   });
 
   // ── Header stats ───────────────────────────────────────────────────────────
-  const isReady   = $derived(state?.is_ready ?? false);
-  const cycle     = $derived(state?.cycle ?? 0);
+  const isReady   = $derived(pipelineState?.is_ready ?? false);
+  const cycle     = $derived(pipelineState?.cycle ?? 0);
   const isOn      = $derived(actuators.some((a: any) => a.lastAction === 'on'));
   const totalOnSec = $derived(actuators[0]?.totalOn ?? null);
 
