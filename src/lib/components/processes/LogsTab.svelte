@@ -1,10 +1,10 @@
 <!-- src/lib/components/processes/LogsTab.svelte -->
 <script lang="ts">
-  import { processStore } from '$lib/stores/process.svelte';
+  import { processStore } from '$lib/stores/process';
 
   let { processId }: { processId: string } = $props();
 
-  const logs        = $derived($processStore.logs);
+  const logs        = $derived(processStore.logs);
   let filterLevel   = $state('');
   let filterSource  = $state('');
 

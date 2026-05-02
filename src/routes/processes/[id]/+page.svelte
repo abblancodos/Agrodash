@@ -1,14 +1,14 @@
 <!-- src/routes/processes/[id]/+page.svelte -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { auth } from '$lib/stores/auth';
-  import { processStore } from '$lib/stores/process.svelte';
+  import { processStore } from '$lib/stores/process';
   import MonitorTab  from '$lib/components/processes/MonitorTab.svelte';
   import LogsTab     from '$lib/components/processes/LogsTab.svelte';
   import ConfigTab   from '$lib/components/processes/ConfigTab.svelte';
 
-  const id = $derived($page.params.id);
+  const id = $derived(page.params.id);
 
   type Tab = 'monitor' | 'logs' | 'config';
   let activeTab = $state<Tab>('monitor');
