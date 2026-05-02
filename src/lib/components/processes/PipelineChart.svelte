@@ -78,15 +78,28 @@
         });
       }
     } else if (ntype === 'mahalanobis') {
-      datasets.push({
-        label: tag ?? 'mahalanobis',
-        data:  readings.map(r => {
-          const v = r.scope_values?.[tag ?? ''];
-          return Array.isArray(v) ? v[0] : (typeof v === 'number' ? v : null);
-        }),
-        borderColor: '#e07b54', backgroundColor: '#e07b5418',
-        borderWidth: 1.8, pointRadius: 0, fill: true, tension: 0.3,
-      });
+      // El Mahalanobis emite Signal::Action (on/off) — la distancia D no se
+      // almacena en readings. Mostramos raw (sensor) + filtered (Kalman estimate),
+      // que es exactamente la señal que entra al nodo Mahalanobis.
+      // La decisión on/off queda visible en la banda verde de actuador.
+      const nDims = readings.find(r => r.filtered?.length)?.filtered?.length
+                 ?? readings.find(r => r.raw?.length)?.raw?.length ?? 1;
+      for (let i = 0; i < nDims; i++) {
+        const c = COLORS[i % COLORS.length];
+        const lbl = labels[i] ?? `s${i+1}`;
+        datasets.push({
+          label: `${lbl} (crudo)`,
+          data:  readings.map(r => r.raw?.[i] ?? null),
+          borderColor: c + '55', backgroundColor: 'transparent',
+          borderWidth: 1, borderDash: [4, 3], pointRadius: 0, fill: false, tension: 0.2,
+        });
+        datasets.push({
+          label: `${lbl} (estimado)`,
+          data:  readings.map(r => r.filtered?.[i] ?? null),
+          borderColor: '#e07b54', backgroundColor: '#e07b5418',
+          borderWidth: 1.8, pointRadius: 0, fill: i === 0, tension: 0.3,
+        });
+      }
     } else if (ntype === 'mqtt_actuator' || ntype === 'http_actuator') {
       datasets.push({
         label: tag ?? 'actuador',
