@@ -1,7 +1,7 @@
 <!-- src/lib/components/processes/ConfigTab.svelte -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { processStore, canAdmin, type ProcessConfig } from '$lib/stores/process';
+  import { processStore, type ProcessConfig } from '$lib/stores/process';
   import NodeCanvas from './NodeCanvas.svelte';
   import BlockPicker from './BlockPicker.svelte';
 
@@ -63,7 +63,7 @@
       }).catch(() => {});
 
     // Load draft from store (proc already loaded by parent)
-    const proc = $processStore.process;
+    const proc = processStore.process;
     if (proc?.config) {
       const serverCfg: ProcessConfig = JSON.parse(JSON.stringify(proc.config));
       try {
@@ -203,14 +203,14 @@
             onclick={() => { activePl = i; }}>
             {pl.label}
           </button>
-          {#if activePl === i && $canAdmin}
+          {#if activePl === i && processStore.canAdmin}
             <button class="tact" onclick={() => movePipeline(i, -1)} disabled={i === 0}>↑</button>
             <button class="tact" onclick={() => movePipeline(i, 1)} disabled={i === (draft?.pipelines.length ?? 1) - 1}>↓</button>
             <button class="tact tact--del" onclick={() => removePipeline(i)}>✕</button>
           {/if}
         </div>
       {/each}
-      {#if $canAdmin}
+      {#if processStore.canAdmin}
         <button class="pl-tab-add" onclick={addPipeline}>+ pipeline</button>
       {/if}
     </div>
@@ -218,7 +218,7 @@
     <div class="save-bar">
       {#if dirty}<span class="unsaved">● sin guardar</span>{/if}
       {#if saveMsg}<span class="save-msg" class:ok={saveMsgOk} class:err={!saveMsgOk}>{saveMsg}</span>{/if}
-      {#if $canAdmin}
+      {#if processStore.canAdmin}
         <button class="btn-save" class:btn-dirty={dirty} disabled={saving} onclick={save}>
           {saving ? 'guardando...' : dirty ? '⬆ guardar' : 'guardar'}
         </button>
@@ -241,7 +241,7 @@
 
   <!-- Main area: picker + canvas -->
   <div class="main-area">
-    {#if $canAdmin}
+    {#if processStore.canAdmin}
       <div class="picker-col">
         <BlockPicker onAdd={addNode} />
       </div>
@@ -253,7 +253,7 @@
           <NodeCanvas
             pipeline={draft.pipelines[activePl]}
             {availableSensors}
-            canEdit={$canAdmin}
+            canEdit={processStore.canAdmin}
             onchange={markDirty}
           />
         {/key}
@@ -266,7 +266,7 @@
   </div>
 
   <!-- Shared MQTT connection -->
-  {#if draft && $canAdmin}
+  {#if draft && processStore.canAdmin}
     <div class="shared-conn">
       <div class="shared-title">conexión compartida — MQTT</div>
       <div class="shared-fields">

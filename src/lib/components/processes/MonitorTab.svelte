@@ -1,15 +1,16 @@
 <!-- src/lib/components/processes/MonitorTab.svelte -->
 <script lang="ts">
-  import { processStore, canOperate, type ProcessReading } from '$lib/stores/process';
+  import { processStore, type ProcessReading } from '$lib/stores/process';
   import PipelineCard from './PipelineCard.svelte';
 
   let { processId }: { processId: string } = $props();
 
-  const proc      = $derived($processStore.process);
+  const proc      = $derived(processStore.process);
+  const canOperate = $derived(['operator','admin'].includes(processStore.process?.user_role ?? ''));
   const pipelines = $derived(proc?.config?.pipelines ?? []);
-  const states    = $derived($processStore.pipelineStates);
+  const states    = $derived(processStore.pipelineStates);
   const status    = $derived(proc?.status ?? 'unknown');
-  const lastCycle = $derived($processStore.lastCycle);
+  const lastCycle = $derived(processStore.lastCycle);
 
   // Readings por pipeline
   let readings   = $state<Record<string, ProcessReading[]>>({});
@@ -82,7 +83,7 @@
     </div>
     <div class="g-right">
       {#if ctrlError}<span class="g-error">{ctrlError}</span>{/if}
-      {#if $canOperate}
+      {#if canOperate}
         <button class="action-btn" class:running={status === 'running'}
           disabled={ctrlBusy || status === 'error'}
           onclick={toggleProcess}>

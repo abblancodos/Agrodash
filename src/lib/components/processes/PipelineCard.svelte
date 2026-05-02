@@ -3,7 +3,9 @@
   import LoggerRow    from './LoggerRow.svelte';
   import PipelineChart from './PipelineChart.svelte';
   import ActuatorRow  from './ActuatorRow.svelte';
-  import type { ProcessReading } from '$lib/stores/process';
+  import { processStore, type ProcessReading } from '$lib/stores/process';
+
+  const canOperate = $derived(['operator','admin'].includes(processStore.process?.user_role ?? ''));
 
   let {
     processId, pipeline, state, readings, rdLoading,
@@ -156,6 +158,7 @@
       lastAction={act.lastAction}
       totalOn={act.totalOn}
       overrideActive={act.overrideActive}
+      {canOperate}
     />
   {/each}
 
