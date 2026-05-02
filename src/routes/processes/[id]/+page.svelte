@@ -1,21 +1,21 @@
 <!-- src/routes/processes/[id]/+page.svelte -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { page } from '$app/state';
+  import { page } from '$app/stores';
   import { auth } from '$lib/stores/auth';
   import { processStore } from '$lib/stores/process';
   import MonitorTab  from '$lib/components/processes/MonitorTab.svelte';
   import LogsTab     from '$lib/components/processes/LogsTab.svelte';
   import ConfigTab   from '$lib/components/processes/ConfigTab.svelte';
 
-  const id = $derived(page.params.id);
+  const id = $derived($page.params.id);
 
   type Tab = 'monitor' | 'logs' | 'config';
   let activeTab = $state<Tab>('monitor');
 
-  const proc    = $derived($processStore.process);
-  const loading = $derived($processStore.loading);
-  const error   = $derived($processStore.error);
+  const proc    = $derived(processStore.process);
+  const loading = $derived(processStore.loading);
+  const error   = $derived(processStore.error);
 
   function statusColor(s: string) {
     return s === 'running' ? '#3da85a' : s === 'error' ? '#e05454' : '#8a9bb0';
