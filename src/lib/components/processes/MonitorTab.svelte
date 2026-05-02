@@ -1,6 +1,7 @@
 <!-- src/lib/components/processes/MonitorTab.svelte -->
 <script lang="ts">
-  import { processStore, type ProcessReading } from '$lib/stores/process.svelte';
+  import { untrack } from 'svelte';
+  import { processStore, type ProcessReading } from '$lib/stores/process';
   import PipelineCard from './PipelineCard.svelte';
 
   let { processId }: { processId: string } = $props();
@@ -34,10 +35,15 @@
     loadReadings(pid);
   }
 
-  // Auto-refrescar con el ciclo
+  // Auto-refrescar con el ciclo.
+  // untrack() evita que las escrituras en readings/rdLoading dentro de loadReadings
+  // vuelvan a disparar este effect → previene el loop infinito effect_update_depth_exceeded.
   $effect(() => {
-    void lastCycle;
-    for (const pl of pipelines) loadReadings(pl.id);
+    void lastCycle;           // dependencia explícita: re-corre cuando cambia el ciclo
+    const pls = pipelines;   // captura pipelines como dependencia
+    untrack(() => {
+      for (const pl of pls) loadReadings(pl.id);
+    });
   });
 
   // ── Barra global ───────────────────────────────────────────────────────────
