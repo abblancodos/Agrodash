@@ -216,6 +216,66 @@ impl PipelineGraph {
             .find(|ns| ns.node_type == node_type)
     }
 
+    /// Extrae raw y filtered para process_readings usando la topología real.
+    ///
+    /// raw      = señal del nodo fuente (postgres_sensor u otro nodo sin inputs)
+    /// filtered = señal del primer nodo filtro en la cadena (kalman, ewma, lowpass,
+    ///            moving_avg) — o raw si no hay filtro
+    ///
+    /// Usa las señales del ciclo actual para no depender del estado guardado.
+    pub fn extract_raw_filtered(
+        &self,
+        signals: &HashMap<String, Signal>,
+    ) -> (Option<Vec<f64>>, Option<Vec<f64>>) {
+        const SOURCE_TYPES: &[&str] = &["postgres_sensor"];
+        const FILTER_TYPES: &[&str] = &["kalman", "ewma", "moving_avg", "lowpass", "passthrough"];
+
+        // Nodos fuente: los que no tienen inputs en el grafo
+        let source_ids: Vec<&str> = self.topo.iter()
+            .filter(|id| self.in_edges.get(*id).map(|v| v.is_empty()).unwrap_or(true))
+            .map(|s| s.as_str())
+            .collect();
+
+        // raw: señal del primer nodo fuente que emita Vector
+        let raw = source_ids.iter().find_map(|id| {
+            signals.get(*id).and_then(|s| match s {
+                Signal::Vector(v) => Some(v.clone()),
+                _ => None,
+            })
+        })
+        // fallback: cualquier Vector en el orden topológico
+        .or_else(|| {
+            self.topo.iter().find_map(|id| {
+                let ns = self.nodes.get(id)?.save_state();
+                if SOURCE_TYPES.contains(&ns.node_type.as_str()) {
+                    signals.get(id).and_then(|s| match s {
+                        Signal::Vector(v) => Some(v.clone()),
+                        _ => None,
+                    })
+                } else { None }
+            })
+        });
+
+        // filtered: señal del primer nodo filtro en orden topológico
+        let filtered = self.topo.iter().find_map(|id| {
+            let ns = self.nodes.get(id)?.save_state();
+            if !FILTER_TYPES.contains(&ns.node_type.as_str()) { return None; }
+            signals.get(id).and_then(|s| match s {
+                Signal::Vector(v) => Some(v.clone()),
+                _ => None,
+            })
+        });
+
+        (raw, filtered)
+    }
+
+    /// p_diag del nodo Kalman si existe.
+    pub fn kalman_p_diag(&self) -> Option<Vec<f64>> {
+        self.node_state_by_type("kalman")
+            .and_then(|ns| ns.data.get("p").cloned())
+            .and_then(|v| serde_json::from_value(v).ok())
+    }
+
     // ── Interno ───────────────────────────────────────────────────────────────
 
     fn collect_inputs(&self, node_id: &str, signals: &HashMap<String, Signal>) -> Vec<Signal> {
