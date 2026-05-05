@@ -40,6 +40,26 @@
     return d.toLocaleTimeString('es-CR', { hour:'2-digit', minute:'2-digit', hour12: false });
   }
 
+  // Para readings viejos (pre-fix) donde filtered/raw son null:
+  // busca en scope_values el primer array numérico disponible como fallback.
+  function fallbackVectorFromScope(r: any, dim: number): number | null {
+    if (!r.scope_values) return null;
+    for (const val of Object.values(r.scope_values)) {
+      if (Array.isArray(val) && val.length > dim && typeof val[dim] === 'number') {
+        return val[dim] as number;
+      }
+    }
+    return null;
+  }
+
+  function getFiltered(r: any, dim: number): number | null {
+    return r.filtered?.[dim] ?? fallbackVectorFromScope(r, dim);
+  }
+
+  function getRaw(r: any, dim: number): number | null {
+    return r.raw?.[dim] ?? null;
+  }
+
   async function load() {
     loading = true; empty = false;
     try {
@@ -72,7 +92,7 @@
         });
         datasets.push({
           label: `${lbl} (filtrado)`,
-          data:  readings.map(r => r.filtered?.[i] ?? null),
+          data:  readings.map(r => getFiltered(r, i)),
           borderColor: c, backgroundColor: c + '18',
           borderWidth: 1.8, pointRadius: 0, fill: i === 0, tension: 0.3,
         });
@@ -126,7 +146,7 @@
         });
         datasets.push({
           label: `${lbl} (filtrado)`,
-          data:  readings.map(r => r.filtered?.[i] ?? null),
+          data:  readings.map(r => getFiltered(r, i)),
           borderColor: c, backgroundColor: c + '18',
           borderWidth: 1.8, pointRadius: 0, fill: i === 0, tension: 0.3,
           yAxisID: 'y',
@@ -173,6 +193,29 @@
         borderColor: '#3da85a', backgroundColor: '#3da85a18',
         borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0,
       });
+    } else {
+      // Fallback para ntype 'unknown' (warmup, node_states aún no disponibles)
+      // o cualquier tipo no reconocido: mostrar raw + filtered si existen.
+      const nDims = readings.find(r => r.filtered?.length)?.filtered?.length
+                 ?? readings.find(r => r.raw?.length)?.raw?.length ?? 1;
+      for (let i = 0; i < nDims; i++) {
+        const c = COLORS[i % COLORS.length];
+        const lbl = labels[i] ?? `s${i+1}`;
+        if (readings.some(r => r.raw?.[i] != null)) {
+          datasets.push({
+            label: `${lbl} (crudo)`,
+            data:  readings.map(r => r.raw?.[i] ?? null),
+            borderColor: c + '55', backgroundColor: 'transparent',
+            borderWidth: 1, borderDash: [4, 3], pointRadius: 0, fill: false, tension: 0.2,
+          });
+        }
+        datasets.push({
+          label: `${lbl} (señal)`,
+          data:  readings.map(r => getFiltered(r, i)),
+          borderColor: c, backgroundColor: c + '18',
+          borderWidth: 1.8, pointRadius: 0, fill: i === 0, tension: 0.3,
+        });
+      }
     }
 
     // Banda actuador ON
