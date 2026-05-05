@@ -119,7 +119,8 @@ impl NodeInstance for MqttActuatorNode {
                 self.on_since    = Some(std::time::Instant::now());
                 self.last_action = Some(NodeAction::On);
                 self.last_at     = Some(Utc::now().to_rfc3339());
-                tracing::info!("[MQTT {}] ON → {}", self.id, self.cfg.topic);
+                tracing::info!("[MQTT {}] ▶ ON → topic='{}' payload='{}'",
+                    self.id, self.cfg.topic, self.cfg.payload_on);
             }
             NodeAction::Off if self.last_action != Some(NodeAction::Off) => {
                 if let Some(t) = self.on_since.take() {
@@ -128,7 +129,8 @@ impl NodeInstance for MqttActuatorNode {
                 self.publish(&self.cfg.payload_off.clone()).await?;
                 self.last_action = Some(NodeAction::Off);
                 self.last_at     = Some(Utc::now().to_rfc3339());
-                tracing::info!("[MQTT {}] OFF → {}", self.id, self.cfg.topic);
+                tracing::info!("[MQTT {}] ■ OFF → topic='{}' payload='{}'",
+                    self.id, self.cfg.topic, self.cfg.payload_off);
             }
             NodeAction::Hold | _ => {}
         }
@@ -151,8 +153,12 @@ impl NodeInstance for MqttActuatorNode {
     }
 
     fn load_state(&mut self, state: &NodeState) {
-        self.last_action = state.data.get("last_action")
-            .and_then(|v| serde_json::from_value(v.clone()).ok());
+        // Restauramos last_action pero lo reseteamos a None para forzar
+        // re-publicación en el primer ciclo tras un reinicio.
+        // Así el relay físico siempre queda sincronizado con el estado del agente.
+        let _prev = state.data.get("last_action")
+            .and_then(|v| serde_json::from_value::<NodeAction>(v.clone()).ok());
+        self.last_action = None; // fuerza sync en primer ciclo
         self.last_at     = state.data.get("last_at")
             .and_then(|v| v.as_str().map(String::from));
         self.total_on    = state.data.get("total_on")
@@ -285,8 +291,12 @@ impl NodeInstance for HttpActuatorNode {
     }
 
     fn load_state(&mut self, state: &NodeState) {
-        self.last_action = state.data.get("last_action")
-            .and_then(|v| serde_json::from_value(v.clone()).ok());
+        // Restauramos last_action pero lo reseteamos a None para forzar
+        // re-publicación en el primer ciclo tras un reinicio.
+        // Así el relay físico siempre queda sincronizado con el estado del agente.
+        let _prev = state.data.get("last_action")
+            .and_then(|v| serde_json::from_value::<NodeAction>(v.clone()).ok());
+        self.last_action = None; // fuerza sync en primer ciclo
         self.last_at     = state.data.get("last_at")
             .and_then(|v| v.as_str().map(String::from));
         self.total_on    = state.data.get("total_on")
