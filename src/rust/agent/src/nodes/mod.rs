@@ -36,6 +36,12 @@ pub trait NodeInstance: Send + Sync {
     fn is_actuator(&self) -> bool { false }
     fn is_ready(&self)    -> bool { true  }
 
+    /// Métricas internas del nodo para series temporales.
+    /// Se persisten en scope_values como "{tag}:{key}" cada ciclo.
+    /// Permite graficar valores internos (ej: distancia Mahalanobis, LLR del SPRT)
+    /// que no se propagan como Signal pero son útiles para monitoreo.
+    fn metrics(&self) -> Vec<(String, f64)> { vec![] }
+
     fn save_state(&self) -> NodeState;
     fn load_state(&mut self, state: &NodeState);
 }

@@ -78,6 +78,15 @@ impl NodeInstance for MahalanobisNode {
         self.last_d      = state.data.get("last_d").and_then(|v| v.as_f64());
         self.last_change = state.data.get("last_change").and_then(|v| v.as_str().map(String::from));
     }
+
+    fn metrics(&self) -> Vec<(String, f64)> {
+        let mut m = vec![];
+        if let Some(d) = self.last_d { m.push(("d".into(), d)); }
+        if let Some(h) = &self.hyst {
+            m.push(("decision".into(), match h { NodeAction::On => 1.0, _ => 0.0 }));
+        }
+        m
+    }
 }
 
 // ── Hysteresis ────────────────────────────────────────────────────────────────
@@ -127,6 +136,12 @@ impl NodeInstance for HysteresisNode {
     fn load_state(&mut self, state: &NodeState) {
         self.state       = state.data.get("state").and_then(|v| serde_json::from_value(v.clone()).ok());
         self.last_change = state.data.get("last_change").and_then(|v| v.as_str().map(String::from));
+    }
+
+    fn metrics(&self) -> Vec<(String, f64)> {
+        if let Some(s) = &self.state {
+            vec![("decision".into(), match s { NodeAction::On => 1.0, _ => 0.0 })]
+        } else { vec![] }
     }
 }
 
@@ -179,5 +194,13 @@ impl NodeInstance for SprtNode {
         self.llr     = state.data.get("llr").and_then(|v| v.as_f64()).unwrap_or(0.0);
         self.last    = state.data.get("last").and_then(|v| serde_json::from_value(v.clone()).ok());
         self.samples = state.data.get("samples").and_then(|v| v.as_u64()).unwrap_or(0);
+    }
+
+    fn metrics(&self) -> Vec<(String, f64)> {
+        let mut m = vec![("llr".into(), self.llr)];
+        if let Some(l) = &self.last {
+            m.push(("decision".into(), match l { NodeAction::On => 1.0, _ => 0.0 }));
+        }
+        m
     }
 }
