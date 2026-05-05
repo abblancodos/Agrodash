@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, pipeline_id, ts, raw, filtered, p_diag, decision, actuator\n        FROM process_readings\n        WHERE process_id = $1\n          AND ($2::text IS NULL OR pipeline_id = $2)\n          AND ($3::timestamptz IS NULL OR ts >= $3)\n          AND ($4::timestamptz IS NULL OR ts <= $4)\n        ORDER BY ts DESC\n        LIMIT $5\n        ",
+  "query": "\n        SELECT id, pipeline_id, ts, raw, filtered, p_diag, decision, actuator, scope_values\n        FROM process_readings\n        WHERE process_id = $1\n          AND ($2::text IS NULL OR pipeline_id = $2)\n          AND ($3::timestamptz IS NULL OR ts >= $3)\n          AND ($4::timestamptz IS NULL OR ts <= $4)\n        ORDER BY ts DESC\n        LIMIT $5\n        ",
   "describe": {
     "columns": [
       {
@@ -42,6 +42,11 @@
         "ordinal": 7,
         "name": "actuator",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "scope_values",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -61,8 +66,9 @@
       true,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "8cdd98fb679b1ad8130760f8ea2b95807cdfe35f366b0e26b2924d0fa1b0a7a2"
+  "hash": "a25c19b5b21fa41725946e1ed13f2ed980953152035fef233b5b3e3ab57c40fe"
 }
