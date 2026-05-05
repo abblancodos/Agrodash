@@ -1,7 +1,7 @@
 <!-- src/lib/components/processes/ConfigTab.svelte -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { processStore, type ProcessConfig } from '$lib/stores/process.svelte';
+  import { processStore, type ProcessConfig } from '$lib/stores/process';
   import NodeCanvas from './NodeCanvas.svelte';
   import BlockPicker from './BlockPicker.svelte';
 
