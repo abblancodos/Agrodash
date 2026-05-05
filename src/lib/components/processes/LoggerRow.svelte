@@ -39,6 +39,10 @@
         const hyst = nodeData.hyst ? ` · ${String(nodeData.hyst).toUpperCase()}` : '';
         return `d=${d.toFixed(3)}${hyst}`;
       }
+      case 'hysteresis':
+        return nodeData.state ? String(nodeData.state).toUpperCase() : '—';
+      case 'sprt':
+        return nodeData.last != null ? String(nodeData.last).toUpperCase() : '—';
       case 'mqtt_actuator': case 'http_actuator':
         return nodeData.last_action?.toUpperCase() ?? '—';
       case 'postgres_sensor':
@@ -52,6 +56,11 @@
     if (nodeType === 'mqtt_actuator' || nodeType === 'http_actuator') {
       if (nodeData?.last_action === 'on')  return '#3da85a';
       if (nodeData?.last_action === 'off') return '#e05454';
+    }
+    if (nodeType === 'hysteresis' || nodeType === 'sprt') {
+      const st = nodeData?.state ?? nodeData?.last;
+      if (st === 'on' || st === 'On')  return '#3da85a';
+      if (st === 'off' || st === 'Off') return '#e05454';
     }
     if (nodeType === 'mahalanobis') {
       const d = nodeData?.last_d;
@@ -77,12 +86,15 @@
           return r.filtered?.[0] ?? r.raw?.[0] ?? NaN;
         case 'ewma': case 'lowpass': case 'moving_avg':
           return r.filtered?.[0] ?? NaN;
-        case 'mahalanobis':
-          // El nodo Mahalanobis emite Signal::Action (on/off), no un vector numérico.
-          // scope_values[tag] para este logger es "on"/"off", no la distancia D.
-          // La distancia D no se persiste en readings. Mostramos la señal que
-          // ENTRA al Mahalanobis (= filtered del Kalman = humedad estimada).
+        case 'mahalanobis': {
+          // scope_values[tag+":d"] = distancia D del ciclo (via metrics())
+          const d = r.scope_values?.[tag + ':d'];
+          if (d != null && typeof d === 'number') return d;
+          // Fallback a filtered si aún no hay métricas (readings viejos)
           return r.filtered?.[0] ?? r.raw?.[0] ?? NaN;
+        }
+        case 'hysteresis':
+        case 'sprt':
         case 'mqtt_actuator': case 'http_actuator': {
           const v = r.scope_values?.[tag];
           if (v === 'on')  return 1;

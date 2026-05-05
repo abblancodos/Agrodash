@@ -78,10 +78,40 @@
         });
       }
     } else if (ntype === 'mahalanobis') {
-      // El Mahalanobis emite Signal::Action (on/off) — la distancia D no se
-      // almacena en readings. Mostramos raw (sensor) + filtered (Kalman estimate),
-      // que es exactamente la señal que entra al nodo Mahalanobis.
-      // La decisión on/off queda visible en la banda verde de actuador.
+      // scope_values[tag+":d"] = distancia Mahalanobis del ciclo (emitida via metrics())
+      // scope_values[tag+":decision"] = 0/1 de la decisión
+      const dKey = `${tag}:d`;
+      const hasD = readings.some(r => r.scope_values?.[dKey] != null);
+
+      if (hasD) {
+        // Gráfica principal: distancia D vs muestra
+        datasets.push({
+          label: 'distancia D',
+          data:  readings.map(r => r.scope_values?.[dKey] ?? null),
+          borderColor: '#e07b54', backgroundColor: '#e07b5418',
+          borderWidth: 2, pointRadius: 0, fill: true, tension: 0.3,
+          yAxisID: 'y',
+        });
+        // Líneas de umbral configuradas
+        // (se agregan como anotaciones si Chart.js annotation plugin está disponible,
+        //  por ahora dejamos que el usuario ajuste el eje Y con los controles)
+      } else {
+        // Fallback si no hay datos de métricas aún (readings anteriores al fix)
+        const nDims = readings.find(r => r.filtered?.length)?.filtered?.length
+                   ?? readings.find(r => r.raw?.length)?.raw?.length ?? 1;
+        for (let i = 0; i < nDims; i++) {
+          const c = COLORS[i % COLORS.length];
+          const lbl = labels[i] ?? `s${i+1}`;
+          datasets.push({
+            label: `${lbl} (estimado)`,
+            data:  readings.map(r => r.filtered?.[i] ?? null),
+            borderColor: c, backgroundColor: c + '18',
+            borderWidth: 1.8, pointRadius: 0, fill: i === 0, tension: 0.3,
+          });
+        }
+      }
+    } else if (ntype === 'hysteresis' || ntype === 'sprt') {
+      // Señal de entrada (raw + filtered)
       const nDims = readings.find(r => r.filtered?.length)?.filtered?.length
                  ?? readings.find(r => r.raw?.length)?.raw?.length ?? 1;
       for (let i = 0; i < nDims; i++) {
@@ -92,14 +122,45 @@
           data:  readings.map(r => r.raw?.[i] ?? null),
           borderColor: c + '55', backgroundColor: 'transparent',
           borderWidth: 1, borderDash: [4, 3], pointRadius: 0, fill: false, tension: 0.2,
+          yAxisID: 'y',
         });
         datasets.push({
-          label: `${lbl} (estimado)`,
+          label: `${lbl} (filtrado)`,
           data:  readings.map(r => r.filtered?.[i] ?? null),
-          borderColor: '#e07b54', backgroundColor: '#e07b5418',
+          borderColor: c, backgroundColor: c + '18',
           borderWidth: 1.8, pointRadius: 0, fill: i === 0, tension: 0.3,
+          yAxisID: 'y',
         });
       }
+      // LLR del SPRT como métrica adicional (si está disponible)
+      if (ntype === 'sprt') {
+        const llrKey = `${tag}:llr`;
+        if (readings.some(r => r.scope_values?.[llrKey] != null)) {
+          datasets.push({
+            label: 'LLR',
+            data:  readings.map(r => r.scope_values?.[llrKey] ?? null),
+            borderColor: '#7c6fcd', backgroundColor: 'transparent',
+            borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.2,
+            yAxisID: 'y',
+          });
+        }
+      }
+      // Decisión on/off: primero busca la métrica numérica, fallback a string
+      const decKey = `${tag}:decision`;
+      datasets.push({
+        label: 'decisión',
+        data:  readings.map(r => {
+          const num = r.scope_values?.[decKey];
+          if (num != null) return num;
+          const v = r.scope_values?.[tag ?? ''];
+          if (v === 'on')  return 1;
+          if (v === 'off') return 0;
+          return null;
+        }),
+        borderColor: '#3da85a', backgroundColor: '#3da85a22',
+        borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0,
+        yAxisID: 'yAct',
+      });
     } else if (ntype === 'mqtt_actuator' || ntype === 'http_actuator') {
       datasets.push({
         label: tag ?? 'actuador',
