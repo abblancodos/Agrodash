@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use crate::agent_manager::AgentKey;
 use crate::auth::Claims;
-use tracing::warn;
+use tracing::{info, warn};
 use crate::AppState;
 use agrodash_shared::{AgentCommand, ProcessConfig};
 
@@ -346,7 +346,7 @@ pub async fn update_process(
 
         if let Some(r) = row {
             if r.status == "running" {
-                if let Ok(cfg) = serde_json::from_value::<ProcessConfig>(r.config.unwrap_or_default()) {
+                if let Ok(cfg) = serde_json::from_value::<ProcessConfig>(r.config) {
                     for pl in &cfg.pipelines {
                         let key = AgentKey { process_id, pipeline_id: pl.id.clone() };
                         // Checkpoint primero (guarda estado actual del Kalman etc.)
