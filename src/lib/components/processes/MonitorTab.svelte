@@ -145,4 +145,13 @@
 
   .empty         { color:var(--text-muted); font-size:calc(13px * var(--font-scale)); padding:40px 0; text-align:center; }
   .pipeline-list { display:flex; flex-direction:column; gap:calc(8px * var(--font-scale)); }
+  .watchdog-banner {
+    display: flex; align-items: flex-start; gap: 10px;
+    background: #FEF3C7; border: 1px solid #D97706; border-radius: 8px;
+    padding: 10px 14px; margin-bottom: 12px;
+    font-size: calc(12px * var(--font-scale));
+  }
+  .wd-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+  .wd-msgs { display: flex; flex-direction: column; gap: 2px; }
+  .wd-msg  { color: #92400E; font-family: 'DM Mono', monospace; }
 </style>

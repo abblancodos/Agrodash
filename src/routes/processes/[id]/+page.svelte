@@ -29,14 +29,17 @@
     return `hace ${Math.floor(s/3600)}h`;
   }
 
-  // ── Polling en vez de SSE ─────────────────────────────────────────────────
-  // El SSE acumula buffer ilimitado y crashea el browser con payloads grandes.
-  // Polling cada 8s es suficiente para una página de control de riego.
+  // ── Polling con control live/pause ────────────────────────────────────────
   const API = (import.meta as any).env?.VITE_API_BASE ?? '';
-  let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let pollTimer: ReturnType<typeof setTimeout> | null = null;
+  let live      = $state(true);   // true = polleando activamente
+  let polling   = $state(false);  // true = request en vuelo
+
+  const LIVE_INTERVAL  = 2_000;  // 2s en modo live
+  const PAUSE_INTERVAL = 30_000; // 30s en modo pause (mantiene datos frescos igual)
 
   async function pollStatus() {
-    if (document.hidden) return; // no pollear si la pestaña no está visible
+    if (document.hidden) return;
     try {
       const res  = await fetch(`${API}/api/v1/processes/${id}/state`, { credentials: 'include' });
       if (!res.ok) return;
@@ -53,29 +56,35 @@
     }
   }
 
-  // Intervalo adaptativo: usa el loop_interval del pipeline, mínimo 5s, máximo 30s
-  function pollInterval(): number {
-    const pipelines = proc?.config?.pipelines ?? [];
-    if (!pipelines.length) return 10_000;
-    const minLoop = Math.min(...pipelines.map((p: any) => p.loop_interval_seconds ?? 10));
-    return Math.max(5, Math.min(30, minLoop)) * 1000;
+  async function tick() {
+    if (polling) return;
+    polling = true;
+    try {
+      await pollStatus();
+      await pollPipelineStates();
+    } finally {
+      polling = false;
+    }
+    pollTimer = setTimeout(tick, live ? LIVE_INTERVAL : PAUSE_INTERVAL) as any;
+  }
+
+  function toggleLive() {
+    live = !live;
+    // Si activamos live, pollear inmediatamente
+    if (live) {
+      if (pollTimer) clearTimeout(pollTimer as any);
+      tick();
+    }
   }
 
   onMount(async () => {
     await auth.init();
     await processStore.load(id);
-
-    // Poll adaptativo al loop del pipeline
-    const tick = async () => {
-      await pollStatus();
-      await pollPipelineStates();
-      pollTimer = setTimeout(tick, pollInterval()) as any;
-    };
-    pollTimer = setTimeout(tick, pollInterval()) as any;
+    pollTimer = setTimeout(tick, LIVE_INTERVAL) as any;
   });
 
   onDestroy(() => {
-    processStore.stopSSE(); // por si acaso quedó alguno
+    processStore.stopSSE();
     processStore.reset();
     if (pollTimer) clearTimeout(pollTimer as any);
   });
@@ -112,6 +121,15 @@
         <span class="meta">{proc.status}</span>
         <span class="dot">·</span>
         <span class="meta">último dato {relTime(proc.last_seen_at)}</span>
+        <span class="dot">·</span>
+        <button class="live-btn" class:live class:polling onclick={toggleLive}
+          title={live ? 'Pausar actualización automática' : 'Reanudar actualización en vivo'}>
+          {#if live}
+            <span class="live-dot"></span>en vivo
+          {:else}
+            ⏸ pausado
+          {/if}
+        </button>
       </div>
     </div>
 
@@ -160,4 +178,24 @@
   .tab.active { color: var(--text-primary); border-bottom-color: var(--text-primary); }
 
   .tab-body { min-height: 300px; }
+
+  .live-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: calc(11px * var(--font-scale)); font-family: 'DM Mono', monospace;
+    color: var(--text-muted); background: var(--bg-elevated);
+    border: 0.5px solid var(--border-subtle); border-radius: 10px;
+    padding: 2px 9px; cursor: pointer; transition: all .15s;
+  }
+  .live-btn:hover { border-color: var(--border-default); color: var(--text-secondary); }
+  .live-btn.live  { color: #3da85a; border-color: #3da85a44; background: #3da85a0a; }
+  .live-btn.live:hover { background: #3da85a18; }
+  .live-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: #3da85a;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.35; }
+  }
+  .live-btn.polling { opacity: 0.7; }
 </style>

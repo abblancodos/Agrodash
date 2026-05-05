@@ -337,6 +337,29 @@ pub async fn update_process(
     .await
     .map_err(err)?;
 
+    // Si se actualizó la config, notificar a los agentes activos para que recarguen
+    if body.config.is_some() {
+        let row = sqlx::query!(
+            "SELECT status, config FROM processes WHERE id = $1", process_id
+        )
+        .fetch_optional(&state.pool).await.map_err(err)?;
+
+        if let Some(r) = row {
+            if r.status == "running" {
+                if let Ok(cfg) = serde_json::from_value::<ProcessConfig>(r.config.unwrap_or_default()) {
+                    for pl in &cfg.pipelines {
+                        let key = AgentKey { process_id, pipeline_id: pl.id.clone() };
+                        // Checkpoint primero (guarda estado actual del Kalman etc.)
+                        let _ = state.manager.notify(&key, agrodash_shared::AgentCommand::Checkpoint).await;
+                        // Luego Reload con la nueva config
+                        let _ = state.manager.notify(&key, agrodash_shared::AgentCommand::Reload).await;
+                        info!("Config actualizada en caliente para pipeline {}", pl.id);
+                    }
+                }
+            }
+        }
+    }
+
     Ok(StatusCode::NO_CONTENT)
 }
 

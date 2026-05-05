@@ -138,7 +138,11 @@ async fn main() -> Result<()> {
         run_listener(pool_listener, pipeline_id_l, cmd_tx).await;
     });
 
-    // ── 7. Loop principal ─────────────────────────────────────────────────────
+    // ── 7. Guardar estado inicial para que el frontend lo vea de inmediato ────
+    save_state(&pool, &shared).await;
+    info!("Estado inicial guardado en DB");
+
+    // ── 8. Loop principal ─────────────────────────────────────────────────────
     run_loop(&pool, shared, cmd_rx, loop_secs).await;
 
     info!("Agente {}/{} terminado", args.process_id, args.pipeline_id);
@@ -205,7 +209,12 @@ async fn run_loop(
 ) {
     let interval = Duration::from_secs_f64(loop_secs.max(10.0)); // mínimo realista 10s
     const SAVE_EVERY: u64 = 6; // guardar estado cada N ciclos
-    let mut prev_ready = false; // para detectar transición warmup → ready
+    let mut prev_ready    = false; // para detectar transición warmup → ready
+    let mut last_data_cycle: u64 = 0; // último ciclo con dato nuevo del sensor
+    let mut last_raw: Option<Vec<f64>> = None; // último raw para detectar sensor muerto
+    let mut on_since_cycle: Option<u64> = None; // ciclo en que arrancó el actuador
+    let MAX_SILENT_CYCLES: u64 = 3;  // ciclos sin dato nuevo antes de alertar
+    let MAX_ON_WITHOUT_CHANGE: u64 = 10; // ciclos con actuador ON sin subir humedad
 
     loop {
         // Procesar todos los comandos pendientes antes del ciclo
@@ -258,6 +267,48 @@ async fn run_loop(
                 };
 
                 write_readings(pool, &shared, &raw, &filtered, &p_diag, &act_str, scope_json).await;
+
+                // ── Watchdog ──────────────────────────────────────────────────
+                // 1. Sensor silencioso: raw no cambia en MAX_SILENT_CYCLES ciclos
+                if let Some(ref r) = raw {
+                    if last_raw.as_ref() != Some(r) {
+                        last_raw = Some(r.clone());
+                        last_data_cycle = cycle;
+                    } else if cycle - last_data_cycle >= MAX_SILENT_CYCLES {
+                        warn!("[Watchdog] Sensor sin datos nuevos hace {} ciclos (raw={:?})",
+                            cycle - last_data_cycle, r);
+                        sqlx::query!(
+                            "INSERT INTO process_logs (process_id, pipeline_id, source, level, message)
+                             VALUES ($1, $2, 'watchdog', 'warn', $3)",
+                            shared.process_id, shared.pipeline_id,
+                            format!("Sensor sin datos nuevos hace {} ciclos", cycle - last_data_cycle)
+                        ).execute(pool).await.ok();
+                    }
+                }
+
+                // 2. Actuador ON sin subir la señal filtrada en MAX_ON_WITHOUT_CHANGE ciclos
+                if act_str == "on" {
+                    if on_since_cycle.is_none() { on_since_cycle = Some(cycle); }
+                    if let (Some(start), Some(ref f)) = (on_since_cycle, &filtered) {
+                        let cycles_on = cycle - start;
+                        if cycles_on >= MAX_ON_WITHOUT_CHANGE {
+                            // Comparar con el filtered de cuando arrancó — si no subió, alerta
+                            warn!("[Watchdog] Actuador ON hace {} ciclos sin cambio aparente en señal ({:.4})",
+                                cycles_on, f[0]);
+                            if cycles_on % MAX_ON_WITHOUT_CHANGE == 0 { // no spamear
+                                sqlx::query!(
+                                    "INSERT INTO process_logs (process_id, pipeline_id, source, level, message)
+                                     VALUES ($1, $2, 'watchdog', 'warn', $3)",
+                                    shared.process_id, shared.pipeline_id,
+                                    format!("Actuador ON hace {} ciclos — humedad no parece subir ({:.4})",
+                                        cycles_on, f[0])
+                                ).execute(pool).await.ok();
+                            }
+                        }
+                    }
+                } else {
+                    on_since_cycle = None;
+                }
 
                 if is_ready && !prev_ready {
                     info!("✓ Pipeline LISTO — salió de warmup en ciclo {cycle}");
@@ -392,9 +443,18 @@ async fn process_cmd(pool: &PgPool, shared: &Arc<AgentShared>, cmd: AgentCommand
                                     write_cmd_result(pool, shared, "reload", false,
                                         &format!("Error en grafo: {e}"), None).await;
                                 }
-                                Ok(new_graph) => {
+                                Ok(mut new_graph) => {
+                                    // Preservar estado de nodos que no cambiaron
+                                    // (Kalman, EWMA, etc. mantienen su estado estimado)
+                                    let old_state = shared.graph.read().await
+                                        .save_state(&shared.pipeline_id, 0, "", false);
+                                    for (node_id, node_state) in &old_state.node_states {
+                                        if let Some(node) = new_graph.nodes.get_mut(node_id) {
+                                            node.load_state(node_state);
+                                        }
+                                    }
                                     *shared.graph.write().await = new_graph;
-                                    let msg = format!("Config recargada — {} nodos",
+                                    let msg = format!("Config recargada en caliente — {} nodos (estado preservado)",
                                         pl.nodes.len());
                                     info!("{msg}");
                                     write_cmd_result(pool, shared, "reload", true, &msg, None).await;
