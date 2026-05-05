@@ -278,9 +278,10 @@ async fn run_loop(
                         warn!("[Watchdog] Sensor sin datos nuevos hace {} ciclos (raw={:?})",
                             cycle - last_data_cycle, r);
                         sqlx::query!(
-                            "INSERT INTO process_logs (process_id, pipeline_id, source, level, message)
-                             VALUES ($1, $2, 'watchdog', 'warn', $3)",
-                            shared.process_id, shared.pipeline_id,
+                            "INSERT INTO process_logs (process_id, source, level, message)
+                             VALUES ($1, $2, 'warn', $3)",
+                            shared.process_id,
+                            format!("watchdog:{}", shared.pipeline_id),
                             format!("Sensor sin datos nuevos hace {} ciclos", cycle - last_data_cycle)
                         ).execute(pool).await.ok();
                     }
@@ -297,9 +298,10 @@ async fn run_loop(
                                 cycles_on, f[0]);
                             if cycles_on % MAX_ON_WITHOUT_CHANGE == 0 { // no spamear
                                 sqlx::query!(
-                                    "INSERT INTO process_logs (process_id, pipeline_id, source, level, message)
-                                     VALUES ($1, $2, 'watchdog', 'warn', $3)",
-                                    shared.process_id, shared.pipeline_id,
+                                    "INSERT INTO process_logs (process_id, source, level, message)
+                                     VALUES ($1, $2, 'warn', $3)",
+                                    shared.process_id,
+                                    format!("watchdog:{}", shared.pipeline_id),
                                     format!("Actuador ON hace {} ciclos — humedad no parece subir ({:.4})",
                                         cycles_on, f[0])
                                 ).execute(pool).await.ok();
@@ -448,11 +450,7 @@ async fn process_cmd(pool: &PgPool, shared: &Arc<AgentShared>, cmd: AgentCommand
                                     // (Kalman, EWMA, etc. mantienen su estado estimado)
                                     let old_state = shared.graph.read().await
                                         .save_state(&shared.pipeline_id, 0, "", false);
-                                    for (node_id, node_state) in &old_state.node_states {
-                                        if let Some(node) = new_graph.nodes.get_mut(node_id) {
-                                            node.load_state(node_state);
-                                        }
-                                    }
+                                    new_graph.load_state(&old_state);
                                     *shared.graph.write().await = new_graph;
                                     let msg = format!("Config recargada en caliente — {} nodos (estado preservado)",
                                         pl.nodes.len());
