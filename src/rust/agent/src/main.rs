@@ -203,7 +203,7 @@ async fn run_loop(
     mut cmd_rx: mpsc::Receiver<AgentCommand>,
     loop_secs:  f64,
 ) {
-    let interval = Duration::from_secs_f64(loop_secs.max(1.0));
+    let interval = Duration::from_secs_f64(loop_secs.max(10.0)); // mínimo realista 10s
     const SAVE_EVERY: u64 = 6; // guardar estado cada N ciclos
 
     loop {

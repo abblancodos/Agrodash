@@ -305,6 +305,22 @@ pub async fn update_process(
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
     require_process_role(&state.pool, process_id, claims.sub, "admin").await?;
 
+    // Validar loop_interval_seconds si se está actualizando la config
+    if let Some(cfg_val) = &body.config {
+        if let Ok(cfg) = serde_json::from_value::<ProcessConfig>(cfg_val.clone()) {
+            for pipeline in &cfg.pipelines {
+                if pipeline.loop_interval_seconds < 10.0 {
+                    return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({
+                        "error": format!(
+                            "Pipeline '{}': loop_interval_seconds mínimo es 10s (recibido: {}s)",
+                            pipeline.label, pipeline.loop_interval_seconds
+                        )
+                    }))));
+                }
+            }
+        }
+    }
+
     sqlx::query!(
         r#"
         UPDATE processes SET
@@ -995,7 +1011,7 @@ pub async fn get_readings(
 
     let rows = sqlx::query!(
         r#"
-        SELECT id, pipeline_id, ts, raw, filtered, p_diag, decision, actuator
+        SELECT id, pipeline_id, ts, raw, filtered, p_diag, decision, actuator, scope_values
         FROM process_readings
         WHERE process_id = $1
           AND ($2::text IS NULL OR pipeline_id = $2)
@@ -1011,14 +1027,15 @@ pub async fn get_readings(
     .map_err(err)?;
 
     let readings: Vec<Value> = rows.iter().map(|r| json!({
-        "id":          r.id,
-        "pipeline_id": r.pipeline_id,
-        "ts":          r.ts,
-        "raw":         r.raw,
-        "filtered":    r.filtered,
-        "p_diag":      r.p_diag,
-        "decision":    r.decision,
-        "actuator":    r.actuator,
+        "id":           r.id,
+        "pipeline_id":  r.pipeline_id,
+        "ts":           r.ts,
+        "raw":          r.raw,
+        "filtered":     r.filtered,
+        "p_diag":       r.p_diag,
+        "decision":     r.decision,
+        "actuator":     r.actuator,
+        "scope_values": r.scope_values,
     })).collect();
 
     Ok(Json(json!({ "readings": readings })))

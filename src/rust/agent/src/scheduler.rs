@@ -131,13 +131,25 @@ impl PipelineGraph {
         }
     }
 
-    /// Recoger scope_values — para cada Logger del grafo, retorna {tag: señal}
-    /// usando las señales del ciclo actual. El agente llama esto después de run_cycle.
+    /// Recoger scope_values — combina dos fuentes:
+    ///
+    /// 1. Para cada Logger: {tag: señal_que_le_llega}
+    ///    - Signal::Vector → array numérico graficable
+    ///    - Signal::Action → string "on"/"off"
+    ///
+    /// 2. Para cada nodo con métricas (metrics()): {tag_upstream:métrica: valor}
+    ///    - El Logger conectado upstream expone el tag; el nodo upstream expone la métrica.
+    ///    - Ej: Logger("mahalanobis") + MahalanobisNode.metrics() → {"mahalanobis:d": 0.847}
+    ///    - Si no hay Logger conectado al nodo, se usa el node_id como prefijo.
     pub fn collect_scope_values(
         &self,
         signals: &HashMap<String, Signal>,
     ) -> serde_json::Value {
         let mut map = serde_json::Map::new();
+
+        // ── Paso 1: señales de los Loggers ────────────────────────────────────
+        // Mapa inverso: upstream_node_id → tag del Logger que lo observa
+        let mut upstream_to_tag: HashMap<String, String> = HashMap::new();
 
         for (node_id, node) in &self.nodes {
             let state = node.save_state();
@@ -148,13 +160,36 @@ impl PipelineGraph {
                 .unwrap_or(node_id)
                 .to_string();
 
-            // La señal del Logger es la que él mismo emitió (= la de su input)
+            // La señal del Logger = la de su nodo upstream
             if let Some(sig) = signals.get(node_id) {
                 let val = match sig {
                     Signal::Vector(v) => serde_json::json!(v),
                     Signal::Action(a) => serde_json::json!(format!("{a:?}").to_lowercase()),
                 };
-                map.insert(tag, val);
+                map.insert(tag.clone(), val);
+            }
+
+            // Registrar qué tag observa a qué nodo upstream
+            if let Some(upstreams) = self.in_edges.get(node_id) {
+                for up_id in upstreams {
+                    upstream_to_tag.insert(up_id.clone(), tag.clone());
+                }
+            }
+        }
+
+        // ── Paso 2: métricas de nodos con metrics() ───────────────────────────
+        for (node_id, node) in &self.nodes {
+            let metrics = node.metrics();
+            if metrics.is_empty() { continue; }
+
+            // Usar el tag del Logger que observa este nodo, o el node_id como fallback
+            let prefix = upstream_to_tag.get(node_id)
+                .cloned()
+                .unwrap_or_else(|| node_id.clone());
+
+            for (key, val) in metrics {
+                let scope_key = format!("{prefix}:{key}");
+                map.insert(scope_key, serde_json::json!(val));
             }
         }
 
