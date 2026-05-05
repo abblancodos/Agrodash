@@ -28,7 +28,7 @@
     return (pipeline.nodes ?? [])
       .filter((n: any) => n.type === 'logger')
       .map((n: any, i: number) => {
-        const upstreamId    = (pipeline.edges ?? []).find((e: any) => e.target === n.id)?.source;
+        const upstreamId    = (pipeline.edges ?? []).find((e: any) => (e.to ?? e.target) === n.id)?.from ?? (pipeline.edges ?? []).find((e: any) => e.target === n.id)?.source;
         const upstreamState = upstreamId ? pipelineState?.node_states?.[upstreamId] : null;
         return {
           id:       n.id,

@@ -205,6 +205,7 @@ async fn run_loop(
 ) {
     let interval = Duration::from_secs_f64(loop_secs.max(10.0)); // mínimo realista 10s
     const SAVE_EVERY: u64 = 6; // guardar estado cada N ciclos
+    let mut prev_ready = false; // para detectar transición warmup → ready
 
     loop {
         // Procesar todos los comandos pendientes antes del ciclo
@@ -241,7 +242,12 @@ async fn run_loop(
             Ok(signals) => {
                 let is_ready  = shared.graph.read().await.is_ready();
                 let act_str   = actuator_state_str(&signals);
-                let (raw, filtered, p_diag) = extract_readings(&signals, &shared).await;
+                let (raw, filtered, p_diag) = {
+                    let graph = shared.graph.read().await;
+                    let (r, f) = graph.extract_raw_filtered(&signals);
+                    let p = graph.kalman_p_diag();
+                    (r, f, p)
+                };
 
                 // Recoger scope_values de los Logger del grafo
                 let scope_values = shared.graph.read().await.collect_scope_values(&signals);
@@ -253,6 +259,12 @@ async fn run_loop(
 
                 write_readings(pool, &shared, &raw, &filtered, &p_diag, &act_str, scope_json).await;
 
+                if is_ready && !prev_ready {
+                    info!("✓ Pipeline LISTO — salió de warmup en ciclo {cycle}");
+                    // Guardar estado inmediatamente al salir de warmup
+                    save_state(pool, &shared).await;
+                }
+                prev_ready = is_ready;
                 info!("Ciclo {cycle} ready={is_ready} act={act_str}");
 
                 // Guardar estado cada N ciclos
@@ -632,39 +644,4 @@ fn actuator_state_str(signals: &HashMap<String, agrodash_shared::Signal>) -> Str
     })
     .unwrap_or("hold")
     .to_string()
-}
-
-async fn extract_readings(
-    signals: &HashMap<String, agrodash_shared::Signal>,
-    shared:  &AgentShared,
-) -> (Option<Vec<f64>>, Option<Vec<f64>>, Option<Vec<f64>>) {
-    let graph = shared.graph.read().await;
-
-    let raw = signals.values().find_map(|s| match s {
-        agrodash_shared::Signal::Vector(v) => Some(v.clone()),
-        _ => None,
-    });
-
-    let kalman_state = graph.node_state_by_type("kalman");
-    let filtered = kalman_state.as_ref()
-        .and_then(|ns| ns.data.get("x"))
-        .and_then(|v| serde_json::from_value::<Vec<f64>>(v.clone()).ok())
-        .or_else(|| {
-            for kind in &["ewma", "moving_avg", "lowpass"] {
-                if let Some(ns) = graph.node_state_by_type(kind) {
-                    if let Some(v) = ns.data.get("y") {
-                        if let Ok(vec) = serde_json::from_value::<Vec<f64>>(v.clone()) {
-                            return Some(vec);
-                        }
-                    }
-                }
-            }
-            None
-        });
-
-    let p_diag = kalman_state.as_ref()
-        .and_then(|ns| ns.data.get("p"))
-        .and_then(|v| serde_json::from_value::<Vec<f64>>(v.clone()).ok());
-
-    (raw, filtered, p_diag)
 }

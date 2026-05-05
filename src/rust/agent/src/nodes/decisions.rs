@@ -63,7 +63,11 @@ impl NodeInstance for MahalanobisNode {
         let action = if d > self.cfg.threshold_act { NodeAction::On }
             else if d < self.cfg.threshold_deact { NodeAction::Off }
             else { self.hyst.clone().unwrap_or(NodeAction::Hold) };
-        if Some(&action) != prev.as_ref() { self.last_change = Some(Utc::now().to_rfc3339()); }
+        if Some(&action) != prev.as_ref() {
+            self.last_change = Some(Utc::now().to_rfc3339());
+            tracing::info!("[Mahalanobis:{}] d={:.4} → {:?} (umbral_act={}, umbral_deact={})",
+                self.id, d, action, self.cfg.threshold_act, self.cfg.threshold_deact);
+        }
         self.hyst = Some(action.clone());
         Ok(Some(Signal::Action(action)))
     }
@@ -120,11 +124,27 @@ impl NodeInstance for HysteresisNode {
     async fn execute(&mut self, inputs: Vec<Signal>, _dt: f64, _pool: &PgPool) -> Result<Option<Signal>> {
         let x = expect_vector(inputs.first().ok_or_else(|| anyhow::anyhow!("Hysteresis sin entrada"))?, &self.id)?;
         let val = reduce(&x, &self.cfg.reduction);
+        tracing::debug!("[Hysteresis:{}] input={:.4} low={} high={} state={:?} action_below={:?} action_above={:?}",
+            self.id, val, self.cfg.low, self.cfg.high, self.state,
+            self.cfg.action_below_low, self.cfg.action_above_high);
         let prev = self.state.clone();
+        let would_trigger = if val < self.cfg.low {
+            format!("val({:.4}) < low({}) → {:?}", val, self.cfg.low, self.cfg.action_below_low)
+        } else if val > self.cfg.high {
+            format!("val({:.4}) > high({}) → {:?}", val, self.cfg.high, self.cfg.action_above_high)
+        } else {
+            format!("val({:.4}) en zona neutra [{},{}] → mantiene {:?}",
+                val, self.cfg.low, self.cfg.high, self.state)
+        };
+        tracing::info!("[Hysteresis:{}] {}", self.id, would_trigger);
         let action = if val < self.cfg.low { self.cfg.action_below_low.clone() }
             else if val > self.cfg.high { self.cfg.action_above_high.clone() }
             else { self.state.clone().unwrap_or(NodeAction::Hold) };
-        if Some(&action) != prev.as_ref() { self.last_change = Some(Utc::now().to_rfc3339()); }
+        if Some(&action) != prev.as_ref() {
+            self.last_change = Some(Utc::now().to_rfc3339());
+            tracing::info!("[Hysteresis:{}] val={:.4} → {:?} (low={}, high={})",
+                self.id, val, action, self.cfg.low, self.cfg.high);
+        }
         self.state = Some(action.clone());
         Ok(Some(Signal::Action(action)))
     }
