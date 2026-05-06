@@ -11,6 +11,7 @@ use crate::nodes::{self, NodeInstance};
 
 // ── Graph ─────────────────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 pub struct PipelineGraph {
     nodes: HashMap<String, Box<dyn NodeInstance>>,
     topo: Vec<String>,

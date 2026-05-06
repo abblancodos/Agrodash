@@ -11,8 +11,7 @@
 //   payload recibido via un Arc<Mutex<SubscriberState>>. El execute() lee
 //   ese estado en cada ciclo del agente sin bloquear.
 
-use super::{resolve_mqtt_connection, NodeInstance};
-use agrodash_shared::{ConnectionRef, SharedConnections};
+use super::NodeInstance;
 use agrodash_shared::{MqttConnection, MqttSubscriberConfig, NodeAction, NodeState, Signal};
 use anyhow::Result;
 use async_trait::async_trait;

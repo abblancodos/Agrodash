@@ -49,6 +49,7 @@ pub trait NodeInstance: Send + Sync {
     fn watchdog_reset(&mut self) {}
     fn watchdog_confirm(&mut self) {}
     fn watchdog_set_override(&mut self, _action: NodeAction) {}
+    #[allow(dead_code)]
     fn has_watchdog_override(&self) -> bool {
         false
     }
@@ -203,6 +204,7 @@ pub fn expect_vector(signal: &Signal, node_id: &str) -> Result<Vec<f64>> {
     }
 }
 
+#[allow(dead_code)]
 pub fn expect_action(signal: &Signal, node_id: &str) -> Result<NodeAction> {
     match signal {
         Signal::Action(a) => Ok(a.clone()),

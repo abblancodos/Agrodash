@@ -29,7 +29,10 @@ impl NodeInstance for PostgresSensorNode {
             .config
             .sensors
             .iter()
-            .map(|s| s.id.parse().unwrap())
+            .map(|s| {
+                s.id.parse()
+                    .expect("sensor id inválido en config — debe ser UUID")
+            })
             .collect();
 
         let mut values = vec![0.0f64; ids.len()];

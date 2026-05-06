@@ -72,6 +72,7 @@ impl NodeInstance for KalmanNode {
             self.x = z.clone();
         }
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..self.dim {
             self.p[i] += self.q[i] * dt;
             let k = self.p[i] / (self.p[i] + self.r[i]);

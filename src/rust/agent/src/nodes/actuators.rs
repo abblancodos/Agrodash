@@ -161,7 +161,7 @@ impl NodeInstance for MqttActuatorNode {
                     self.cfg.payload_off
                 );
             }
-            NodeAction::Hold | _ => {}
+            _ => {}
         }
         Ok(Some(Signal::Action(action)))
     }
@@ -331,7 +331,7 @@ impl NodeInstance for HttpActuatorNode {
                     self.cfg.path_off
                 );
             }
-            NodeAction::Hold | _ => {}
+            _ => {}
         }
         Ok(Some(Signal::Action(action)))
     }
@@ -378,6 +378,7 @@ impl NodeInstance for HttpActuatorNode {
 
 /// Verifica conectividad MQTT sin publicar nada en topics reales.
 /// Retorna la latencia del ConnAck.
+#[allow(dead_code)]
 pub async fn mqtt_ping(conn: &MqttConnection) -> Result<Duration> {
     use rumqttc::{AsyncClient, Event, MqttOptions, Packet};
     use tokio::time::timeout;
@@ -400,9 +401,8 @@ pub async fn mqtt_ping(conn: &MqttConnection) -> Result<Duration> {
 
     let result = timeout(Duration::from_secs(5), async {
         loop {
-            match eventloop.poll().await? {
-                Event::Incoming(Packet::ConnAck(_)) => return Ok::<(), anyhow::Error>(()),
-                _ => {}
+            if let Event::Incoming(Packet::ConnAck(_)) = eventloop.poll().await? {
+                return Ok::<(), anyhow::Error>(());
             }
         }
     })
@@ -416,6 +416,7 @@ pub async fn mqtt_ping(conn: &MqttConnection) -> Result<Duration> {
 }
 
 /// Verifica conectividad HTTP haciendo GET/HEAD al base_url.
+#[allow(dead_code)]
 pub async fn http_ping(conn: &HttpConnection) -> Result<Duration> {
     let timeout_dur = Duration::from_secs(conn.timeout_secs.unwrap_or(5));
     let client = reqwest::Client::builder().timeout(timeout_dur).build()?;
