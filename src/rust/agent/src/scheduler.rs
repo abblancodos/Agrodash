@@ -1,4 +1,5 @@
 // agent/src/scheduler.rs
+#![allow(clippy::panic)] // sqlx::query! genera panics internos que son falsos positivos
 
 use agrodash_shared::{
     AgentState, EdgeConfig, EdgeKind, NodeAction, NodeConfig, NodeState, Signal,

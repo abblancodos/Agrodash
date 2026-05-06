@@ -24,6 +24,7 @@
 //     - ConfirmWatchdog → modo Ugly: confirma acción pendiente.
 //   Si NO tiene Watchdog:
 //     - Override/ClearWatchdog → comportamiento clásico directo al actuador.
+#![allow(clippy::panic)] // sqlx::query! genera panics internos que son falsos positivos
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -694,7 +695,7 @@ async fn process_cmd(pool: &PgPool, shared: &Arc<AgentShared>, cmd: AgentCommand
     true
 }
 
-// ── Helper para resolver actuator_id ───────────────────────────
+// ── Helper para resolver actuator_id ─────────────────────────────────────────
 
 async fn resolve_actuator_id(
     shared: &AgentShared,
