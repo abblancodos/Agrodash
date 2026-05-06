@@ -1,19 +1,19 @@
 // agent/src/nodes/mod.rs
 
-use agrodash_shared::{
-    ConnectionRef, HttpConnection, MqttConnection, NodeAction, NodeConfig, NodeKind, NodeState,
-    SharedConnections, Signal,
-};
 use anyhow::Result;
 use async_trait::async_trait;
+use agrodash_shared::{
+    NodeConfig, NodeKind, NodeState, Signal, NodeAction,
+    SharedConnections, ConnectionRef, MqttConnection, HttpConnection,
+};
 use sqlx::PgPool;
 
-pub mod actuators;
-pub mod decisions;
-pub mod filters;
 pub mod source;
-pub mod subscriber;
+pub mod filters;
+pub mod decisions;
+pub mod actuators;
 pub mod utils;
+pub mod subscriber;
 pub mod watchdog;
 
 // ── Trait ─────────────────────────────────────────────────────────────────────
@@ -23,148 +23,108 @@ pub trait NodeInstance: Send + Sync {
     async fn execute(
         &mut self,
         inputs: Vec<Signal>,
-        dt: f64,
-        pool: &PgPool,
+        dt:     f64,
+        pool:   &PgPool,
     ) -> Result<Option<Signal>>;
 
-    async fn execute_override(&mut self, action: NodeAction) -> Result<Option<Signal>> {
-        let _action = action; // default: nodo no es actuador, ignora la acción
+    async fn execute_override(
+        &mut self,
+        action: NodeAction,
+    ) -> Result<Option<Signal>> {
+        let _action = action;  // default: nodo no es actuador, ignora la acción
         Ok(None)
     }
 
-    fn is_actuator(&self) -> bool {
-        false
-    }
-    fn is_ready(&self) -> bool {
-        true
-    }
+    fn is_actuator(&self) -> bool { false }
+    fn is_ready(&self)    -> bool { true  }
 
     /// Métricas internas para series temporales (scope_values).
-    fn metrics(&self) -> Vec<(String, f64)> {
-        vec![]
-    }
+    fn metrics(&self) -> Vec<(String, f64)> { vec![] }
 
     // Watchdog control — implementación vacía por defecto.
     // WatchdogNode overridea estos métodos.
     fn watchdog_reset(&mut self) {}
     fn watchdog_confirm(&mut self) {}
     fn watchdog_set_override(&mut self, _action: NodeAction) {}
-    fn has_watchdog_override(&self) -> bool {
-        false
-    }
+    fn has_watchdog_override(&self) -> bool { false }
 
     fn save_state(&self) -> NodeState;
     fn load_state(&mut self, state: &NodeState);
 }
 
+
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 pub async fn build(
-    cfg: &NodeConfig,
+    cfg:                &NodeConfig,
     shared_connections: &Option<SharedConnections>,
-    pool: &PgPool,
+    _pool:              &PgPool,
 ) -> Result<Box<dyn NodeInstance>> {
     match &cfg.kind {
-        NodeKind::PostgresSensor(c) => Ok(Box::new(source::PostgresSensorNode::new(
-            cfg.id.clone(),
-            c.clone(),
-        ))),
+        NodeKind::PostgresSensor(c) => {
+            Ok(Box::new(source::PostgresSensorNode::new(cfg.id.clone(), c.clone())))
+        }
 
-        NodeKind::Kalman(c) => Ok(Box::new(filters::KalmanNode::new(
-            cfg.id.clone(),
-            c.clone(),
-        ))),
-        NodeKind::MovingAvg(c) => Ok(Box::new(filters::MovingAvgNode::new(
-            cfg.id.clone(),
-            c.clone(),
-        ))),
-        NodeKind::Ewma(c) => Ok(Box::new(filters::EwmaNode::new(cfg.id.clone(), c.clone()))),
-        NodeKind::Lowpass(c) => Ok(Box::new(filters::LowpassNode::new(
-            cfg.id.clone(),
-            c.clone(),
-        ))),
-        NodeKind::Passthrough => Ok(Box::new(filters::PassthroughNode::new(cfg.id.clone()))),
+        NodeKind::Kalman(c)    => Ok(Box::new(filters::KalmanNode::new(cfg.id.clone(), c.clone()))),
+        NodeKind::MovingAvg(c) => Ok(Box::new(filters::MovingAvgNode::new(cfg.id.clone(), c.clone()))),
+        NodeKind::Ewma(c)      => Ok(Box::new(filters::EwmaNode::new(cfg.id.clone(), c.clone()))),
+        NodeKind::Lowpass(c)   => Ok(Box::new(filters::LowpassNode::new(cfg.id.clone(), c.clone()))),
+        NodeKind::Passthrough  => Ok(Box::new(filters::PassthroughNode::new(cfg.id.clone()))),
 
         NodeKind::Concat => Ok(Box::new(utils::ConcatNode::new(cfg.id.clone()))),
-        NodeKind::WeightedMean { weights } => Ok(Box::new(utils::WeightedMeanNode::new(
-            cfg.id.clone(),
-            weights.clone(),
-        ))),
+        NodeKind::WeightedMean { weights } => {
+            Ok(Box::new(utils::WeightedMeanNode::new(cfg.id.clone(), weights.clone())))
+        }
 
-        NodeKind::Logger { tag } => Ok(Box::new(utils::LoggerNode::new(
-            cfg.id.clone(),
-            tag.clone(),
-        ))),
-        NodeKind::Select { indices } => Ok(Box::new(utils::SelectNode::new(
-            cfg.id.clone(),
-            indices.clone(),
-        ))),
-        NodeKind::LinearScale { a, b } => Ok(Box::new(utils::LinearScaleNode::new(
-            cfg.id.clone(),
-            a.clone(),
-            b.clone(),
-        ))),
+        NodeKind::Logger { tag }       => Ok(Box::new(utils::LoggerNode::new(cfg.id.clone(), tag.clone()))),
+        NodeKind::Select { indices }   => Ok(Box::new(utils::SelectNode::new(cfg.id.clone(), indices.clone()))),
+        NodeKind::LinearScale { a, b } => Ok(Box::new(utils::LinearScaleNode::new(cfg.id.clone(), a.clone(), b.clone()))),
 
-        NodeKind::Mahalanobis(c) => Ok(Box::new(decisions::MahalanobisNode::new(
-            cfg.id.clone(),
-            c.clone(),
-        ))),
-        NodeKind::Hysteresis(c) => Ok(Box::new(decisions::HysteresisNode::new(
-            cfg.id.clone(),
-            c.clone(),
-        ))),
-        NodeKind::Sprt(c) => Ok(Box::new(decisions::SprtNode::new(
-            cfg.id.clone(),
-            c.clone(),
-        ))),
+        NodeKind::Mahalanobis(c) => Ok(Box::new(decisions::MahalanobisNode::new(cfg.id.clone(), c.clone()))),
+        NodeKind::Hysteresis(c)  => Ok(Box::new(decisions::HysteresisNode::new(cfg.id.clone(), c.clone()))),
+        NodeKind::Sprt(c)        => Ok(Box::new(decisions::SprtNode::new(cfg.id.clone(), c.clone()))),
 
         NodeKind::MqttActuator(c) => {
             let conn = resolve_mqtt_connection(&c.connection, shared_connections)?;
-            Ok(Box::new(
-                actuators::MqttActuatorNode::new(cfg.id.clone(), c.clone(), conn).await?,
-            ))
+            Ok(Box::new(actuators::MqttActuatorNode::new(cfg.id.clone(), c.clone(), conn).await?))
         }
 
         NodeKind::HttpActuator(c) => {
             let conn = resolve_http_connection(&c.connection, shared_connections)?;
-            Ok(Box::new(actuators::HttpActuatorNode::new(
-                cfg.id.clone(),
-                c.clone(),
-                conn,
-            )))
+            Ok(Box::new(actuators::HttpActuatorNode::new(cfg.id.clone(), c.clone(), conn)))
         }
 
         NodeKind::MqttSubscriber(c) => {
             let conn = resolve_mqtt_connection(&c.connection, shared_connections)?;
-            Ok(Box::new(
-                subscriber::MqttSubscriberNode::new(cfg.id.clone(), c.clone(), conn).await?,
-            ))
+            Ok(Box::new(subscriber::MqttSubscriberNode::new(cfg.id.clone(), c.clone(), conn).await?))
         }
 
-        NodeKind::Watchdog(c) => Ok(Box::new(watchdog::WatchdogNode::new(
-            cfg.id.clone(),
-            c.clone(),
-        ))),
+        NodeKind::Watchdog(c) => {
+            Ok(Box::new(watchdog::WatchdogNode::new(cfg.id.clone(), c.clone())))
+        }
     }
 }
 
 // ── Resolvers de conexiones ───────────────────────────────────────────────────
 
 pub fn resolve_mqtt_connection(
-    conn_ref: &ConnectionRef,
+    conn_ref:           &ConnectionRef,
     shared_connections: &Option<SharedConnections>,
 ) -> Result<MqttConnection> {
     match conn_ref {
-        ConnectionRef::Named(name) if name == "shared" => shared_connections
-            .as_ref()
-            .and_then(|sc| sc.mqtt.clone())
-            .ok_or_else(|| {
-                anyhow::anyhow!("Referencia 'shared' sin shared_connections.mqtt definido")
-            }),
-        ConnectionRef::Inline(inline) => inline
-            .mqtt
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("Conexión inline sin campo mqtt")),
+        ConnectionRef::Named(name) if name == "shared" => {
+            shared_connections
+                .as_ref()
+                .and_then(|sc| sc.mqtt.clone())
+                .ok_or_else(|| anyhow::anyhow!(
+                    "Referencia 'shared' sin shared_connections.mqtt definido"
+                ))
+        }
+        ConnectionRef::Inline(inline) => {
+            inline.mqtt.clone().ok_or_else(|| anyhow::anyhow!(
+                "Conexión inline sin campo mqtt"
+            ))
+        }
         ConnectionRef::Named(other) => {
             anyhow::bail!("Referencia de conexión MQTT desconocida: '{}'", other)
         }
@@ -172,20 +132,23 @@ pub fn resolve_mqtt_connection(
 }
 
 pub fn resolve_http_connection(
-    conn_ref: &ConnectionRef,
+    conn_ref:           &ConnectionRef,
     shared_connections: &Option<SharedConnections>,
 ) -> Result<HttpConnection> {
     match conn_ref {
-        ConnectionRef::Named(name) if name == "shared" => shared_connections
-            .as_ref()
-            .and_then(|sc| sc.http.clone())
-            .ok_or_else(|| {
-                anyhow::anyhow!("Referencia 'shared' sin shared_connections.http definido")
-            }),
-        ConnectionRef::Inline(inline) => inline
-            .http
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("Conexión inline sin campo http")),
+        ConnectionRef::Named(name) if name == "shared" => {
+            shared_connections
+                .as_ref()
+                .and_then(|sc| sc.http.clone())
+                .ok_or_else(|| anyhow::anyhow!(
+                    "Referencia 'shared' sin shared_connections.http definido"
+                ))
+        }
+        ConnectionRef::Inline(inline) => {
+            inline.http.clone().ok_or_else(|| anyhow::anyhow!(
+                "Conexión inline sin campo http"
+            ))
+        }
         ConnectionRef::Named(other) => {
             anyhow::bail!("Referencia de conexión HTTP desconocida: '{}'", other)
         }
