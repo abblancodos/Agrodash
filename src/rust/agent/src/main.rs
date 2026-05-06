@@ -694,7 +694,7 @@ async fn process_cmd(pool: &PgPool, shared: &Arc<AgentShared>, cmd: AgentCommand
     true
 }
 
-// ── Helper para resolver actuator_id ─────────────────────────────────────────
+// ── Helper para resolver actuator_id ───────────────────────────
 
 async fn resolve_actuator_id(
     shared: &AgentShared,
