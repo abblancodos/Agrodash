@@ -40,38 +40,50 @@ use uuid::Uuid;
 use crate::auth::{Claims, OptionalClaims};
 
 fn err(msg: impl ToString) -> (StatusCode, Json<Value>) {
-    (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": msg.to_string() })))
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({ "error": msg.to_string() })),
+    )
 }
 fn bad(msg: &str) -> (StatusCode, Json<Value>) {
-    (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": msg })))
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": msg })),
+    )
 }
 fn forbidden() -> (StatusCode, Json<Value>) {
-    (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "Sin permisos" })))
+    (
+        StatusCode::FORBIDDEN,
+        Json(serde_json::json!({ "error": "Sin permisos" })),
+    )
 }
 fn not_found() -> (StatusCode, Json<Value>) {
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "No encontrado" })))
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({ "error": "No encontrado" })),
+    )
 }
 
 // ── Plantillas ────────────────────────────────────────────────────────────────
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct TemplateRow {
-    pub id:          Uuid,
-    pub owner_id:    Uuid,
-    pub name:        String,
+    pub id: Uuid,
+    pub owner_id: Uuid,
+    pub name: String,
     pub description: Option<String>,
-    pub public:      bool,
-    pub steps:       Value,
+    pub public: bool,
+    pub steps: Value,
     pub constants_schema: Value,
-    pub created_at:  chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Deserialize)]
 pub struct CreateTemplateRequest {
-    pub name:             String,
-    pub description:      Option<String>,
-    pub public:           Option<bool>,
-    pub steps:            Value,
+    pub name: String,
+    pub description: Option<String>,
+    pub public: Option<bool>,
+    pub steps: Value,
     pub constants_schema: Option<Value>,
 }
 
@@ -102,7 +114,9 @@ pub async fn create_template(
     claims: Claims,
     Json(body): Json<CreateTemplateRequest>,
 ) -> Result<Json<TemplateRow>, (StatusCode, Json<Value>)> {
-    if body.name.is_empty() { return Err(bad("name es requerido")); }
+    if body.name.is_empty() {
+        return Err(bad("name es requerido"));
+    }
     let row = sqlx::query_as!(
         TemplateRow,
         r#"
@@ -153,24 +167,24 @@ pub async fn get_template(
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct ExperimentRow {
-    pub id:          Uuid,
+    pub id: Uuid,
     pub template_id: Option<Uuid>,
-    pub owner_id:    Uuid,
-    pub title:       String,
+    pub owner_id: Uuid,
+    pub title: String,
     pub description: Option<String>,
-    pub public:      bool,
-    pub constants:   Value,
-    pub status:      String,
-    pub created_at:  chrono::DateTime<chrono::Utc>,
+    pub public: bool,
+    pub constants: Value,
+    pub status: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Deserialize)]
 pub struct CreateExperimentRequest {
     pub template_id: Option<Uuid>,
-    pub title:       String,
+    pub title: String,
     pub description: Option<String>,
-    pub public:      Option<bool>,
-    pub constants:   Option<Value>,
+    pub public: Option<bool>,
+    pub constants: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -214,16 +228,21 @@ pub async fn list_experiments(
     .await
     .map_err(err)?;
 
-    let list: Vec<_> = rows.iter().map(|r| serde_json::json!({
-        "id":          r.id,
-        "owner_id":    r.owner_id,
-        "title":       r.title,
-        "description": r.description,
-        "public":      r.public,
-        "status":      r.status,
-        "created_at":  r.created_at,
-        "user_role":   r.user_role,  // null = solo puede ver si es público
-    })).collect();
+    let list: Vec<_> = rows
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "id":          r.id,
+                "owner_id":    r.owner_id,
+                "title":       r.title,
+                "description": r.description,
+                "public":      r.public,
+                "status":      r.status,
+                "created_at":  r.created_at,
+                "user_role":   r.user_role,  // null = solo puede ver si es público
+            })
+        })
+        .collect();
 
     Ok(Json(serde_json::json!(list)))
 }
@@ -233,7 +252,9 @@ pub async fn create_experiment(
     claims: Claims,
     Json(body): Json<CreateExperimentRequest>,
 ) -> Result<Json<ExperimentRow>, (StatusCode, Json<Value>)> {
-    if body.title.is_empty() { return Err(bad("title es requerido")); }
+    if body.title.is_empty() {
+        return Err(bad("title es requerido"));
+    }
     let row = sqlx::query_as!(
         ExperimentRow,
         r#"
@@ -344,28 +365,28 @@ pub async fn update_constants(
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct EventRow {
-    pub id:            Uuid,
+    pub id: Uuid,
     pub experiment_id: Uuid,
-    pub group_id:      Option<Uuid>,
-    pub step_key:      String,
-    pub event_type:    String,
-    pub soil_id:       Option<String>,
-    pub iteration:     Option<i32>,
-    pub data:          Value,
-    pub note:          Option<String>,
-    pub recorded_at:   chrono::DateTime<chrono::Utc>,
+    pub group_id: Option<Uuid>,
+    pub step_key: String,
+    pub event_type: String,
+    pub soil_id: Option<String>,
+    pub iteration: Option<i32>,
+    pub data: Value,
+    pub note: Option<String>,
+    pub recorded_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Deserialize)]
 pub struct CreateEventRequest {
-    pub step_key:    String,
-    pub event_type:  String,
-    pub soil_id:     Option<String>,
-    pub iteration:   Option<i32>,
-    pub data:        Value,
-    pub note:        Option<String>,
+    pub step_key: String,
+    pub event_type: String,
+    pub soil_id: Option<String>,
+    pub iteration: Option<i32>,
+    pub data: Value,
+    pub note: Option<String>,
     pub recorded_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub group_id:    Option<Uuid>,
+    pub group_id: Option<Uuid>,
 }
 
 pub async fn list_events(
@@ -483,7 +504,8 @@ pub async fn delete_event(
 
     sqlx::query!(
         "DELETE FROM experiment_events WHERE id = $1 AND experiment_id = $2",
-        event_id, exp_id,
+        event_id,
+        exp_id,
     )
     .execute(&pool)
     .await
@@ -496,25 +518,25 @@ pub async fn delete_event(
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct SeriesPoint {
-    pub id:            Uuid,
+    pub id: Uuid,
     pub experiment_id: Uuid,
-    pub series_key:    String,
-    pub soil_id:       Option<String>,
-    pub value:         f64,
-    pub unit:          Option<String>,
-    pub note:          Option<String>,
-    pub recorded_at:   chrono::DateTime<chrono::Utc>,
+    pub series_key: String,
+    pub soil_id: Option<String>,
+    pub value: f64,
+    pub unit: Option<String>,
+    pub note: Option<String>,
+    pub recorded_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Deserialize)]
 pub struct CreateSeriesPointRequest {
-    pub series_key:  String,
-    pub soil_id:     Option<String>,
-    pub value:       f64,
-    pub unit:        Option<String>,
-    pub note:        Option<String>,
+    pub series_key: String,
+    pub soil_id: Option<String>,
+    pub value: f64,
+    pub unit: Option<String>,
+    pub note: Option<String>,
     pub recorded_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub group_id:    Option<Uuid>,
+    pub group_id: Option<Uuid>,
 }
 
 pub async fn list_series(
@@ -600,10 +622,10 @@ pub async fn create_series_point(
 
 #[derive(Serialize)]
 pub struct UploadCsvResponse {
-    pub id:          Uuid,
-    pub filename:    String,
-    pub row_count:   i32,
-    pub columns:     Vec<String>,
+    pub id: Uuid,
+    pub filename: String,
+    pub row_count: i32,
+    pub columns: Vec<String>,
 }
 
 pub async fn upload_csv(
@@ -627,15 +649,25 @@ pub async fn upload_csv(
     }
 
     // Leer el campo del multipart
-    let mut filename  = String::from("upload.csv");
-    let mut step_key  = String::from("csv");
+    let mut filename = String::from("upload.csv");
+    let mut step_key = String::from("csv");
     let mut csv_bytes = Vec::new();
 
-    while let Some(field) = multipart.next_field().await.map_err(|e| bad(&e.to_string()))? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| bad(&e.to_string()))?
+    {
         match field.name() {
             Some("file") => {
-                if let Some(n) = field.file_name() { filename = n.to_string(); }
-                csv_bytes = field.bytes().await.map_err(|e| bad(&e.to_string()))?.to_vec();
+                if let Some(n) = field.file_name() {
+                    filename = n.to_string();
+                }
+                csv_bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|e| bad(&e.to_string()))?
+                    .to_vec();
             }
             Some("step_key") => {
                 step_key = field.text().await.map_err(|e| bad(&e.to_string()))?;
@@ -664,7 +696,9 @@ pub async fn upload_csv(
             .iter()
             .zip(record.iter())
             .map(|(h, v)| {
-                let val = v.trim().parse::<f64>()
+                let val = v
+                    .trim()
+                    .parse::<f64>()
                     .map(serde_json::Value::from)
                     .unwrap_or_else(|_| serde_json::Value::String(v.trim().to_string()));
                 (h.clone(), val)
@@ -675,7 +709,7 @@ pub async fn upload_csv(
 
     let row_count = rows.len() as i32;
     let columns_json = serde_json::to_value(&headers).unwrap();
-    let parsed_json  = serde_json::to_value(&rows).unwrap();
+    let parsed_json = serde_json::to_value(&rows).unwrap();
 
     let file_id = sqlx::query_scalar!(
         r#"
@@ -717,7 +751,6 @@ pub async fn run_step_script(
     OptionalClaims(claims): OptionalClaims,
     Path((exp_id, step_key)): Path<(Uuid, String)>,
 ) -> Result<Json<ScriptResult>, (StatusCode, Json<Value>)> {
-
     // 1. Verificar acceso al experimento
     let exp = sqlx::query!(
         r#"
@@ -739,12 +772,17 @@ pub async fn run_step_script(
     }
 
     // 2. Buscar el step en la plantilla y extraer su script
-    let steps_arr = exp.steps.as_array().ok_or_else(|| bad("steps inválidos en plantilla"))?;
-    let step = steps_arr.iter()
+    let steps_arr = exp
+        .steps
+        .as_array()
+        .ok_or_else(|| bad("steps inválidos en plantilla"))?;
+    let step = steps_arr
+        .iter()
         .find(|s| s.get("key").and_then(|k| k.as_str()) == Some(&step_key))
         .ok_or_else(not_found)?;
 
-    let script = step.get("script")
+    let script = step
+        .get("script")
         .and_then(|s| s.as_str())
         .ok_or_else(|| bad("El paso no tiene script"))?;
 
@@ -774,7 +812,10 @@ pub async fn run_step_script(
             entry.insert("value".into(), serde_json::json!(v));
         }
         entry.insert("data".into(), ev.data.clone());
-        entry.insert("recorded_at".into(), serde_json::json!(ev.recorded_at.to_rfc3339()));
+        entry.insert(
+            "recorded_at".into(),
+            serde_json::json!(ev.recorded_at.to_rfc3339()),
+        );
         steps_context.insert(ev.step_key.clone(), Value::Object(entry));
     }
 
@@ -794,17 +835,17 @@ pub async fn run_step_script(
     .map_err(err)?;
 
     for s in &series {
-        steps_context.entry(s.series_key.clone()).or_insert_with(|| {
-            serde_json::json!({ "value": s.value, "recorded_at": s.recorded_at.to_rfc3339() })
-        });
+        steps_context.entry(s.series_key.clone()).or_insert_with(
+            || serde_json::json!({ "value": s.value, "recorded_at": s.recorded_at.to_rfc3339() }),
+        );
     }
 
     let steps_json = Value::Object(steps_context);
 
     // 4. Ejecutar script en hilo bloqueante (Rhai es sync)
-    let script_owned   = script.to_string();
+    let script_owned = script.to_string();
     let constants_owned = constants.clone();
-    let steps_owned    = steps_json;
+    let steps_owned = steps_json;
 
     let result = tokio::task::spawn_blocking(move || {
         run_script(&script_owned, &constants_owned, &steps_owned)
@@ -824,13 +865,11 @@ pub struct ValidateScriptRequest {
     pub script: String,
 }
 
-pub async fn validate_script(
-    Json(body): Json<ValidateScriptRequest>,
-) -> Json<Value> {
+pub async fn validate_script(Json(body): Json<ValidateScriptRequest>) -> Json<Value> {
     use rhai::Engine;
     let engine = Engine::new();
     match engine.compile(&body.script) {
-        Ok(_)  => Json(serde_json::json!({ "valid": true })),
+        Ok(_) => Json(serde_json::json!({ "valid": true })),
         Err(e) => Json(serde_json::json!({ "valid": false, "error": e.to_string() })),
     }
 }
@@ -852,8 +891,18 @@ pub async fn clone_experiment(
     )
     .fetch_optional(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?
-    .ok_or_else(|| (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Experimento no encontrado" }))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?
+    .ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Experimento no encontrado" })),
+        )
+    })?;
 
     // Crear el nuevo experimento
     let new_exp = sqlx::query!(
@@ -870,7 +919,12 @@ pub async fn clone_experiment(
     )
     .fetch_one(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
 
     // Copiar definitions
     sqlx::query!(
@@ -887,7 +941,12 @@ pub async fn clone_experiment(
     )
     .execute(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
 
     // Copiar objetivos
     sqlx::query!(

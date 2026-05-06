@@ -15,32 +15,32 @@ const TEMP_PASSWORD: &str = "Estacion2";
 
 #[derive(Serialize)]
 pub struct AuthResponse {
-    pub token:           String,
-    pub user:            UserInfo,
-    pub must_change_pw:  bool,
+    pub token: String,
+    pub user: UserInfo,
+    pub must_change_pw: bool,
 }
 
 #[derive(Serialize)]
 pub struct UserInfo {
-    pub id:           uuid::Uuid,
-    pub email:        String,
+    pub id: uuid::Uuid,
+    pub email: String,
     pub display_name: String,
-    pub role:         String,
+    pub role: String,
 }
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
-    pub email:              String,
-    pub password:           Option<String>,           // plaintext (solo desarrollo)
-    pub password_encrypted: Option<String>,           // base64 RSA-OAEP (producción)
+    pub email: String,
+    pub password: Option<String>, // plaintext (solo desarrollo)
+    pub password_encrypted: Option<String>, // base64 RSA-OAEP (producción)
 }
 
 #[derive(Deserialize)]
 pub struct ChangePasswordRequest {
-    pub current_password:           Option<String>,
+    pub current_password: Option<String>,
     pub current_password_encrypted: Option<String>,
-    pub new_password:               Option<String>,
-    pub new_password_encrypted:     Option<String>,
+    pub new_password: Option<String>,
+    pub new_password_encrypted: Option<String>,
 }
 
 // ── GET /api/v1/auth/public-key ───────────────────────────────────────────────
@@ -57,9 +57,9 @@ pub async fn public_key() -> Json<serde_json::Value> {
 
 #[derive(Deserialize)]
 pub struct CreateUserRequest {
-    pub email:        String,
+    pub email: String,
     pub display_name: String,
-    pub role:         Option<String>,  // default: "user"
+    pub role: Option<String>, // default: "user"
 }
 
 pub async fn admin_create_user(
@@ -75,7 +75,10 @@ pub async fn admin_create_user(
     }
 
     if body.email.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "email requerido" }))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "email requerido" })),
+        ));
     }
 
     let exists = sqlx::query_scalar!(
@@ -84,21 +87,36 @@ pub async fn admin_create_user(
     )
     .fetch_one(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?
     .unwrap_or(false);
 
     if exists {
-        return Err((StatusCode::CONFLICT, Json(serde_json::json!({ "error": "Email ya registrado" }))));
+        return Err((
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": "Email ya registrado" })),
+        ));
     }
 
     let role = body.role.unwrap_or_else(|| "user".to_string());
     if !["user", "admin"].contains(&role.as_str()) {
-        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "role inválido" }))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "role inválido" })),
+        ));
     }
 
     // Contraseña temporal — must_change_pw se infiere comparando con el hash de TEMP_PASSWORD
-    let password_hash = hash(TEMP_PASSWORD, DEFAULT_COST)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+    let password_hash = hash(TEMP_PASSWORD, DEFAULT_COST).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
 
     let user = sqlx::query!(
         r#"
@@ -113,7 +131,12 @@ pub async fn admin_create_user(
     )
     .fetch_one(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
 
     Ok(Json(serde_json::json!({
         "id":           user.id,
@@ -133,7 +156,10 @@ pub async fn admin_list_users(
     claims: Claims,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     if !claims.is_admin() {
-        return Err((StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "Solo admins" }))));
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "Solo admins" })),
+        ));
     }
 
     let users = sqlx::query!(
@@ -144,13 +170,23 @@ pub async fn admin_list_users(
     )
     .fetch_all(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
 
-    let list: Vec<_> = users.iter().map(|u| serde_json::json!({
-        "id": u.id, "email": u.email,
-        "display_name": u.display_name, "role": u.role,
-        "created_at": u.created_at,
-    })).collect();
+    let list: Vec<_> = users
+        .iter()
+        .map(|u| {
+            serde_json::json!({
+                "id": u.id, "email": u.email,
+                "display_name": u.display_name, "role": u.role,
+                "created_at": u.created_at,
+            })
+        })
+        .collect();
 
     Ok(Json(serde_json::json!(list)))
 }
@@ -164,14 +200,19 @@ pub async fn login(
 ) -> Result<(CookieJar, Json<AuthResponse>), (StatusCode, Json<serde_json::Value>)> {
     // Resolver contraseña — acepta cifrada (producción) o plaintext (dev)
     let password = if let Some(enc) = &body.password_encrypted {
-        decrypt_password(enc).map_err(|e| (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": format!("Error de descifrado: {e}") })),
-        ))?
+        decrypt_password(enc).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": format!("Error de descifrado: {e}") })),
+            )
+        })?
     } else if let Some(plain) = &body.password {
         plain.clone()
     } else {
-        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Se requiere password o password_encrypted" }))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Se requiere password o password_encrypted" })),
+        ));
     };
 
     let user = sqlx::query!(
@@ -183,35 +224,58 @@ pub async fn login(
     )
     .fetch_optional(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?
-    .ok_or_else(|| (
-        StatusCode::UNAUTHORIZED,
-        Json(serde_json::json!({ "error": "Credenciales inválidas" })),
-    ))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?
+    .ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Credenciales inválidas" })),
+        )
+    })?;
 
-    let valid = verify(&password, &user.password_hash)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+    let valid = verify(&password, &user.password_hash).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
 
     if !valid {
-        return Err((StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Credenciales inválidas" }))));
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Credenciales inválidas" })),
+        ));
     }
 
     // Detectar si aún usa la contraseña temporal
     let must_change_pw = verify(TEMP_PASSWORD, &user.password_hash).unwrap_or(false);
 
     let claims = Claims::new(user.id, user.email.clone(), user.role.clone());
-    let token  = encode_token(&claims)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+    let token = encode_token(&claims).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
 
     let cookie = crate::auth::session_cookie(token.clone());
-    Ok((jar.add(cookie), Json(AuthResponse {
-        token,
-        must_change_pw,
-        user: UserInfo {
-            id: user.id, email: user.email,
-            display_name: user.display_name, role: user.role,
-        },
-    })))
+    Ok((
+        jar.add(cookie),
+        Json(AuthResponse {
+            token,
+            must_change_pw,
+            user: UserInfo {
+                id: user.id,
+                email: user.email,
+                display_name: user.display_name,
+                role: user.role,
+            },
+        }),
+    ))
 }
 
 // ── GET /api/v1/auth/me ───────────────────────────────────────────────────────
@@ -226,12 +290,24 @@ pub async fn me(
     )
     .fetch_optional(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?
-    .ok_or_else(|| (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Usuario no encontrado" }))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?
+    .ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Usuario no encontrado" })),
+        )
+    })?;
 
     Ok(Json(UserInfo {
-        id: user.id, email: user.email,
-        display_name: user.display_name, role: user.role,
+        id: user.id,
+        email: user.email,
+        display_name: user.display_name,
+        role: user.role,
     }))
 }
 
@@ -244,23 +320,46 @@ pub async fn change_password(
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     // Resolver contraseñas
     let current_password = if let Some(enc) = &body.current_password_encrypted {
-        decrypt_password(enc).map_err(|e| (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))))?
+        decrypt_password(enc).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": e })),
+            )
+        })?
     } else if let Some(plain) = &body.current_password {
         plain.clone()
     } else {
-        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Se requiere current_password o current_password_encrypted" }))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                serde_json::json!({ "error": "Se requiere current_password o current_password_encrypted" }),
+            ),
+        ));
     };
 
     let new_password = if let Some(enc) = &body.new_password_encrypted {
-        decrypt_password(enc).map_err(|e| (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))))?
+        decrypt_password(enc).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": e })),
+            )
+        })?
     } else if let Some(plain) = &body.new_password {
         plain.clone()
     } else {
-        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Se requiere new_password o new_password_encrypted" }))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                serde_json::json!({ "error": "Se requiere new_password o new_password_encrypted" }),
+            ),
+        ));
     };
 
     if new_password.len() < 8 {
-        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Mínimo 8 caracteres" }))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Mínimo 8 caracteres" })),
+        ));
     }
 
     let user = sqlx::query!(
@@ -269,29 +368,56 @@ pub async fn change_password(
     )
     .fetch_one(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
 
-    let valid = verify(&current_password, &user.password_hash)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+    let valid = verify(&current_password, &user.password_hash).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
 
     if !valid {
-        return Err((StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Contraseña actual incorrecta" }))));
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Contraseña actual incorrecta" })),
+        ));
     }
 
     if new_password == TEMP_PASSWORD {
-        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "No podés usar la contraseña temporal como nueva contraseña" }))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                serde_json::json!({ "error": "No podés usar la contraseña temporal como nueva contraseña" }),
+            ),
+        ));
     }
 
-    let new_hash = hash(&new_password, DEFAULT_COST)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+    let new_hash = hash(&new_password, DEFAULT_COST).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
 
     sqlx::query!(
         "UPDATE users SET password_hash = $1 WHERE id = $2",
-        new_hash, claims.sub,
+        new_hash,
+        claims.sub,
     )
     .execute(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

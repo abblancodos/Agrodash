@@ -15,28 +15,37 @@ use uuid::Uuid;
 
 use crate::agent_manager::AgentKey;
 use crate::auth::Claims;
-use tracing::{info, warn};
 use crate::AppState;
 use agrodash_shared::{AgentCommand, ProcessConfig};
+use tracing::{info, warn};
 
 fn err(e: impl std::fmt::Display) -> (StatusCode, Json<Value>) {
-    (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()})))
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({"error": e.to_string()})),
+    )
 }
 
 fn forbidden() -> (StatusCode, Json<Value>) {
-    (StatusCode::FORBIDDEN, Json(json!({"error": "Sin permisos"})))
+    (
+        StatusCode::FORBIDDEN,
+        Json(json!({"error": "Sin permisos"})),
+    )
 }
 
 fn not_found() -> (StatusCode, Json<Value>) {
-    (StatusCode::NOT_FOUND, Json(json!({"error": "No encontrado"})))
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({"error": "No encontrado"})),
+    )
 }
 
 // ── Helpers de rol ────────────────────────────────────────────────────────────
 
 async fn get_process_role(
-    pool:       &sqlx::PgPool,
+    pool: &sqlx::PgPool,
     process_id: Uuid,
-    user_id:    Uuid,
+    user_id: Uuid,
 ) -> Result<Option<String>, sqlx::Error> {
     let row = sqlx::query!(
         r#"
@@ -51,7 +60,8 @@ async fn get_process_role(
             ON c.process_id = p.id AND c.user_id = $2
         WHERE p.id = $1
         "#,
-        process_id, user_id
+        process_id,
+        user_id
     )
     .fetch_optional(pool)
     .await?;
@@ -60,18 +70,25 @@ async fn get_process_role(
 }
 
 async fn require_process_role(
-    pool:       &sqlx::PgPool,
+    pool: &sqlx::PgPool,
     process_id: Uuid,
-    user_id:    Uuid,
-    min_role:   &str,
+    user_id: Uuid,
+    min_role: &str,
 ) -> Result<String, (StatusCode, Json<Value>)> {
     let role = get_process_role(pool, process_id, user_id)
         .await
         .map_err(err)?
         .ok_or_else(forbidden)?;
 
-    let level = |r: &str| match r { "admin" => 3, "operator" => 2, "viewer" => 1, _ => 0 };
-    if level(&role) < level(min_role) { return Err(forbidden()); }
+    let level = |r: &str| match r {
+        "admin" => 3,
+        "operator" => 2,
+        "viewer" => 1,
+        _ => 0,
+    };
+    if level(&role) < level(min_role) {
+        return Err(forbidden());
+    }
     Ok(role)
 }
 
@@ -85,7 +102,9 @@ async fn control_get(url: &str, api_key: &str, path: &str) -> Result<Value, Stri
     let res = client
         .get(format!("{}{}", url.trim_end_matches('/'), path))
         .header("X-API-Key", api_key)
-        .send().await.map_err(|e| e.to_string())?;
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     res.json::<Value>().await.map_err(|e| e.to_string())
 }
 
@@ -98,7 +117,9 @@ async fn control_post(url: &str, api_key: &str, path: &str, body: Value) -> Resu
         .post(format!("{}{}", url.trim_end_matches('/'), path))
         .header("X-API-Key", api_key)
         .json(&body)
-        .send().await.map_err(|e| e.to_string())?;
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     res.json::<Value>().await.map_err(|e| e.to_string())
 }
 
@@ -106,53 +127,53 @@ async fn control_post(url: &str, api_key: &str, path: &str, body: Value) -> Resu
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct ProcessLogRow {
-    pub id:         Uuid,
+    pub id: Uuid,
     pub process_id: Uuid,
-    pub ts:         chrono::DateTime<chrono::Utc>,
-    pub level:      String,
-    pub source:     String,
-    pub message:    String,
-    pub data:       Option<Value>,
-    pub user_id:    Option<Uuid>,
+    pub ts: chrono::DateTime<chrono::Utc>,
+    pub level: String,
+    pub source: String,
+    pub message: String,
+    pub data: Option<Value>,
+    pub user_id: Option<Uuid>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct ValveEventRow {
-    pub id:                Uuid,
-    pub process_id:        Uuid,
-    pub ts:                chrono::DateTime<chrono::Utc>,
-    pub linea:             String,
-    pub estado:            bool,
-    pub modo:              String,
-    pub triggered_by:      Option<Uuid>,
+    pub id: Uuid,
+    pub process_id: Uuid,
+    pub ts: chrono::DateTime<chrono::Utc>,
+    pub linea: String,
+    pub estado: bool,
+    pub modo: String,
+    pub triggered_by: Option<Uuid>,
     pub kalman_convergido: Option<bool>,
-    pub kalman_x_hat:      Option<Value>,
-    pub context:           Option<Value>,
+    pub kalman_x_hat: Option<Value>,
+    pub context: Option<Value>,
 }
 
 #[derive(Deserialize)]
 pub struct CreateProcessRequest {
-    pub name:        String,
+    pub name: String,
     pub description: Option<String>,
-    pub r#type:      Option<String>,
+    pub r#type: Option<String>,
     pub control_url: String,
-    pub api_key:     String,
-    pub config:      Option<Value>,
+    pub api_key: String,
+    pub config: Option<Value>,
 }
 
 #[derive(Deserialize)]
 pub struct UpdateProcessRequest {
-    pub name:        Option<String>,
+    pub name: Option<String>,
     pub description: Option<String>,
-    pub config:      Option<Value>,
-    pub status:      Option<String>,
+    pub config: Option<Value>,
+    pub status: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct LogsQuery {
-    pub limit:  Option<i64>,
-    pub since:  Option<chrono::DateTime<chrono::Utc>>,
-    pub level:  Option<String>,
+    pub limit: Option<i64>,
+    pub since: Option<chrono::DateTime<chrono::Utc>>,
+    pub level: Option<String>,
     pub source: Option<String>,
 }
 
@@ -165,9 +186,9 @@ pub struct ValveEventsQuery {
 
 #[derive(Deserialize)]
 pub struct ReadingsQuery {
-    pub limit:       Option<i64>,
-    pub since:       Option<chrono::DateTime<chrono::Utc>>,
-    pub until:       Option<chrono::DateTime<chrono::Utc>>,
+    pub limit: Option<i64>,
+    pub since: Option<chrono::DateTime<chrono::Utc>>,
+    pub until: Option<chrono::DateTime<chrono::Utc>>,
     pub pipeline_id: Option<String>,
 }
 
@@ -205,19 +226,24 @@ pub async fn list_processes(
     .await
     .map_err(err)?;
 
-    let result: Vec<Value> = rows.iter().map(|r| json!({
-        "id":          r.id,
-        "name":        r.name,
-        "description": r.description,
-        "type":        r.r#type,
-        "status":      r.status,
-        "control_url": r.control_url,
-        "config":      r.config,
-        "last_seen_at": r.last_seen_at,
-        "owner_id":    r.owner_id,
-        "created_at":  r.created_at,
-        "user_role":   r.user_role,
-    })).collect();
+    let result: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            json!({
+                "id":          r.id,
+                "name":        r.name,
+                "description": r.description,
+                "type":        r.r#type,
+                "status":      r.status,
+                "control_url": r.control_url,
+                "config":      r.config,
+                "last_seen_at": r.last_seen_at,
+                "owner_id":    r.owner_id,
+                "created_at":  r.created_at,
+                "user_role":   r.user_role,
+            })
+        })
+        .collect();
 
     Ok(Json(result))
 }
@@ -229,9 +255,11 @@ pub async fn create_process(
     claims: Claims,
     Json(body): Json<CreateProcessRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let id     = Uuid::new_v4();
+    let id = Uuid::new_v4();
     let config = body.config.unwrap_or(json!({}));
-    let proc_type = body.r#type.unwrap_or_else(|| "irrigation_kalman".to_string());
+    let proc_type = body
+        .r#type
+        .unwrap_or_else(|| "irrigation_kalman".to_string());
 
     sqlx::query!(
         r#"
@@ -239,8 +267,14 @@ pub async fn create_process(
             (id, name, description, type, control_url, api_key, config, owner_id)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
-        id, body.name, body.description, proc_type,
-        body.control_url, body.api_key, config, claims.sub
+        id,
+        body.name,
+        body.description,
+        proc_type,
+        body.control_url,
+        body.api_key,
+        config,
+        claims.sub
     )
     .execute(&state.pool)
     .await
@@ -254,7 +288,9 @@ pub async fn create_process(
     .await
     .ok();
 
-    Ok(Json(json!({ "id": id, "type": proc_type, "name": body.name })))
+    Ok(Json(
+        json!({ "id": id, "type": proc_type, "name": body.name }),
+    ))
 }
 
 // ── GET /processes/:id ────────────────────────────────────────────────────────
@@ -310,12 +346,15 @@ pub async fn update_process(
         if let Ok(cfg) = serde_json::from_value::<ProcessConfig>(cfg_val.clone()) {
             for pipeline in &cfg.pipelines {
                 if pipeline.loop_interval_seconds < 10.0 {
-                    return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({
-                        "error": format!(
-                            "Pipeline '{}': loop_interval_seconds mínimo es 10s (recibido: {}s)",
-                            pipeline.label, pipeline.loop_interval_seconds
-                        )
-                    }))));
+                    return Err((
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        Json(json!({
+                            "error": format!(
+                                "Pipeline '{}': loop_interval_seconds mínimo es 10s (recibido: {}s)",
+                                pipeline.label, pipeline.loop_interval_seconds
+                            )
+                        })),
+                    ));
                 }
             }
         }
@@ -331,7 +370,11 @@ pub async fn update_process(
             updated_at  = now()
         WHERE id = $5
         "#,
-        body.name, body.description, body.config, body.status, process_id,
+        body.name,
+        body.description,
+        body.config,
+        body.status,
+        process_id,
     )
     .execute(&state.pool)
     .await
@@ -340,19 +383,31 @@ pub async fn update_process(
     // Si se actualizó la config, notificar a los agentes activos para que recarguen
     if body.config.is_some() {
         let row = sqlx::query!(
-            "SELECT status, config FROM processes WHERE id = $1", process_id
+            "SELECT status, config FROM processes WHERE id = $1",
+            process_id
         )
-        .fetch_optional(&state.pool).await.map_err(err)?;
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(err)?;
 
         if let Some(r) = row {
             if r.status == "running" {
                 if let Ok(cfg) = serde_json::from_value::<ProcessConfig>(r.config) {
                     for pl in &cfg.pipelines {
-                        let key = AgentKey { process_id, pipeline_id: pl.id.clone() };
+                        let key = AgentKey {
+                            process_id,
+                            pipeline_id: pl.id.clone(),
+                        };
                         // Checkpoint primero (guarda estado actual del Kalman etc.)
-                        let _ = state.manager.notify(&key, agrodash_shared::AgentCommand::Checkpoint).await;
+                        let _ = state
+                            .manager
+                            .notify(&key, agrodash_shared::AgentCommand::Checkpoint)
+                            .await;
                         // Luego Reload con la nueva config
-                        let _ = state.manager.notify(&key, agrodash_shared::AgentCommand::Reload).await;
+                        let _ = state
+                            .manager
+                            .notify(&key, agrodash_shared::AgentCommand::Reload)
+                            .await;
                         info!("Config actualizada en caliente para pipeline {}", pl.id);
                     }
                 }
@@ -382,11 +437,14 @@ pub async fn start_process(
     .ok_or_else(not_found)?;
 
     if row.status == "running" {
-        return Err((StatusCode::CONFLICT, Json(json!({"error": "El proceso ya está corriendo"}))));
+        return Err((
+            StatusCode::CONFLICT,
+            Json(json!({"error": "El proceso ya está corriendo"})),
+        ));
     }
 
-    let cfg: ProcessConfig = serde_json::from_value(row.config)
-        .map_err(|e| err(format!("Config inválida: {e}")))?;
+    let cfg: ProcessConfig =
+        serde_json::from_value(row.config).map_err(|e| err(format!("Config inválida: {e}")))?;
 
     // 1. Desired state: marcar como running en DB
     sqlx::query!(
@@ -426,13 +484,11 @@ pub async fn stop_process(
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
     require_process_role(&state.pool, process_id, claims.sub, "operator").await?;
 
-    let row = sqlx::query!(
-        "SELECT status FROM processes WHERE id=$1", process_id
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(err)?
-    .ok_or_else(not_found)?;
+    let row = sqlx::query!("SELECT status FROM processes WHERE id=$1", process_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(err)?
+        .ok_or_else(not_found)?;
 
     if row.status == "stopped" {
         return Ok(StatusCode::ACCEPTED); // ya está detenido
@@ -454,7 +510,8 @@ pub async fn stop_process(
     sqlx::query!(
         "INSERT INTO process_logs (process_id, source, message, user_id)
          VALUES ($1, 'system', 'Proceso deteniéndose', $2)",
-        process_id, claims.sub
+        process_id,
+        claims.sub
     )
     .execute(&state.pool)
     .await
@@ -539,21 +596,24 @@ pub async fn self_test(
             .flatten()
             .flatten();
 
-            let age_secs = last_seen.map(|ts| {
-                chrono::Utc::now().signed_duration_since(ts).num_seconds()
-            });
+            let age_secs =
+                last_seen.map(|ts| chrono::Utc::now().signed_duration_since(ts).num_seconds());
 
             let (status, detail) = match (in_manager, age_secs, last_result) {
-                (_, Some(age), _) if age > 120 =>
-                    ("warn", format!("Último dato hace {age}s — posible problema")),
-                (true, Some(age), Some(r)) =>
-                    ("ok", format!("activo, último dato hace {age}s, último cmd: {}", r.message)),
-                (true, Some(age), None) =>
-                    ("ok", format!("activo, último dato hace {age}s")),
-                (false, _, _) =>
-                    ("warn", format!("Pipeline {pl_id} no está en el manager — puede estar arrancando")),
-                _ =>
-                    ("warn", "Sin datos recientes".to_string()),
+                (_, Some(age), _) if age > 120 => (
+                    "warn",
+                    format!("Último dato hace {age}s — posible problema"),
+                ),
+                (true, Some(age), Some(r)) => (
+                    "ok",
+                    format!("activo, último dato hace {age}s, último cmd: {}", r.message),
+                ),
+                (true, Some(age), None) => ("ok", format!("activo, último dato hace {age}s")),
+                (false, _, _) => (
+                    "warn",
+                    format!("Pipeline {pl_id} no está en el manager — puede estar arrancando"),
+                ),
+                _ => ("warn", "Sin datos recientes".to_string()),
             };
 
             checks.push(json!({
@@ -563,8 +623,13 @@ pub async fn self_test(
             }));
         }
 
-        let overall = if checks.iter().any(|c| c["status"] == "error") { "error" }
-            else if checks.iter().any(|c| c["status"] == "warn") { "warn" } else { "ok" };
+        let overall = if checks.iter().any(|c| c["status"] == "error") {
+            "error"
+        } else if checks.iter().any(|c| c["status"] == "warn") {
+            "warn"
+        } else {
+            "ok"
+        };
         return Ok(Json(json!({"overall": overall, "checks": checks})));
     }
 
@@ -629,7 +694,7 @@ pub async fn self_test(
     // ── 2. MQTT ping (si hay shared_connections.mqtt) ─────────────────────
     if let Some(shared) = &cfg.shared_connections {
         if let Some(mqtt) = &shared.mqtt {
-            let t0  = std::time::Instant::now();
+            let t0 = std::time::Instant::now();
             let res = reqwest::Client::builder()
                 .timeout(Duration::from_secs(8))
                 .build()
@@ -642,18 +707,22 @@ pub async fn self_test(
                 Duration::from_secs(6),
                 tokio::task::spawn_blocking(move || -> Result<(), String> {
                     let url = mqtt_clone.broker_url.trim_start_matches("mqtt://");
-                    let addr = url.split_once(':')
+                    let addr = url
+                        .split_once(':')
                         .map(|(h, p)| format!("{}:{}", h, p.parse::<u16>().unwrap_or(1883)))
                         .unwrap_or_else(|| format!("{}:1883", url));
                     use std::net::ToSocketAddrs;
-                    let sock_addr = addr.to_socket_addrs()
+                    let sock_addr = addr
+                        .to_socket_addrs()
                         .map_err(|e| e.to_string())?
                         .next()
                         .ok_or_else(|| "No se resolvió la dirección".to_string())?;
                     std::net::TcpStream::connect_timeout(&sock_addr, Duration::from_secs(5))
-                        .map(|_| ()).map_err(|e| e.to_string())
+                        .map(|_| ())
+                        .map_err(|e| e.to_string())
                 }),
-            ).await;
+            )
+            .await;
 
             let elapsed = t0.elapsed().as_millis();
             match ping_result {
@@ -678,7 +747,7 @@ pub async fn self_test(
 
         // ── 3. HTTP ping (si hay shared_connections.http) ─────────────────
         if let Some(http) = &shared.http {
-            let t0     = std::time::Instant::now();
+            let t0 = std::time::Instant::now();
             let client = reqwest::Client::builder()
                 .timeout(Duration::from_secs(http.timeout_secs.unwrap_or(5)))
                 .build();
@@ -687,23 +756,21 @@ pub async fn self_test(
                 Err(e) => checks.push(json!({
                     "name": "http:base_url", "status": "error", "detail": e.to_string()
                 })),
-                Ok(c) => {
-                    match c.get(&http.base_url).send().await {
-                        Err(e) => checks.push(json!({
+                Ok(c) => match c.get(&http.base_url).send().await {
+                    Err(e) => checks.push(json!({
+                        "name":   "http:base_url",
+                        "status": "error",
+                        "detail": e.to_string(),
+                    })),
+                    Ok(res) => {
+                        let elapsed = t0.elapsed().as_millis();
+                        checks.push(json!({
                             "name":   "http:base_url",
-                            "status": "error",
-                            "detail": e.to_string(),
-                        })),
-                        Ok(res) => {
-                            let elapsed = t0.elapsed().as_millis();
-                            checks.push(json!({
-                                "name":   "http:base_url",
-                                "status": if res.status().is_server_error() { "error" } else { "ok" },
-                                "detail": format!("status={}, {}ms", res.status(), elapsed),
-                            }));
-                        }
+                            "status": if res.status().is_server_error() { "error" } else { "ok" },
+                            "detail": format!("status={}, {}ms", res.status(), elapsed),
+                        }));
                     }
-                }
+                },
             }
         }
     }
@@ -721,7 +788,10 @@ pub async fn self_test(
             }));
         } else {
             for pipeline_id in &active {
-                let key = AgentKey { process_id, pipeline_id: pipeline_id.clone() };
+                let key = AgentKey {
+                    process_id,
+                    pipeline_id: pipeline_id.clone(),
+                };
 
                 // Borrar resultado anterior para este pipeline
                 let _ = sqlx::query!(
@@ -748,7 +818,10 @@ pub async fn self_test(
                     .await
                     .ok()
                     .flatten();
-                    if let Some(r) = row { result = Some(r); break; }
+                    if let Some(r) = row {
+                        result = Some(r);
+                        break;
+                    }
                 }
 
                 match result {
@@ -780,9 +853,15 @@ pub async fn self_test(
     }
 
     // ── Overall ───────────────────────────────────────────────────────────
-    let overall = if checks.iter().any(|c| c.get("status").and_then(|v| v.as_str()) == Some("error")) {
+    let overall = if checks
+        .iter()
+        .any(|c| c.get("status").and_then(|v| v.as_str()) == Some("error"))
+    {
         "error"
-    } else if checks.iter().any(|c| c.get("status").and_then(|v| v.as_str()) == Some("warn")) {
+    } else if checks
+        .iter()
+        .any(|c| c.get("status").and_then(|v| v.as_str()) == Some("warn"))
+    {
         "warn"
     } else {
         "ok"
@@ -805,12 +884,21 @@ pub async fn send_command(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_process_role(&state.pool, process_id, claims.sub, "operator").await?;
 
-    let cmd_str     = body.get("cmd").and_then(|v| v.as_str()).unwrap_or("");
-    let pipeline_id = body.get("pipeline_id").and_then(|v| v.as_str()).unwrap_or("");
-    let actuator_id = body.get("actuator_id").and_then(|v| v.as_str()).map(String::from);
+    let cmd_str = body.get("cmd").and_then(|v| v.as_str()).unwrap_or("");
+    let pipeline_id = body
+        .get("pipeline_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let actuator_id = body
+        .get("actuator_id")
+        .and_then(|v| v.as_str())
+        .map(String::from);
 
     if pipeline_id.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "pipeline_id requerido"}))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "pipeline_id requerido"})),
+        ));
     }
 
     let key = crate::agent_manager::AgentKey {
@@ -820,11 +908,14 @@ pub async fn send_command(
 
     let agent_cmd = match cmd_str {
         "Override" => {
-            let action_str = body.get("action").and_then(|v| v.as_str()).unwrap_or("hold");
+            let action_str = body
+                .get("action")
+                .and_then(|v| v.as_str())
+                .unwrap_or("hold");
             let action = match action_str {
-                "on"  => agrodash_shared::NodeAction::On,
+                "on" => agrodash_shared::NodeAction::On,
                 "off" => agrodash_shared::NodeAction::Off,
-                _     => agrodash_shared::NodeAction::Hold,
+                _ => agrodash_shared::NodeAction::Hold,
             };
 
             // Desired state: escribir override en pipeline_states
@@ -841,7 +932,10 @@ pub async fn send_command(
             .await
             .map_err(err)?;
 
-            agrodash_shared::AgentCommand::Override { action, actuator_id }
+            agrodash_shared::AgentCommand::Override {
+                action,
+                actuator_id,
+            }
         }
 
         // ClearWatchdog: resetea el watchdog (retry_count, status) y limpia el override.
@@ -866,18 +960,18 @@ pub async fn send_command(
 
         // ConfirmWatchdog: modo Ugly — el usuario confirma el estado del actuador.
         // No escribe desired state en DB (es una confirmación puntual, no persistente).
-        "ConfirmWatchdog" => {
-            agrodash_shared::AgentCommand::ConfirmWatchdog { actuator_id }
-        }
+        "ConfirmWatchdog" => agrodash_shared::AgentCommand::ConfirmWatchdog { actuator_id },
 
         "Checkpoint" => agrodash_shared::AgentCommand::Checkpoint,
-        "Reload"     => agrodash_shared::AgentCommand::Reload,
-        "SelfTest"   => agrodash_shared::AgentCommand::SelfTest,
+        "Reload" => agrodash_shared::AgentCommand::Reload,
+        "SelfTest" => agrodash_shared::AgentCommand::SelfTest,
 
-        other => return Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("Comando desconocido: {other}")})),
-        )),
+        other => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Comando desconocido: {other}")})),
+            ))
+        }
     };
 
     // NOTIFY al agente — fire and forget
@@ -898,7 +992,9 @@ pub async fn send_command(
     .await
     .ok();
 
-    Ok(Json(json!({"accepted": true, "cmd": cmd_str, "pipeline_id": pipeline_id})))
+    Ok(Json(
+        json!({"accepted": true, "cmd": cmd_str, "pipeline_id": pipeline_id}),
+    ))
 }
 
 // ── GET /processes/:id/state ──────────────────────────────────────────────────
@@ -959,16 +1055,15 @@ pub async fn stream_state(
                        ) AS new_logs
                 FROM processes WHERE id = $1
                 "#,
-                pid, last_seen,
+                pid,
+                last_seen,
             )
             .fetch_optional(&pool)
             .await;
 
             match row {
                 Ok(Some(r)) => {
-                    let new_last = r.last_seen_at
-                        .map(|t| t.to_rfc3339())
-                        .or(last_seen.clone());
+                    let new_last = r.last_seen_at.map(|t| t.to_rfc3339()).or(last_seen.clone());
 
                     // SSE solo manda status + last_seen_at + logs nuevos.
                     // last_state (JSON grande con node_states) se omite aquí
@@ -979,9 +1074,7 @@ pub async fn stream_state(
                         "new_logs":    r.new_logs,
                     });
 
-                    let event = Event::default()
-                        .data(payload.to_string())
-                        .event("state");
+                    let event = Event::default().data(payload.to_string()).event("state");
 
                     Some((Ok(event), (pool, pid, new_last)))
                 }
@@ -1021,7 +1114,11 @@ pub async fn get_logs(
         ORDER BY ts DESC
         LIMIT $5
         "#,
-        process_id, q.since, q.level, q.source, limit,
+        process_id,
+        q.since,
+        q.level,
+        q.source,
+        limit,
     )
     .fetch_all(&state.pool)
     .await
@@ -1053,23 +1150,32 @@ pub async fn get_readings(
         ORDER BY ts DESC
         LIMIT $5
         "#,
-        process_id, q.pipeline_id, q.since, q.until, limit,
+        process_id,
+        q.pipeline_id,
+        q.since,
+        q.until,
+        limit,
     )
     .fetch_all(&state.pool)
     .await
     .map_err(err)?;
 
-    let readings: Vec<Value> = rows.iter().map(|r| json!({
-        "id":           r.id,
-        "pipeline_id":  r.pipeline_id,
-        "ts":           r.ts,
-        "raw":          r.raw,
-        "filtered":     r.filtered,
-        "p_diag":       r.p_diag,
-        "decision":     r.decision,
-        "actuator":     r.actuator,
-        "scope_values": r.scope_values,
-    })).collect();
+    let readings: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            json!({
+                "id":           r.id,
+                "pipeline_id":  r.pipeline_id,
+                "ts":           r.ts,
+                "raw":          r.raw,
+                "filtered":     r.filtered,
+                "p_diag":       r.p_diag,
+                "decision":     r.decision,
+                "actuator":     r.actuator,
+                "scope_values": r.scope_values,
+            })
+        })
+        .collect();
 
     Ok(Json(json!({ "readings": readings })))
 }
@@ -1098,7 +1204,10 @@ pub async fn get_valve_events(
         ORDER BY ts DESC
         LIMIT $4
         "#,
-        process_id, q.since, q.linea, limit,
+        process_id,
+        q.since,
+        q.linea,
+        limit,
     )
     .fetch_all(&state.pool)
     .await
@@ -1138,14 +1247,11 @@ pub async fn get_config(
     State(state): State<AppState>,
     Path(process_id): Path<Uuid>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let row = sqlx::query!(
-        "SELECT config FROM processes WHERE id = $1",
-        process_id
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(err)?
-    .ok_or_else(not_found)?;
+    let row = sqlx::query!("SELECT config FROM processes WHERE id = $1", process_id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(err)?
+        .ok_or_else(not_found)?;
 
     Ok(Json(row.config))
 }
@@ -1159,7 +1265,8 @@ pub async fn get_agent_state(
         SELECT state FROM process_pipeline_states
         WHERE process_id = $1 AND pipeline_id = $2
         "#,
-        process_id, pipeline_id,
+        process_id,
+        pipeline_id,
     )
     .fetch_optional(&state.pool)
     .await
@@ -1180,7 +1287,9 @@ pub async fn post_agent_state(
         ON CONFLICT (process_id, pipeline_id)
         DO UPDATE SET state = $3, updated_at = now()
         "#,
-        process_id, pipeline_id, body,
+        process_id,
+        pipeline_id,
+        body,
     )
     .execute(&state.pool)
     .await
@@ -1202,7 +1311,8 @@ pub async fn post_agent_error(
     Path(process_id): Path<Uuid>,
     Json(body): Json<Value>,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
-    let msg = body.get("error")
+    let msg = body
+        .get("error")
         .and_then(|v| v.as_str())
         .unwrap_or("error desconocido");
 
@@ -1230,7 +1340,7 @@ pub async fn post_agent_error(
 #[derive(Deserialize)]
 pub struct AddCollabRequest {
     pub user_id: Uuid,
-    pub role:    String,
+    pub role: String,
 }
 
 pub async fn add_collaborator(
@@ -1242,7 +1352,10 @@ pub async fn add_collaborator(
     require_process_role(&state.pool, process_id, claims.sub, "admin").await?;
 
     if !["viewer", "operator", "admin"].contains(&body.role.as_str()) {
-        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": "Rol inválido"}))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Rol inválido"})),
+        ));
     }
 
     sqlx::query!(
@@ -1251,7 +1364,9 @@ pub async fn add_collaborator(
         VALUES ($1, $2, $3)
         ON CONFLICT (process_id, user_id) DO UPDATE SET role = $3
         "#,
-        process_id, body.user_id, body.role,
+        process_id,
+        body.user_id,
+        body.role,
     )
     .execute(&state.pool)
     .await
@@ -1269,7 +1384,8 @@ pub async fn remove_collaborator(
 
     sqlx::query!(
         "DELETE FROM process_collaborators WHERE process_id = $1 AND user_id = $2",
-        process_id, user_id,
+        process_id,
+        user_id,
     )
     .execute(&state.pool)
     .await
@@ -1299,12 +1415,17 @@ pub async fn list_collaborators(
     .await
     .map_err(err)?;
 
-    let collabs: Vec<Value> = rows.iter().map(|r| json!({
-        "user_id":  r.user_id,
-        "role":     r.role,
-        "email":    r.email,
-        "added_at": r.added_at,
-    })).collect();
+    let collabs: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            json!({
+                "user_id":  r.user_id,
+                "role":     r.role,
+                "email":    r.email,
+                "added_at": r.added_at,
+            })
+        })
+        .collect();
 
     Ok(Json(json!({ "collaborators": collabs })))
 }

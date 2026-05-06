@@ -1,13 +1,13 @@
 // agent/src/nodes/source.rs
 
-use async_trait::async_trait;
-use agrodash_shared::{NodeState, Signal, PostgresSensorConfig};
-use anyhow::Result;
-use sqlx::PgPool;
 use super::NodeInstance;
+use agrodash_shared::{NodeState, PostgresSensorConfig, Signal};
+use anyhow::Result;
+use async_trait::async_trait;
+use sqlx::PgPool;
 
 pub struct PostgresSensorNode {
-    id:     String,
+    id: String,
     config: PostgresSensorConfig,
 }
 
@@ -19,8 +19,16 @@ impl PostgresSensorNode {
 
 #[async_trait]
 impl NodeInstance for PostgresSensorNode {
-    async fn execute(&mut self, _inputs: Vec<Signal>, _dt: f64, pool: &PgPool) -> Result<Option<Signal>> {
-        let ids: Vec<uuid::Uuid> = self.config.sensors.iter()
+    async fn execute(
+        &mut self,
+        _inputs: Vec<Signal>,
+        _dt: f64,
+        pool: &PgPool,
+    ) -> Result<Option<Signal>> {
+        let ids: Vec<uuid::Uuid> = self
+            .config
+            .sensors
+            .iter()
             .map(|s| s.id.parse().unwrap())
             .collect();
 
@@ -39,7 +47,12 @@ impl NodeInstance for PostgresSensorNode {
     }
 
     fn save_state(&self) -> NodeState {
-        NodeState { node_id: self.id.clone(), node_type: "postgres_sensor".into(), data: serde_json::json!({}), is_ready: true }
+        NodeState {
+            node_id: self.id.clone(),
+            node_type: "postgres_sensor".into(),
+            data: serde_json::json!({}),
+            is_ready: true,
+        }
     }
     fn load_state(&mut self, _: &NodeState) {}
 }

@@ -26,7 +26,6 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use sqlx::PgPool;
 
-
 fn gitea_url() -> String {
     std::env::var("GITEA_URL").expect("GITEA_URL no definida")
 }
@@ -37,8 +36,7 @@ fn client_secret() -> String {
     std::env::var("GITEA_CLIENT_SECRET").expect("GITEA_CLIENT_SECRET no definida")
 }
 fn app_url() -> String {
-    std::env::var("APP_URL")
-        .unwrap_or_else(|_| "https://agrodash.nm.35-208-114-233.nip.io".into())
+    std::env::var("APP_URL").unwrap_or_else(|_| "https://agrodash.nm.35-208-114-233.nip.io".into())
 }
 fn redirect_uri() -> String {
     let base = std::env::var("APP_URL")
@@ -47,10 +45,12 @@ fn redirect_uri() -> String {
 }
 
 fn url_encode(s: &str) -> String {
-    s.chars().map(|c| match c {
-        'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
-        _ => format!("%{:02X}", c as u8),
-    }).collect()
+    s.chars()
+        .map(|c| match c {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
+            _ => format!("%{:02X}", c as u8),
+        })
+        .collect()
 }
 
 // ── GET /api/v1/auth/gitea/login ──────────────────────────────────────────────
@@ -69,7 +69,7 @@ pub async fn gitea_login() -> Redirect {
 
 #[derive(Deserialize)]
 pub struct CallbackQuery {
-    pub code:  Option<String>,
+    pub code: Option<String>,
     pub error: Option<String>,
 }
 
@@ -80,10 +80,10 @@ struct GiteaTokenResponse {
 
 #[derive(Deserialize)]
 struct GiteaUser {
-    full_name:  String,
-    login:      String,
-    email:      String,
-    is_admin:   bool,
+    full_name: String,
+    login: String,
+    email: String,
+    is_admin: bool,
 }
 
 pub async fn gitea_callback(
@@ -91,10 +91,11 @@ pub async fn gitea_callback(
     Query(q): Query<CallbackQuery>,
     jar: CookieJar,
 ) -> Result<(CookieJar, Redirect), (StatusCode, Json<serde_json::Value>)> {
-    let err_redirect = |msg: &str| -> Result<(CookieJar, Redirect), (StatusCode, Json<serde_json::Value>)> {
-        let url = format!("{}/auth/error?reason={}", app_url(), url_encode(msg));
-        Ok((CookieJar::new(), Redirect::temporary(&url)))
-    };
+    let err_redirect =
+        |msg: &str| -> Result<(CookieJar, Redirect), (StatusCode, Json<serde_json::Value>)> {
+            let url = format!("{}/auth/error?reason={}", app_url(), url_encode(msg));
+            Ok((CookieJar::new(), Redirect::temporary(&url)))
+        };
 
     if let Some(ref e) = q.error {
         return err_redirect(e);
@@ -102,7 +103,7 @@ pub async fn gitea_callback(
 
     let code = match q.code {
         Some(c) => c,
-        None    => return err_redirect("No se recibió código de autorización"),
+        None => return err_redirect("No se recibió código de autorización"),
     };
 
     let http = reqwest::Client::new();
@@ -120,12 +121,19 @@ pub async fn gitea_callback(
         }))
         .send()
         .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": e.to_string() }))))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+        })?;
 
-    let token_data: GiteaTokenResponse = token_res
-        .json()
-        .await
-        .map_err(|_| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": "Respuesta de token inválida" }))))?;
+    let token_data: GiteaTokenResponse = token_res.json().await.map_err(|_| {
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": "Respuesta de token inválida" })),
+        )
+    })?;
 
     // 2. Obtener perfil del usuario
     let gitea_user: GiteaUser = http
@@ -133,10 +141,20 @@ pub async fn gitea_callback(
         .bearer_auth(&token_data.access_token)
         .send()
         .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": e.to_string() }))))?
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+        })?
         .json()
         .await
-        .map_err(|_| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": "Perfil de usuario inválido" }))))?;
+        .map_err(|_| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": "Perfil de usuario inválido" })),
+            )
+        })?;
 
     // 3. Upsert usuario en DB local
     let role = if gitea_user.is_admin { "admin" } else { "user" };
@@ -160,12 +178,21 @@ pub async fn gitea_callback(
     )
     .fetch_one(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
 
     // 4. Generar JWT y guardarlo en cookie HttpOnly
     let claims = crate::auth::Claims::new(user.id, user.email.clone(), user.role.clone());
-    let jwt = crate::auth::encode_token(&claims)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+    let jwt = crate::auth::encode_token(&claims).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
 
     let cookie = crate::auth::session_cookie(jwt);
     let new_jar = jar.add(cookie);

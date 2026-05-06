@@ -10,7 +10,9 @@ use axum::{
 };
 use sqlx::PgPool;
 
-use crate::models::{LastReadingQuery, ReadingBucket, ReadingsQuery, TemperatureResponse, TimeRange};
+use crate::models::{
+    LastReadingQuery, ReadingBucket, ReadingsQuery, TemperatureResponse, TimeRange,
+};
 
 const CR_OFFSET_SECS: i64 = 6 * 3600; // UTC-6
 
@@ -30,7 +32,7 @@ pub async fn get_readings(
     Query(params): Query<ReadingsQuery>,
 ) -> Result<Json<Vec<ReadingBucket>>, (StatusCode, String)> {
     let from_cr = to_cr(params.from);
-    let to_cr   = to_cr(params.to);
+    let to_cr = to_cr(params.to);
 
     let range_secs = (to_cr - from_cr).num_seconds().max(1);
     let bucket_secs = (range_secs / params.points).max(1);
@@ -62,10 +64,13 @@ pub async fn get_readings(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Convert bucket timestamps from CR back to UTC before returning
-    let result: Vec<ReadingBucket> = rows.into_iter().map(|r| ReadingBucket {
-        bucket: to_utc(r.bucket),
-        value: r.value,
-    }).collect();
+    let result: Vec<ReadingBucket> = rows
+        .into_iter()
+        .map(|r| ReadingBucket {
+            bucket: to_utc(r.bucket),
+            value: r.value,
+        })
+        .collect();
 
     Ok(Json(result))
 }
@@ -89,7 +94,7 @@ pub async fn get_time_range(
     // Return as UTC
     Ok(Json(TimeRange {
         first: to_utc(row.first),
-        last:  to_utc(row.last),
+        last: to_utc(row.last),
     }))
 }
 

@@ -23,10 +23,16 @@ fn gen_code() -> String {
 }
 
 fn err(msg: impl ToString) -> (StatusCode, Json<serde_json::Value>) {
-    (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": msg.to_string() })))
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({ "error": msg.to_string() })),
+    )
 }
 fn bad(msg: &str) -> (StatusCode, Json<serde_json::Value>) {
-    (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": msg })))
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": msg })),
+    )
 }
 
 // ── POST /api/v1/admin/invites ────────────────────────────────────────────────
@@ -35,14 +41,14 @@ fn bad(msg: &str) -> (StatusCode, Json<serde_json::Value>) {
 
 #[derive(Deserialize)]
 pub struct CreateInviteRequest {
-    pub email_hint:      Option<String>,
-    pub expires_in_days: Option<i64>,   // 1, 2, o 7
-    pub count:           Option<i32>,   // cuántos generar (1–3, default 1)
+    pub email_hint: Option<String>,
+    pub expires_in_days: Option<i64>, // 1, 2, o 7
+    pub count: Option<i32>,           // cuántos generar (1–3, default 1)
 }
 
 #[derive(Serialize)]
 pub struct InviteResponse {
-    pub code:       String,
+    pub code: String,
     pub email_hint: Option<String>,
     pub expires_at: chrono::DateTime<chrono::Utc>,
 }
@@ -53,7 +59,10 @@ pub async fn create_invite(
     Json(body): Json<CreateInviteRequest>,
 ) -> Result<Json<Vec<InviteResponse>>, (StatusCode, Json<serde_json::Value>)> {
     if !claims.is_admin() {
-        return Err((StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "Solo admins pueden crear invitaciones" }))));
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "Solo admins pueden crear invitaciones" })),
+        ));
     }
 
     let days = match body.expires_in_days.unwrap_or(7) {
@@ -101,7 +110,10 @@ pub async fn list_invites(
     claims: Claims,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     if !claims.is_admin() {
-        return Err((StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "Solo admins" }))));
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "Solo admins" })),
+        ));
     }
 
     let rows = sqlx::query!(
@@ -117,12 +129,17 @@ pub async fn list_invites(
     .await
     .map_err(err)?;
 
-    let list: Vec<_> = rows.iter().map(|r| serde_json::json!({
-        "code":       r.code,
-        "email_hint": r.email_hint,
-        "expires_at": r.expires_at,
-        "used":       r.used_at.is_some(),
-    })).collect();
+    let list: Vec<_> = rows
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "code":       r.code,
+                "email_hint": r.email_hint,
+                "expires_at": r.expires_at,
+                "used":       r.used_at.is_some(),
+            })
+        })
+        .collect();
 
     Ok(Json(serde_json::json!(list)))
 }
@@ -132,11 +149,11 @@ pub async fn list_invites(
 
 #[derive(Deserialize)]
 pub struct RegisterRequest {
-    pub invite_code:        String,
-    pub email:              String,
-    pub display_name:       String,
+    pub invite_code: String,
+    pub email: String,
+    pub display_name: String,
     pub password_encrypted: Option<String>,
-    pub password:           Option<String>,   // solo para dev/testing
+    pub password: Option<String>, // solo para dev/testing
 }
 
 pub async fn register(
@@ -155,13 +172,24 @@ pub async fn register(
     .fetch_optional(&pool)
     .await
     .map_err(err)?
-    .ok_or_else(|| (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Código de invitación inválido" }))))?;
+    .ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Código de invitación inválido" })),
+        )
+    })?;
 
     if invite.used_at.is_some() {
-        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "El código ya fue usado" }))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "El código ya fue usado" })),
+        ));
     }
     if invite.expires_at < chrono::Utc::now() {
-        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "El código expiró" }))));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "El código expiró" })),
+        ));
     }
 
     // 2. Validar email
@@ -179,7 +207,10 @@ pub async fn register(
     .unwrap_or(false);
 
     if exists {
-        return Err((StatusCode::CONFLICT, Json(serde_json::json!({ "error": "El email ya está registrado" }))));
+        return Err((
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": "El email ya está registrado" })),
+        ));
     }
 
     // 3. Resolver contraseña
@@ -195,8 +226,7 @@ pub async fn register(
         return Err(bad("Mínimo 8 caracteres"));
     }
 
-    let password_hash = hash(&password, DEFAULT_COST)
-        .map_err(|e| err(e.to_string()))?;
+    let password_hash = hash(&password, DEFAULT_COST).map_err(|e| err(e.to_string()))?;
 
     // 4. Crear usuario
     let user = sqlx::query!(
@@ -231,10 +261,10 @@ pub async fn register(
         token,
         must_change_pw: false,
         user: UserInfo {
-            id:           user.id,
-            email:        user.email,
+            id: user.id,
+            email: user.email,
             display_name: user.display_name,
-            role:         user.role,
+            role: user.role,
         },
     }))
 }

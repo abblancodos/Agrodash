@@ -28,9 +28,9 @@ pub async fn get_boxes(
     for row in rows {
         let sensor = match (row.sensor_id, row.sensor_number, row.sensor_type) {
             (Some(sid), Some(num), Some(typ)) => Some(SensorResponse {
-                id:            sid,
+                id: sid,
                 sensor_number: num,
-                sensor_type:   typ,
+                sensor_type: typ,
             }),
             _ => None,
         };
@@ -45,8 +45,8 @@ pub async fn get_boxes(
             }
             None => {
                 boxes.push(BoxResponse {
-                    id:      row.box_id,
-                    name:    row.box_name,
+                    id: row.box_id,
+                    name: row.box_name,
                     sensors: sensor.into_iter().collect(),
                 });
             }

@@ -13,8 +13,8 @@ use crate::models::{SensorCorrelation, SensorStat, StatsResponse};
 
 #[derive(Debug, Deserialize)]
 pub struct StatsQuery {
-    pub box_id:         Option<Uuid>,
-    pub min_score:      Option<f64>,
+    pub box_id: Option<Uuid>,
+    pub min_score: Option<f64>,
     pub corr_threshold: Option<f64>,
 }
 
@@ -62,19 +62,19 @@ pub async fn get_stats(
     let sensors: Vec<SensorStat> = sensor_rows
         .into_iter()
         .map(|r| SensorStat {
-            sensor_id:      r.sensor_id,
-            box_id:         r.box_id,
-            box_name:       r.box_name,
-            sensor_number:  r.sensor_number,
-            sensor_type:    r.sensor_type,
-            last_value:     r.last_value,
-            last_seen_at:   r.last_seen_at,
-            mean_24h:       r.mean_24h,
-            stddev_24h:     r.stddev_24h,
-            min_24h:        r.min_24h,
-            max_24h:        r.max_24h,
-            count_24h:      r.count_24h,
-            anomaly_score:  r.anomaly_score,
+            sensor_id: r.sensor_id,
+            box_id: r.box_id,
+            box_name: r.box_name,
+            sensor_number: r.sensor_number,
+            sensor_type: r.sensor_type,
+            last_value: r.last_value,
+            last_seen_at: r.last_seen_at,
+            mean_24h: r.mean_24h,
+            stddev_24h: r.stddev_24h,
+            min_24h: r.min_24h,
+            max_24h: r.max_24h,
+            count_24h: r.count_24h,
+            anomaly_score: r.anomaly_score,
             rate_of_change: r.rate_of_change,
         })
         .collect();
@@ -102,11 +102,11 @@ pub async fn get_stats(
     let correlations: Vec<SensorCorrelation> = corr_rows
         .into_iter()
         .map(|r| SensorCorrelation {
-            box_id:      r.box_id,
+            box_id: r.box_id,
             sensor_type: r.sensor_type,
             sensor_id_a: r.sensor_id_a,
             sensor_id_b: r.sensor_id_b,
-            pearson_r:   r.pearson_r,
+            pearson_r: r.pearson_r,
         })
         .collect();
 

@@ -17,13 +17,13 @@
 //   ConfirmWatchdog → Ugly: confirma la acción pendiente y la propaga
 //   Override manual → se propaga si status != Blocked
 
-use async_trait::async_trait;
-use agrodash_shared::{NodeState, Signal, NodeAction, WatchdogConfig, WatchdogMode, Trend};
+use super::NodeInstance;
+use agrodash_shared::{NodeAction, NodeState, Signal, Trend, WatchdogConfig, WatchdogMode};
 use anyhow::Result;
+use async_trait::async_trait;
 use chrono::Utc;
 use sqlx::PgPool;
 use std::time::{Duration, Instant};
-use super::NodeInstance;
 
 // ── Estado interno ────────────────────────────────────────────────────────────
 
@@ -38,9 +38,9 @@ enum WatchdogStatus {
 impl WatchdogStatus {
     fn as_str(&self) -> &'static str {
         match self {
-            WatchdogStatus::Ok          => "ok",
-            WatchdogStatus::Retrying    => "retrying",
-            WatchdogStatus::Blocked     => "blocked",
+            WatchdogStatus::Ok => "ok",
+            WatchdogStatus::Retrying => "retrying",
+            WatchdogStatus::Blocked => "blocked",
             WatchdogStatus::PendingUser => "pending_user",
         }
     }
@@ -49,11 +49,11 @@ impl WatchdogStatus {
 // ── Nodo ─────────────────────────────────────────────────────────────────────
 
 pub struct WatchdogNode {
-    id:  String,
+    id: String,
     cfg: WatchdogConfig,
 
-    status:        WatchdogStatus,
-    retry_count:   u32,
+    status: WatchdogStatus,
+    retry_count: u32,
     last_check_at: Option<Instant>,
     blocked_since: Option<String>,
 
@@ -62,7 +62,7 @@ pub struct WatchdogNode {
 
     // Bad mode: valor de la señal al inicio de la ventana de observación
     window_start_val: Option<Vec<f64>>,
-    window_start_at:  Option<Instant>,
+    window_start_at: Option<Instant>,
 
     // Ugly mode: acción pendiente de confirmación del usuario
     pending_action: Option<NodeAction>,
@@ -75,39 +75,39 @@ pub struct WatchdogNode {
     override_action: Option<NodeAction>,
     // Serializado en save_state para has_watchdog_override()
     // (campo técnico — no se muestra en UI directamente)
-
 }
 
 impl WatchdogNode {
     pub fn new(id: String, cfg: WatchdogConfig) -> Self {
         Self {
-            id, cfg,
-            status:             WatchdogStatus::Ok,
-            retry_count:        0,
-            last_check_at:      None,
-            blocked_since:      None,
-            last_feedback:      None,
-            window_start_val:   None,
-            window_start_at:    None,
-            pending_action:     None,
+            id,
+            cfg,
+            status: WatchdogStatus::Ok,
+            retry_count: 0,
+            last_check_at: None,
+            blocked_since: None,
+            last_feedback: None,
+            window_start_val: None,
+            window_start_at: None,
+            pending_action: None,
             last_issued_action: None,
-            override_action:    None,
+            override_action: None,
         }
     }
 
     // ── Reset (ClearWatchdog) ─────────────────────────────────────────────
 
     pub fn reset(&mut self) {
-        self.status             = WatchdogStatus::Ok;
-        self.retry_count        = 0;
-        self.last_check_at      = None;
-        self.blocked_since      = None;
-        self.last_feedback      = None;
-        self.window_start_val   = None;
-        self.window_start_at    = None;
-        self.pending_action     = None;
+        self.status = WatchdogStatus::Ok;
+        self.retry_count = 0;
+        self.last_check_at = None;
+        self.blocked_since = None;
+        self.last_feedback = None;
+        self.window_start_val = None;
+        self.window_start_at = None;
+        self.pending_action = None;
         self.last_issued_action = None;
-        self.override_action    = None;
+        self.override_action = None;
         tracing::info!("[Watchdog:{}] reset — volviendo a modo automático", self.id);
     }
 
@@ -129,11 +129,19 @@ impl WatchdogNode {
 
     pub fn confirm(&mut self) {
         if self.status != WatchdogStatus::PendingUser {
-            tracing::warn!("[Watchdog:{}] confirm ignorado — status={}", self.id, self.status.as_str());
+            tracing::warn!(
+                "[Watchdog:{}] confirm ignorado — status={}",
+                self.id,
+                self.status.as_str()
+            );
             return;
         }
         if let Some(action) = self.pending_action.take() {
-            tracing::info!("[Watchdog:{}] usuario confirmó acción {:?}", self.id, action);
+            tracing::info!(
+                "[Watchdog:{}] usuario confirmó acción {:?}",
+                self.id,
+                action
+            );
             self.last_issued_action = Some(action);
             self.status = WatchdogStatus::Ok;
         }
@@ -153,9 +161,9 @@ impl WatchdogNode {
 
     fn evaluate(
         &mut self,
-        decision:  &NodeAction,
-        feedback:  Option<&NodeAction>,   // Good
-        signal:    Option<&Vec<f64>>,     // Bad
+        decision: &NodeAction,
+        feedback: Option<&NodeAction>, // Good
+        signal: Option<&Vec<f64>>,     // Bad
     ) -> NodeAction {
         // Si hay override activo y no está bloqueado, úsalo directo.
         if let Some(ov) = &self.override_action.clone() {
@@ -192,7 +200,10 @@ impl WatchdogNode {
             Some(f) => f,
             None => {
                 // Sin feedback disponible — emitimos la acción pero no verificamos.
-                tracing::debug!("[Watchdog:{}] Good sin feedback disponible este ciclo", self.id);
+                tracing::debug!(
+                    "[Watchdog:{}] Good sin feedback disponible este ciclo",
+                    self.id
+                );
                 return action;
             }
         };
@@ -217,15 +228,20 @@ impl WatchdogNode {
             if feedback == last {
                 // Actuador en el estado correcto — reset retries.
                 if self.status == WatchdogStatus::Retrying {
-                    tracing::info!("[Watchdog:{}] Good — feedback OK, retries reseteados", self.id);
-                    self.retry_count   = 0;
-                    self.status        = WatchdogStatus::Ok;
+                    tracing::info!(
+                        "[Watchdog:{}] Good — feedback OK, retries reseteados",
+                        self.id
+                    );
+                    self.retry_count = 0;
+                    self.status = WatchdogStatus::Ok;
                     self.last_check_at = None;
                 }
             } else if *last != NodeAction::Hold {
                 // Feedback discrepa con lo que emitimos — ¿esperamos timeout?
                 match self.elapsed_since_check() {
-                    None => { self.last_check_at = Some(Instant::now()); }
+                    None => {
+                        self.last_check_at = Some(Instant::now());
+                    }
                     Some(elapsed) if elapsed > self.timeout() => {
                         return self.retry_or_block(
                             &action,
@@ -243,13 +259,11 @@ impl WatchdogNode {
         action
     }
 
-    fn eval_bad(
-        &mut self,
-        decision: &NodeAction,
-        signal:   Option<&Vec<f64>>,
-    ) -> NodeAction {
+    fn eval_bad(&mut self, decision: &NodeAction, signal: Option<&Vec<f64>>) -> NodeAction {
         let action = decision.clone();
-        if action == NodeAction::Hold { return action; }
+        if action == NodeAction::Hold {
+            return action;
+        }
 
         let signal = match signal {
             Some(s) => s,
@@ -266,11 +280,14 @@ impl WatchdogNode {
         let action_changed = self.last_issued_action.as_ref() != Some(&action);
         if action_changed || self.window_start_val.is_none() {
             self.window_start_val = Some(signal.clone());
-            self.window_start_at  = Some(Instant::now());
+            self.window_start_at = Some(Instant::now());
         }
 
         // Esperamos que se cumpla el timeout de la ventana antes de evaluar.
-        let elapsed = self.window_start_at.map(|t| t.elapsed()).unwrap_or_default();
+        let elapsed = self
+            .window_start_at
+            .map(|t| t.elapsed())
+            .unwrap_or_default();
         if elapsed < self.timeout() {
             return action;
         }
@@ -278,50 +295,63 @@ impl WatchdogNode {
         // Evaluamos tendencia.
         let start_val = match &self.window_start_val {
             Some(v) => self.extract_val(v),
-            None    => return action,
+            None => return action,
         };
 
         if start_val.abs() < 1e-12 {
             // Valor inicial demasiado pequeño para calcular % — evaluamos delta absoluto.
             let delta = (val - start_val).abs();
             if delta < 1e-4 {
-                return self.retry_or_block(&action, "señal no cambió en la ventana (valor base ≈ 0)");
+                return self
+                    .retry_or_block(&action, "señal no cambió en la ventana (valor base ≈ 0)");
             }
         }
 
-        let WatchdogMode::Bad { expected_on_trend, expected_off_trend, min_change_pct, .. } =
-            &self.cfg.mode else { return action; };
+        let WatchdogMode::Bad {
+            expected_on_trend,
+            expected_off_trend,
+            min_change_pct,
+            ..
+        } = &self.cfg.mode
+        else {
+            return action;
+        };
 
         let expected_trend = match &action {
-            NodeAction::On  => expected_on_trend,
+            NodeAction::On => expected_on_trend,
             NodeAction::Off => expected_off_trend,
             NodeAction::Hold => return action,
         };
 
         let change_pct = (val - start_val) / start_val.abs();
         let ok = match expected_trend {
-            Trend::Ascending  => change_pct  >=  *min_change_pct,
-            Trend::Descending => change_pct  <= -*min_change_pct,
-            Trend::Stable     => change_pct.abs() < *min_change_pct,
+            Trend::Ascending => change_pct >= *min_change_pct,
+            Trend::Descending => change_pct <= -*min_change_pct,
+            Trend::Stable => change_pct.abs() < *min_change_pct,
         };
 
         if ok {
             if self.status == WatchdogStatus::Retrying {
-                tracing::info!("[Watchdog:{}] Bad — tendencia OK ({:+.3}%), retries reseteados",
-                    self.id, change_pct * 100.0);
-                self.retry_count         = 0;
-                self.status              = WatchdogStatus::Ok;
-                self.window_start_val    = None;
-                self.window_start_at     = None;
+                tracing::info!(
+                    "[Watchdog:{}] Bad — tendencia OK ({:+.3}%), retries reseteados",
+                    self.id,
+                    change_pct * 100.0
+                );
+                self.retry_count = 0;
+                self.status = WatchdogStatus::Ok;
+                self.window_start_val = None;
+                self.window_start_at = None;
             }
         } else {
             let msg = format!(
                 "tendencia {:+.3}% no cumple {:?} (mínimo {:.1}%)",
-                change_pct * 100.0, expected_trend, min_change_pct * 100.0
+                change_pct * 100.0,
+                expected_trend,
+                min_change_pct * 100.0
             );
             // Reiniciamos la ventana para el próximo intento.
             self.window_start_val = Some(signal.clone());
-            self.window_start_at  = Some(Instant::now());
+            self.window_start_at = Some(Instant::now());
             return self.retry_or_block(&action, &msg);
         }
 
@@ -330,16 +360,19 @@ impl WatchdogNode {
 
     fn eval_ugly(&mut self, decision: &NodeAction) -> NodeAction {
         let action = decision.clone();
-        if action == NodeAction::Hold { return action; }
+        if action == NodeAction::Hold {
+            return action;
+        }
 
         // Si la acción cambió respecto a lo que emitimos antes → pedir confirmación.
         let action_changed = self.last_issued_action.as_ref() != Some(&action);
         if action_changed {
             tracing::warn!(
                 "[Watchdog:{}] Ugly — acción {:?} pendiente de confirmación del usuario",
-                self.id, action
+                self.id,
+                action
             );
-            self.status         = WatchdogStatus::PendingUser;
+            self.status = WatchdogStatus::PendingUser;
             self.pending_action = Some(action.clone());
             // En Ugly no actuamos hasta confirmar — emitimos Hold.
             return NodeAction::Hold;
@@ -355,20 +388,25 @@ impl WatchdogNode {
         self.retry_count += 1;
         tracing::warn!(
             "[Watchdog:{}] fallo #{}/{} — {} — acción={:?}",
-            self.id, self.retry_count, self.cfg.max_retries, reason, action
+            self.id,
+            self.retry_count,
+            self.cfg.max_retries,
+            reason,
+            action
         );
         if self.retry_count > self.cfg.max_retries {
             if self.status != WatchdogStatus::Blocked {
-                self.status        = WatchdogStatus::Blocked;
+                self.status = WatchdogStatus::Blocked;
                 self.blocked_since = Some(Utc::now().to_rfc3339());
                 tracing::error!(
                     "[Watchdog:{}] BLOQUEADO tras {} retries — requiere ClearWatchdog",
-                    self.id, self.cfg.max_retries
+                    self.id,
+                    self.cfg.max_retries
                 );
             }
             return NodeAction::Hold;
         }
-        self.status        = WatchdogStatus::Retrying;
+        self.status = WatchdogStatus::Retrying;
         self.last_check_at = Some(Instant::now()); // reset timer para el siguiente intento
         action.clone()
     }
@@ -394,7 +432,12 @@ impl WatchdogNode {
 
 #[async_trait]
 impl NodeInstance for WatchdogNode {
-    async fn execute(&mut self, inputs: Vec<Signal>, _dt: f64, _pool: &PgPool) -> Result<Option<Signal>> {
+    async fn execute(
+        &mut self,
+        inputs: Vec<Signal>,
+        _dt: f64,
+        _pool: &PgPool,
+    ) -> Result<Option<Signal>> {
         // Clasificamos los inputs por puerto.
         // El agente los entrega en el orden en que están los edges en el grafo,
         // pero nosotros los distinguimos por Signal type y orden de llegada:
@@ -407,16 +450,21 @@ impl NodeInstance for WatchdogNode {
 
         let mut decision: Option<NodeAction> = None;
         let mut feedback: Option<NodeAction> = None;
-        let mut signal:   Option<Vec<f64>>   = None;
+        let mut signal: Option<Vec<f64>> = None;
 
         for s in &inputs {
             match s {
                 Signal::Action(a) => {
-                    if decision.is_none() { decision = Some(a.clone()); }
-                    else if feedback.is_none() { feedback = Some(a.clone()); }
+                    if decision.is_none() {
+                        decision = Some(a.clone());
+                    } else if feedback.is_none() {
+                        feedback = Some(a.clone());
+                    }
                 }
                 Signal::Vector(v) => {
-                    if signal.is_none() { signal = Some(v.clone()); }
+                    if signal.is_none() {
+                        signal = Some(v.clone());
+                    }
                 }
             }
         }
@@ -437,13 +485,13 @@ impl NodeInstance for WatchdogNode {
 
     fn save_state(&self) -> NodeState {
         let mode_str = match &self.cfg.mode {
-            WatchdogMode::Good       => "good",
+            WatchdogMode::Good => "good",
             WatchdogMode::Bad { .. } => "bad",
-            WatchdogMode::Ugly { .. }=> "ugly",
+            WatchdogMode::Ugly { .. } => "ugly",
         };
 
         NodeState {
-            node_id:   self.id.clone(),
+            node_id: self.id.clone(),
             node_type: "watchdog".into(),
             data: serde_json::json!({
                 "mode":             mode_str,
@@ -473,9 +521,14 @@ impl NodeInstance for WatchdogNode {
         // El status se recalcula en el primer ciclo para no quedar en un estado
         // de bloqueo incorrecto si el problema se resolvió mientras el agente
         // estuvo apagado.
-        self.retry_count   = state.data.get("retry_count")
-            .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-        self.blocked_since = state.data.get("blocked_since")
+        self.retry_count = state
+            .data
+            .get("retry_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        self.blocked_since = state
+            .data
+            .get("blocked_since")
             .and_then(|v| v.as_str().map(String::from));
         // Si estaba bloqueado, lo mantenemos para que el usuario tenga que hacer
         // ClearWatchdog explícitamente.
@@ -484,13 +537,17 @@ impl NodeInstance for WatchdogNode {
         }
         // Ugly: restauramos la acción pendiente si estaba esperando confirmación.
         if state.data.get("status").and_then(|v| v.as_str()) == Some("pending_user") {
-            self.status         = WatchdogStatus::PendingUser;
-            self.pending_action = state.data.get("pending_action")
+            self.status = WatchdogStatus::PendingUser;
+            self.pending_action = state
+                .data
+                .get("pending_action")
                 .and_then(|v| serde_json::from_value(v.clone()).ok());
         }
     }
 
-    fn is_actuator(&self) -> bool { false }
+    fn is_actuator(&self) -> bool {
+        false
+    }
 
     // ── Implementaciones del trait NodeInstance para watchdog control ──────────
 
@@ -510,11 +567,25 @@ impl NodeInstance for WatchdogNode {
         self.override_action.is_some()
     }
 
-        fn metrics(&self) -> Vec<(String, f64)> {
+    fn metrics(&self) -> Vec<(String, f64)> {
         vec![
             ("retry_count".into(), self.retry_count as f64),
-            ("blocked".into(), if self.status == WatchdogStatus::Blocked { 1.0 } else { 0.0 }),
-            ("pending".into(), if self.status == WatchdogStatus::PendingUser { 1.0 } else { 0.0 }),
+            (
+                "blocked".into(),
+                if self.status == WatchdogStatus::Blocked {
+                    1.0
+                } else {
+                    0.0
+                },
+            ),
+            (
+                "pending".into(),
+                if self.status == WatchdogStatus::PendingUser {
+                    1.0
+                } else {
+                    0.0
+                },
+            ),
         ]
     }
 }

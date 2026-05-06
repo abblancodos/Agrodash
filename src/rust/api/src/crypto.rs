@@ -7,12 +7,8 @@
 // porque solo protege el transporte, no datos persistentes.
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use rsa::{
-    pkcs8::EncodePublicKey,
-    oaep::Oaep,
-    RsaPrivateKey, RsaPublicKey,
-};
 use rsa::sha2::Sha256;
+use rsa::{oaep::Oaep, pkcs8::EncodePublicKey, RsaPrivateKey, RsaPublicKey};
 use std::sync::OnceLock;
 
 static KEY_PAIR: OnceLock<(RsaPrivateKey, RsaPublicKey)> = OnceLock::new();
@@ -21,8 +17,7 @@ static KEY_PAIR: OnceLock<(RsaPrivateKey, RsaPublicKey)> = OnceLock::new();
 pub fn get_or_init_keys() -> &'static (RsaPrivateKey, RsaPublicKey) {
     KEY_PAIR.get_or_init(|| {
         let mut rng = rand::thread_rng();
-        let private = RsaPrivateKey::new(&mut rng, 2048)
-            .expect("Error generando llave RSA");
+        let private = RsaPrivateKey::new(&mut rng, 2048).expect("Error generando llave RSA");
         let public = RsaPublicKey::from(&private);
         (private, public)
     })
@@ -40,12 +35,12 @@ pub fn public_key_pem() -> String {
 /// El input es base64 del ciphertext.
 pub fn decrypt_password(encrypted_b64: &str) -> Result<String, String> {
     let (private, _) = get_or_init_keys();
-    let ciphertext = B64.decode(encrypted_b64)
+    let ciphertext = B64
+        .decode(encrypted_b64)
         .map_err(|e| format!("Base64 inválido: {e}"))?;
     let padding = Oaep::new::<Sha256>();
     let plaintext = private
         .decrypt(padding, &ciphertext)
         .map_err(|e| format!("Error de descifrado: {e}"))?;
-    String::from_utf8(plaintext)
-        .map_err(|e| format!("UTF-8 inválido: {e}"))
+    String::from_utf8(plaintext).map_err(|e| format!("UTF-8 inválido: {e}"))
 }

@@ -38,9 +38,9 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
         .map(|r| (r.id, r.box_id, r.sensor_type))
         .collect();
 
-    let now_cr     = Utc::now().naive_utc() - chrono::Duration::seconds(CR_OFFSET_SECS);
+    let now_cr = Utc::now().naive_utc() - chrono::Duration::seconds(CR_OFFSET_SECS);
     let window_24h = now_cr - chrono::Duration::hours(24);
-    let window_1h  = now_cr - chrono::Duration::hours(1);
+    let window_1h = now_cr - chrono::Duration::hours(1);
 
     // ── 2. Stats por sensor ───────────────────────────────────────────────────
     for (sensor_id, _box_id, _sensor_type) in &sensors {
@@ -61,7 +61,7 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
             window_24h,
             now_cr,
         )
-        .fetch_one(pool)  // COUNT(*) nunca devuelve 0 filas, fetch_one es seguro
+        .fetch_one(pool) // COUNT(*) nunca devuelve 0 filas, fetch_one es seguro
         .await?;
 
         let last = sqlx::query!(
@@ -98,8 +98,8 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
 
         // Con "value!: f64" le decimos a sqlx que el campo es NOT NULL,
         // así r.value es f64, no Option<f64>
-        let last_value: Option<f64>    = last.as_ref().map(|r| r.value);
-        let prev_value: Option<f64>    = prev_1h.as_ref().map(|r| r.value);
+        let last_value: Option<f64> = last.as_ref().map(|r| r.value);
+        let prev_value: Option<f64> = prev_1h.as_ref().map(|r| r.value);
         let last_seen_utc = last.as_ref().map(|r| {
             chrono::DateTime::<Utc>::from_naive_utc_and_offset(
                 r.created_at + chrono::Duration::seconds(CR_OFFSET_SECS),
@@ -107,19 +107,18 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
             )
         });
 
-        let mean_24h:   Option<f64> = stats.mean_24h;
+        let mean_24h: Option<f64> = stats.mean_24h;
         let stddev_24h: Option<f64> = stats.stddev_24h;
-        let min_24h:    Option<f64> = stats.min_24h;
-        let max_24h:    Option<f64> = stats.max_24h;
-        let count_24h:  Option<i32> = stats.count_24h;
+        let min_24h: Option<f64> = stats.min_24h;
+        let max_24h: Option<f64> = stats.max_24h;
+        let count_24h: Option<i32> = stats.count_24h;
 
-        let anomaly_score: Option<f64> =
-            match (last_value, mean_24h, stddev_24h, count_24h) {
-                (Some(lv), Some(m), Some(sd), Some(c)) if c >= 5 && sd > 1e-10 => {
-                    Some((lv - m).abs() / sd)
-                }
-                _ => None,
-            };
+        let anomaly_score: Option<f64> = match (last_value, mean_24h, stddev_24h, count_24h) {
+            (Some(lv), Some(m), Some(sd), Some(c)) if c >= 5 && sd > 1e-10 => {
+                Some((lv - m).abs() / sd)
+            }
+            _ => None,
+        };
 
         let rate_of_change: Option<f64> = match (last_value, prev_value) {
             (Some(lv), Some(pv)) => Some(lv - pv),
@@ -173,7 +172,9 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
     }
 
     for ((box_id, sensor_type), ids) in &groups {
-        if ids.len() < 2 { continue; }
+        if ids.len() < 2 {
+            continue;
+        }
 
         let mut series: Vec<(uuid::Uuid, Vec<f64>)> = Vec::new();
         for &sid in ids {
@@ -209,12 +210,20 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
                 let (sid_b, vb) = &series[j];
 
                 let n = va.len().min(vb.len());
-                if n < MIN_POINTS_CORR { continue; }
+                if n < MIN_POINTS_CORR {
+                    continue;
+                }
 
                 let r = pearson(&va[..n], &vb[..n]);
-                if r.abs() < CORR_THRESHOLD { continue; }
+                if r.abs() < CORR_THRESHOLD {
+                    continue;
+                }
 
-                let (a, b) = if sid_a < sid_b { (sid_a, sid_b) } else { (sid_b, sid_a) };
+                let (a, b) = if sid_a < sid_b {
+                    (sid_a, sid_b)
+                } else {
+                    (sid_b, sid_a)
+                };
 
                 sqlx::query!(
                     r#"
@@ -241,7 +250,10 @@ async fn compute_and_store(pool: &PgPool) -> Result<(), sqlx::Error> {
     if elapsed.as_secs() > INTERVAL_SECS / 2 {
         warn!("stats_worker: ciclo tardó {}ms", elapsed.as_millis());
     } else {
-        info!("stats_worker: ciclo completado en {}ms", elapsed.as_millis());
+        info!(
+            "stats_worker: ciclo completado en {}ms",
+            elapsed.as_millis()
+        );
     }
 
     Ok(())
@@ -251,10 +263,16 @@ fn pearson(a: &[f64], b: &[f64]) -> f64 {
     let n = a.len() as f64;
     let mean_a = a.iter().sum::<f64>() / n;
     let mean_b = b.iter().sum::<f64>() / n;
-    let num: f64 = a.iter().zip(b.iter()).map(|(x, y)| (x - mean_a) * (y - mean_b)).sum();
+    let num: f64 = a
+        .iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x - mean_a) * (y - mean_b))
+        .sum();
     let den_a: f64 = a.iter().map(|x| (x - mean_a).powi(2)).sum::<f64>().sqrt();
     let den_b: f64 = b.iter().map(|y| (y - mean_b).powi(2)).sum::<f64>().sqrt();
     let den = den_a * den_b;
-    if den < 1e-10 { return 0.0; }
+    if den < 1e-10 {
+        return 0.0;
+    }
     (num / den).clamp(-1.0, 1.0)
 }

@@ -15,8 +15,8 @@ const TEMP_PASSWORD: &str = "Estacion2";
 
 #[derive(Deserialize)]
 pub struct SeedRequest {
-    pub secret:       String,
-    pub email:        String,
+    pub secret: String,
+    pub email: String,
     pub display_name: String,
 }
 
@@ -26,26 +26,39 @@ pub async fn seed_admin(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let expected = std::env::var("SEED_SECRET").unwrap_or_default();
     if expected.is_empty() || body.secret != expected {
-        return Err((StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "Secret inválido" }))));
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "Secret inválido" })),
+        ));
     }
 
     // Solo si no hay ningún admin todavía
-    let admin_count = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM users WHERE role = 'admin'"
-    )
-    .fetch_one(&pool)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?
-    .unwrap_or(0);
+    let admin_count = sqlx::query_scalar!("SELECT COUNT(*) FROM users WHERE role = 'admin'")
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+        })?
+        .unwrap_or(0);
 
     if admin_count > 0 {
-        return Err((StatusCode::CONFLICT, Json(serde_json::json!({
-            "error": "Ya existe al menos un admin. Usá POST /api/v1/admin/users con un token de admin."
-        }))));
+        return Err((
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "error": "Ya existe al menos un admin. Usá POST /api/v1/admin/users con un token de admin."
+            })),
+        ));
     }
 
-    let password_hash = hash(TEMP_PASSWORD, DEFAULT_COST)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+    let password_hash = hash(TEMP_PASSWORD, DEFAULT_COST).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
 
     let user = sqlx::query!(
         r#"
@@ -59,7 +72,12 @@ pub async fn seed_admin(
     )
     .fetch_one(&pool)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
 
     Ok(Json(serde_json::json!({
         "id":           user.id,

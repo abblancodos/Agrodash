@@ -27,10 +27,10 @@ fn jwt_secret() -> String {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
-    pub sub:  Uuid,
+    pub sub: Uuid,
     pub email: String,
-    pub role:  String,
-    pub exp:   u64,
+    pub role: String,
+    pub exp: u64,
 }
 
 impl Claims {
@@ -40,10 +40,17 @@ impl Claims {
             .unwrap()
             .as_secs()
             + EXPIRY_SECS;
-        Self { sub, email, role, exp }
+        Self {
+            sub,
+            email,
+            role,
+            exp,
+        }
     }
 
-    pub fn is_admin(&self) -> bool { self.role == "admin" }
+    pub fn is_admin(&self) -> bool {
+        self.role == "admin"
+    }
 }
 
 // ── Encode / decode ───────────────────────────────────────────────────────────

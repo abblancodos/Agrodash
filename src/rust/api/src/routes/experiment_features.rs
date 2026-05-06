@@ -17,16 +17,28 @@ use uuid::Uuid;
 use crate::auth::Claims;
 
 fn err(msg: impl ToString) -> (StatusCode, Json<Value>) {
-    (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": msg.to_string() })))
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({ "error": msg.to_string() })),
+    )
 }
 fn bad(msg: &str) -> (StatusCode, Json<Value>) {
-    (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": msg })))
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": msg })),
+    )
 }
 fn forbidden() -> (StatusCode, Json<Value>) {
-    (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "Sin permisos" })))
+    (
+        StatusCode::FORBIDDEN,
+        Json(serde_json::json!({ "error": "Sin permisos" })),
+    )
 }
 fn not_found() -> (StatusCode, Json<Value>) {
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "No encontrado" })))
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({ "error": "No encontrado" })),
+    )
 }
 
 // ── Helper: verificar rol del usuario en el experimento ──────────────────────
@@ -39,7 +51,8 @@ async fn get_experiment_role(
     // Primero verificar si es owner
     let is_owner = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM experiments WHERE id = $1 AND owner_id = $2)",
-        exp_id, user_id,
+        exp_id,
+        user_id,
     )
     .fetch_one(pool)
     .await
@@ -53,7 +66,8 @@ async fn get_experiment_role(
     // Si no, buscar en collaborators
     let role = sqlx::query_scalar!(
         "SELECT role FROM experiment_collaborators WHERE experiment_id = $1 AND user_id = $2",
-        exp_id, user_id,
+        exp_id,
+        user_id,
     )
     .fetch_optional(pool)
     .await
@@ -66,13 +80,17 @@ async fn require_role(
     pool: &PgPool,
     exp_id: Uuid,
     user_id: Uuid,
-    min_role: &str,  // "viewer" | "editor" | "admin"
+    min_role: &str, // "viewer" | "editor" | "admin"
 ) -> Result<String, (StatusCode, Json<Value>)> {
     let role = get_experiment_role(pool, exp_id, user_id)
         .await?
         .ok_or_else(forbidden)?;
 
-    let rank = |r: &str| match r { "viewer" => 1, "editor" => 2, _ => 3 };
+    let rank = |r: &str| match r {
+        "viewer" => 1,
+        "editor" => 2,
+        _ => 3,
+    };
     if rank(&role) < rank(min_role) {
         return Err(forbidden());
     }
@@ -84,7 +102,7 @@ async fn require_role(
 
 pub async fn server_time() -> Json<Value> {
     let now_utc = chrono::Utc::now();
-    let now_cr  = now_utc - chrono::Duration::hours(6);
+    let now_cr = now_utc - chrono::Duration::hours(6);
     Json(serde_json::json!({
         "utc": now_utc.to_rfc3339(),
         "cr":  now_cr.format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -125,9 +143,14 @@ pub async fn search_users(
     .await
     .map_err(err)?;
 
-    let list: Vec<_> = rows.iter().map(|r| serde_json::json!({
-        "id": r.id, "email": r.email, "display_name": r.display_name,
-    })).collect();
+    let list: Vec<_> = rows
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "id": r.id, "email": r.email, "display_name": r.display_name,
+            })
+        })
+        .collect();
 
     Ok(Json(serde_json::json!(list)))
 }
@@ -136,11 +159,11 @@ pub async fn search_users(
 
 #[derive(Serialize)]
 pub struct CollaboratorRow {
-    pub user_id:      Uuid,
-    pub email:        String,
+    pub user_id: Uuid,
+    pub email: String,
     pub display_name: String,
-    pub role:         String,
-    pub added_at:     chrono::DateTime<chrono::Utc>,
+    pub role: String,
+    pub added_at: chrono::DateTime<chrono::Utc>,
 }
 
 pub async fn list_collaborators(
@@ -165,19 +188,23 @@ pub async fn list_collaborators(
     .await
     .map_err(err)?;
 
-    Ok(Json(rows.into_iter().map(|r| CollaboratorRow {
-        user_id:      r.user_id,
-        email:        r.email,
-        display_name: r.display_name,
-        role:         r.role,
-        added_at:     r.added_at,
-    }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| CollaboratorRow {
+                user_id: r.user_id,
+                email: r.email,
+                display_name: r.display_name,
+                role: r.role,
+                added_at: r.added_at,
+            })
+            .collect(),
+    ))
 }
 
 #[derive(Deserialize)]
 pub struct AddCollaboratorRequest {
     pub user_id: Uuid,
-    pub role:    String,
+    pub role: String,
 }
 
 pub async fn add_collaborator(
@@ -219,7 +246,8 @@ pub async fn remove_collaborator(
 
     sqlx::query!(
         "DELETE FROM experiment_collaborators WHERE experiment_id = $1 AND user_id = $2",
-        exp_id, user_id as Uuid,
+        exp_id,
+        user_id as Uuid,
     )
     .execute(&pool)
     .await
@@ -237,30 +265,30 @@ pub async fn remove_collaborator(
 
 #[derive(Deserialize)]
 pub struct CorrectEventRequest {
-    pub step_key:          String,
-    pub event_type:        String,
-    pub soil_id:           Option<String>,
-    pub iteration:         Option<i32>,
-    pub data:              Value,
-    pub note:              Option<String>,
-    pub correction_reason: String,          // obligatorio
+    pub step_key: String,
+    pub event_type: String,
+    pub soil_id: Option<String>,
+    pub iteration: Option<i32>,
+    pub data: Value,
+    pub note: Option<String>,
+    pub correction_reason: String, // obligatorio
 }
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct EventRow {
-    pub id:                 Uuid,
-    pub experiment_id:      Uuid,
-    pub step_key:           String,
-    pub event_type:         String,
-    pub soil_id:            Option<String>,
-    pub iteration:          Option<i32>,
-    pub data:               Value,
-    pub note:               Option<String>,
-    pub recorded_by:        Option<Uuid>,
-    pub corrects_event_id:  Option<Uuid>,
-    pub correction_reason:  Option<String>,
-    pub is_voided:          bool,
-    pub recorded_at:        chrono::DateTime<chrono::Utc>,
+    pub id: Uuid,
+    pub experiment_id: Uuid,
+    pub step_key: String,
+    pub event_type: String,
+    pub soil_id: Option<String>,
+    pub iteration: Option<i32>,
+    pub data: Value,
+    pub note: Option<String>,
+    pub recorded_by: Option<Uuid>,
+    pub corrects_event_id: Option<Uuid>,
+    pub correction_reason: Option<String>,
+    pub is_voided: bool,
+    pub recorded_at: chrono::DateTime<chrono::Utc>,
 }
 
 pub async fn correct_event(
@@ -270,7 +298,9 @@ pub async fn correct_event(
     Json(body): Json<CorrectEventRequest>,
 ) -> Result<Json<EventRow>, (StatusCode, Json<Value>)> {
     if body.correction_reason.trim().len() < 10 {
-        return Err(bad("El motivo de corrección debe tener al menos 10 caracteres"));
+        return Err(bad(
+            "El motivo de corrección debe tener al menos 10 caracteres",
+        ));
     }
 
     // Verificar que el event existe y pertenece al experimento
@@ -280,7 +310,8 @@ pub async fn correct_event(
         FROM experiment_events
         WHERE id = $1 AND experiment_id = $2
         "#,
-        event_id, exp_id,
+        event_id,
+        exp_id,
     )
     .fetch_optional(&pool)
     .await
@@ -288,7 +319,9 @@ pub async fn correct_event(
     .ok_or_else(not_found)?;
 
     if original.is_voided {
-        return Err(bad("Esta entry ya está anulada — corregí la corrección activa"));
+        return Err(bad(
+            "Esta entry ya está anulada — corregí la corrección activa",
+        ));
     }
 
     // Solo el autor o un admin puede corregir
@@ -356,7 +389,8 @@ pub async fn void_event(
 
     sqlx::query!(
         "UPDATE experiment_events SET is_voided = true WHERE id = $1 AND experiment_id = $2",
-        event_id, exp_id,
+        event_id,
+        exp_id,
     )
     .execute(&pool)
     .await
@@ -369,16 +403,16 @@ pub async fn void_event(
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct DefinitionRow {
-    pub id:            Uuid,
+    pub id: Uuid,
     pub experiment_id: Uuid,
-    pub key:           String,
-    pub r#type:        String,
-    pub label:         String,
-    pub payload:       Value,
-    pub sort_order:    i32,
-    pub var_type:      Option<String>,
-    pub options:       Option<Value>,
-    pub created_at:    chrono::DateTime<chrono::Utc>,
+    pub key: String,
+    pub r#type: String,
+    pub label: String,
+    pub payload: Value,
+    pub sort_order: i32,
+    pub var_type: Option<String>,
+    pub options: Option<Value>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 pub async fn list_definitions(
@@ -409,13 +443,13 @@ pub async fn list_definitions(
 
 #[derive(Deserialize)]
 pub struct CreateDefinitionRequest {
-    pub key:        String,
-    pub r#type:     String,
-    pub label:      String,
-    pub payload:    Value,
+    pub key: String,
+    pub r#type: String,
+    pub label: String,
+    pub payload: Value,
     pub sort_order: Option<i32>,
-    pub var_type:   Option<String>,
-    pub options:    Option<Value>,
+    pub var_type: Option<String>,
+    pub options: Option<Value>,
 }
 
 pub async fn create_definition(
@@ -499,7 +533,8 @@ pub async fn delete_definition(
 
     sqlx::query!(
         "DELETE FROM experiment_definitions WHERE id = $1 AND experiment_id = $2",
-        def_id, exp_id,
+        def_id,
+        exp_id,
     )
     .execute(&pool)
     .await
@@ -512,15 +547,15 @@ pub async fn delete_definition(
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct ObjectiveRow {
-    pub id:             Uuid,
-    pub experiment_id:  Uuid,
-    pub name:           String,
+    pub id: Uuid,
+    pub experiment_id: Uuid,
+    pub name: String,
     pub condition_type: String,
-    pub condition:      Value,
-    pub severity:       String,
-    pub goto_ok:        Option<String>,
+    pub condition: Value,
+    pub severity: String,
+    pub goto_ok: Option<String>,
     pub goto_violation: Option<String>,
-    pub sort_order:     i32,
+    pub sort_order: i32,
 }
 
 pub async fn list_objectives(
@@ -551,13 +586,13 @@ pub async fn list_objectives(
 
 #[derive(Deserialize)]
 pub struct CreateObjectiveRequest {
-    pub name:           String,
+    pub name: String,
     pub condition_type: String,
-    pub condition:      Value,
-    pub severity:       Option<String>,
-    pub goto_ok:        Option<String>,
+    pub condition: Value,
+    pub severity: Option<String>,
+    pub goto_ok: Option<String>,
     pub goto_violation: Option<String>,
-    pub sort_order:     Option<i32>,
+    pub sort_order: Option<i32>,
 }
 
 pub async fn create_objective(
@@ -612,7 +647,8 @@ pub async fn delete_objective(
 
     sqlx::query!(
         "DELETE FROM experiment_objectives WHERE id = $1 AND experiment_id = $2",
-        obj_id, exp_id,
+        obj_id,
+        exp_id,
     )
     .execute(&pool)
     .await
@@ -676,34 +712,46 @@ pub async fn export_csv(
     csv.push_str("timestamp_cr,step_key,event_type,soil_id,iteration,data,note,tipo,motivo_correccion,registrado_por\n");
 
     for ev in &events {
-        let ts = ev.recorded_at
+        let ts = ev
+            .recorded_at
             .checked_sub_signed(chrono::Duration::hours(6))
             .unwrap_or(ev.recorded_at)
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
 
-        let tipo = if ev.corrects_event_id.is_some() { "correccion" } else { "activa" };
+        let tipo = if ev.corrects_event_id.is_some() {
+            "correccion"
+        } else {
+            "activa"
+        };
         let data_str = ev.data.to_string().replace(',', ";");
         let note_str = ev.note.as_deref().unwrap_or("").replace(',', ";");
-        let reason   = ev.correction_reason.as_deref().unwrap_or("").replace(',', ";");
-        let by       = ev.recorded_by_name.as_str().replace(',', ";");
-        let soil     = ev.soil_id.as_deref().unwrap_or("");
-        let iter     = ev.iteration.map(|i| i.to_string()).unwrap_or_default();
+        let reason = ev
+            .correction_reason
+            .as_deref()
+            .unwrap_or("")
+            .replace(',', ";");
+        let by = ev.recorded_by_name.as_str().replace(',', ";");
+        let soil = ev.soil_id.as_deref().unwrap_or("");
+        let iter = ev.iteration.map(|i| i.to_string()).unwrap_or_default();
 
         csv.push_str(&format!(
             "{},{},{},{},{},{},{},{},{},{}\n",
-            ts, ev.step_key, ev.event_type, soil, iter,
-            data_str, note_str, tipo, reason, by,
+            ts, ev.step_key, ev.event_type, soil, iter, data_str, note_str, tipo, reason, by,
         ));
     }
 
     let filename = format!("experimento-{}.csv", exp_id);
     Ok((
         [
-            (axum::http::header::CONTENT_TYPE,
-             "text/csv; charset=utf-8".to_string()),
-            (axum::http::header::CONTENT_DISPOSITION,
-             format!("attachment; filename=\"{}\"", filename)),
+            (
+                axum::http::header::CONTENT_TYPE,
+                "text/csv; charset=utf-8".to_string(),
+            ),
+            (
+                axum::http::header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", filename),
+            ),
         ],
         csv,
     ))
@@ -730,7 +778,8 @@ pub async fn update_status(
 
     sqlx::query!(
         "UPDATE experiments SET status = $1, updated_at = NOW() WHERE id = $2",
-        body.status, exp_id,
+        body.status,
+        exp_id,
     )
     .execute(&pool)
     .await
@@ -738,7 +787,6 @@ pub async fn update_status(
 
     Ok(StatusCode::NO_CONTENT)
 }
-
 
 // ── DELETE /experiments/:id ───────────────────────────────────────────────────
 // Solo admins/owner. Antes de borrar genera y devuelve el CSV completo
@@ -784,14 +832,22 @@ pub async fn delete_experiment(
 
     // Generar CSV completo con todo (incluyendo anuladas)
     let mut csv = String::new();
-    csv.push_str(&format!("# experimento: {}
-", exp.title));
-    csv.push_str(&format!("# BACKUP COMPLETO — incluye entries anuladas
-"));
+    csv.push_str(&format!(
+        "# experimento: {}
+",
+        exp.title
+    ));
+    csv.push_str(&format!(
+        "# BACKUP COMPLETO — incluye entries anuladas
+"
+    ));
     if let Some(consts) = exp.constants.as_object() {
         for (k, v) in consts {
-            csv.push_str(&format!("# {}: {}
-", k, v));
+            csv.push_str(&format!(
+                "# {}: {}
+",
+                k, v
+            ));
         }
     }
     csv.push('\n');
@@ -799,7 +855,8 @@ pub async fn delete_experiment(
 ");
 
     for ev in &events {
-        let ts = ev.recorded_at
+        let ts = ev
+            .recorded_at
             .checked_sub_signed(chrono::Duration::hours(6))
             .unwrap_or(ev.recorded_at)
             .format("%Y-%m-%d %H:%M:%S")
@@ -815,16 +872,19 @@ pub async fn delete_experiment(
 
         let data_str = ev.data.to_string().replace(',', ";");
         let note_str = ev.note.as_deref().unwrap_or("").replace(',', ";");
-        let reason   = ev.correction_reason.as_deref().unwrap_or("").replace(',', ";");
-        let by       = ev.recorded_by_name.as_str().replace(',', ";");
-        let soil     = ev.soil_id.as_deref().unwrap_or("");
-        let iter     = ev.iteration.map(|i| i.to_string()).unwrap_or_default();
+        let reason = ev
+            .correction_reason
+            .as_deref()
+            .unwrap_or("")
+            .replace(',', ";");
+        let by = ev.recorded_by_name.as_str().replace(',', ";");
+        let soil = ev.soil_id.as_deref().unwrap_or("");
+        let iter = ev.iteration.map(|i| i.to_string()).unwrap_or_default();
 
         csv.push_str(&format!(
             "{},{},{},{},{},{},{},{},{},{}
 ",
-            ts, ev.step_key, ev.event_type, soil, iter,
-            data_str, note_str, estado, reason, by,
+            ts, ev.step_key, ev.event_type, soil, iter, data_str, note_str, estado, reason, by,
         ));
     }
 
@@ -837,10 +897,14 @@ pub async fn delete_experiment(
     let filename = format!("backup-experimento-{}.csv", exp_id);
     Ok((
         [
-            (axum::http::header::CONTENT_TYPE,
-             "text/csv; charset=utf-8".to_string()),
-            (axum::http::header::CONTENT_DISPOSITION,
-             format!("attachment; filename=\"{}\"", filename)),
+            (
+                axum::http::header::CONTENT_TYPE,
+                "text/csv; charset=utf-8".to_string(),
+            ),
+            (
+                axum::http::header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", filename),
+            ),
         ],
         csv,
     ))
@@ -880,18 +944,18 @@ pub async fn update_columns(
 #[derive(Deserialize)]
 pub struct EntryValueInput {
     pub definition_key: String,
-    pub value_numeric:  Option<f64>,
-    pub value_text:     Option<String>,
+    pub value_numeric: Option<f64>,
+    pub value_text: Option<String>,
     pub value_csv_data: Option<Value>,
 }
 
 #[derive(Serialize)]
 pub struct EntryValueRow {
-    pub id:             Uuid,
-    pub entry_id:       Uuid,
+    pub id: Uuid,
+    pub entry_id: Uuid,
     pub definition_key: String,
-    pub value_numeric:  Option<f64>,
-    pub value_text:     Option<String>,
+    pub value_numeric: Option<f64>,
+    pub value_text: Option<String>,
     pub value_csv_data: Option<Value>,
 }
 
@@ -950,14 +1014,18 @@ pub async fn get_entry_values(
     .await
     .map_err(err)?;
 
-    Ok(Json(rows.into_iter().map(|r| EntryValueRow {
-        id:             r.id,
-        entry_id:       r.entry_id,
-        definition_key: r.definition_key,
-        value_numeric:  r.value_numeric,
-        value_text:     r.value_text,
-        value_csv_data: r.value_csv_data,
-    }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| EntryValueRow {
+                id: r.id,
+                entry_id: r.entry_id,
+                definition_key: r.definition_key,
+                value_numeric: r.value_numeric,
+                value_text: r.value_text,
+                value_csv_data: r.value_csv_data,
+            })
+            .collect(),
+    ))
 }
 
 // GET /experiments/:id/values — todos los valores de todas las entries
@@ -992,7 +1060,9 @@ pub async fn get_all_entry_values(
             .or_insert_with(|| Value::Object(serde_json::Map::new()));
         if let Value::Object(map) = entry {
             let val = if let Some(n) = r.value_numeric {
-                Value::Number(serde_json::Number::from_f64(n).unwrap_or(serde_json::Number::from(0)))
+                Value::Number(
+                    serde_json::Number::from_f64(n).unwrap_or(serde_json::Number::from(0)),
+                )
             } else if let Some(t) = &r.value_text {
                 Value::String(t.clone())
             } else if let Some(d) = &r.value_csv_data {
@@ -1011,28 +1081,28 @@ pub async fn get_all_entry_values(
 
 #[derive(Serialize, sqlx::FromRow)]
 pub struct DefinitionGroupRow {
-    pub id:            Uuid,
+    pub id: Uuid,
     pub experiment_id: Uuid,
-    pub name:          String,
-    pub description:   Option<String>,
-    pub color:         String,
-    pub sort_order:    i32,
-    pub created_at:    chrono::DateTime<chrono::Utc>,
+    pub name: String,
+    pub description: Option<String>,
+    pub color: String,
+    pub sort_order: i32,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Deserialize)]
 pub struct CreateGroupRequest {
-    pub name:        String,
+    pub name: String,
     pub description: Option<String>,
-    pub color:       Option<String>,
+    pub color: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct UpdateGroupRequest {
-    pub name:        Option<String>,
+    pub name: Option<String>,
     pub description: Option<String>,
-    pub color:       Option<String>,
-    pub sort_order:  Option<i32>,
+    pub color: Option<String>,
+    pub sort_order: Option<i32>,
 }
 
 // GET /experiments/:id/groups
@@ -1132,7 +1202,8 @@ pub async fn delete_group(
 
     sqlx::query!(
         "DELETE FROM experiment_definition_groups WHERE id = $1 AND experiment_id = $2",
-        gid, exp_id,
+        gid,
+        exp_id,
     )
     .execute(&pool)
     .await
