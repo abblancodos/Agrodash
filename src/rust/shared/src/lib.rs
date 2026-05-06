@@ -22,23 +22,26 @@ pub struct SharedConnections {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineConfig {
-    pub id:                    String,
-    pub label:                 String,
+    pub id: String,
+    pub label: String,
     pub loop_interval_seconds: f64,
-    pub nodes:                 Vec<NodeConfig>,
-    pub edges:                 Vec<EdgeConfig>,
+    pub nodes: Vec<NodeConfig>,
+    pub edges: Vec<EdgeConfig>,
     #[serde(default)]
     pub node_positions: HashMap<String, NodePosition>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NodePosition { pub x: f64, pub y: f64 }
+pub struct NodePosition {
+    pub x: f64,
+    pub y: f64,
+}
 
 // ── Nodo ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeConfig {
-    pub id:   String,
+    pub id: String,
     #[serde(flatten)]
     pub kind: NodeKind,
 }
@@ -77,12 +80,12 @@ pub enum NodeKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EdgeConfig {
-    pub from:      String,
-    pub to:        String,
+    pub from: String,
+    pub to: String,
     #[serde(default)]
     pub from_port: Option<String>,
     #[serde(default)]
-    pub to_port:   Option<String>,
+    pub to_port: Option<String>,
     /// Tipo semántico: controla el color del edge en el canvas.
     /// Omitido = Data (azul, default).
     #[serde(default)]
@@ -93,9 +96,9 @@ pub struct EdgeConfig {
 #[serde(rename_all = "snake_case")]
 pub enum EdgeKind {
     #[default]
-    Data,       // azul — flujo de datos normal
-    Feedback,   // naranja — señal de retroalimentación (MqttSubscriber → Watchdog)
-    Decision,   // verde — acción de decisor → watchdog/actuador
+    Data, // azul — flujo de datos normal
+    Feedback, // naranja — señal de retroalimentación (MqttSubscriber → Watchdog)
+    Decision, // verde — acción de decisor → watchdog/actuador
 }
 
 // ── Signal ───────────────────────────────────────────────────────────────────
@@ -108,33 +111,54 @@ pub enum Signal {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum NodeAction { On, Off, Hold }
+pub enum NodeAction {
+    On,
+    Off,
+    Hold,
+}
 
 // ── Fuentes ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PostgresSensorConfig { pub sensors: Vec<SensorEntry> }
+pub struct PostgresSensorConfig {
+    pub sensors: Vec<SensorEntry>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SensorEntry { pub id: String, pub label: String }
+pub struct SensorEntry {
+    pub id: String,
+    pub label: String,
+}
 
 // ── Filtros ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(non_snake_case)]
 pub struct KalmanConfig {
-    pub Q: VecOrScalar, pub R: VecOrScalar,
-    pub P0: f64, pub convergence_threshold: f64, pub warmup_samples: usize,
+    pub Q: VecOrScalar,
+    pub R: VecOrScalar,
+    pub P0: f64,
+    pub convergence_threshold: f64,
+    pub warmup_samples: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MovingAvgConfig { pub window_n: usize, pub warmup_samples: usize }
+pub struct MovingAvgConfig {
+    pub window_n: usize,
+    pub warmup_samples: usize,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EwmaConfig { pub alpha: VecOrScalar, pub warmup_samples: usize }
+pub struct EwmaConfig {
+    pub alpha: VecOrScalar,
+    pub warmup_samples: usize,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LowpassConfig { pub tau_seconds: VecOrScalar, pub warmup_samples: usize }
+pub struct LowpassConfig {
+    pub tau_seconds: VecOrScalar,
+    pub warmup_samples: usize,
+}
 
 // ── TrendBuffer (compartido por decisores) ────────────────────────────────────
 
@@ -151,15 +175,20 @@ pub struct TrendConfig {
     pub noise_floor: f64,
 }
 
-fn default_noise_floor() -> f64 { 1e-5 }
+fn default_noise_floor() -> f64 {
+    1e-5
+}
 
 // ── Decisores ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(non_snake_case)]
 pub struct MahalanobisConfig {
-    pub target: Vec<f64>, pub threshold_act: f64, pub threshold_deact: f64,
-    pub use_kalman_P: bool, pub sigma: Option<f64>,
+    pub target: Vec<f64>,
+    pub threshold_act: f64,
+    pub threshold_deact: f64,
+    pub use_kalman_P: bool,
+    pub sigma: Option<f64>,
     /// Tracking de tendencia — requerido para Watchdog en modo Bad.
     #[serde(default)]
     pub trend: Option<TrendConfig>,
@@ -167,8 +196,11 @@ pub struct MahalanobisConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HysteresisConfig {
-    pub reduction: Reduction, pub low: f64, pub high: f64,
-    pub action_below_low: NodeAction, pub action_above_high: NodeAction,
+    pub reduction: Reduction,
+    pub low: f64,
+    pub high: f64,
+    pub action_below_low: NodeAction,
+    pub action_above_high: NodeAction,
     #[serde(default)]
     pub trend: Option<TrendConfig>,
 }
@@ -176,9 +208,13 @@ pub struct HysteresisConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(non_snake_case)]
 pub struct SprtConfig {
-    pub mu_H0: f64, pub mu_H1: f64, pub sigma: f64,
-    pub alpha: f64, pub beta: f64,
-    pub reduction: Reduction, pub reset_on_action: bool,
+    pub mu_H0: f64,
+    pub mu_H1: f64,
+    pub sigma: f64,
+    pub alpha: f64,
+    pub beta: f64,
+    pub reduction: Reduction,
+    pub reset_on_action: bool,
     #[serde(default)]
     pub trend: Option<TrendConfig>,
 }
@@ -188,15 +224,19 @@ pub struct SprtConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MqttActuatorConfig {
     pub connection: ConnectionRef,
-    pub topic: String, pub payload_on: String, pub payload_off: String,
+    pub topic: String,
+    pub payload_on: String,
+    pub payload_off: String,
     pub retain: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpActuatorConfig {
     pub connection: ConnectionRef,
-    pub path_on: String, pub path_off: String,
-    pub body_on: Option<serde_json::Value>, pub body_off: Option<serde_json::Value>,
+    pub path_on: String,
+    pub path_off: String,
+    pub body_on: Option<serde_json::Value>,
+    pub body_off: Option<serde_json::Value>,
     pub method: Option<String>,
 }
 
@@ -206,9 +246,9 @@ pub struct HttpActuatorConfig {
 /// Conectar al puerto "feedback" del Watchdog con EdgeKind::Feedback.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MqttSubscriberConfig {
-    pub connection:  ConnectionRef,
-    pub topic:       String,
-    pub payload_on:  String,
+    pub connection: ConnectionRef,
+    pub topic: String,
+    pub payload_on: String,
     pub payload_off: String,
     /// Segundos sin mensaje antes de considerar la lectura obsoleta.
     /// None = nunca expira (mantiene último valor).
@@ -245,8 +285,12 @@ pub struct WatchdogConfig {
     pub max_retries: u32,
 }
 
-fn default_action_timeout() -> u64 { 30 }
-fn default_max_retries()    -> u32  { 3  }
+fn default_action_timeout() -> u64 {
+    30
+}
+fn default_max_retries() -> u32 {
+    3
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "level", rename_all = "snake_case")]
@@ -257,7 +301,7 @@ pub enum WatchdogMode {
     /// Inferencia por tendencia de la señal filtrada.
     /// Requiere Signal::Vector en el puerto "signal".
     Bad {
-        expected_on_trend:  Trend,
+        expected_on_trend: Trend,
         expected_off_trend: Trend,
         /// Cambio mínimo porcentual en la ventana (0.0–1.0). Ej: 0.05 = 5%.
         min_change_pct: f64,
@@ -275,7 +319,11 @@ pub enum WatchdogMode {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum Trend { Ascending, Descending, Stable }
+pub enum Trend {
+    Ascending,
+    Descending,
+    Stable,
+}
 
 // Estado del Watchdog serializado en NodeState.data:
 // {
@@ -308,19 +356,19 @@ pub struct InlineConnection {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MqttConnection {
-    pub broker_url:     String,
-    pub client_id:      String,
-    pub username:       Option<String>,
-    pub password:       Option<String>,
+    pub broker_url: String,
+    pub client_id: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
     pub keepalive_secs: Option<u64>,
-    pub qos:            Option<u8>,
+    pub qos: Option<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpConnection {
-    pub base_url:      String,
-    pub timeout_secs:  Option<u64>,
-    pub bearer_token:  Option<String>,
+    pub base_url: String,
+    pub timeout_secs: Option<u64>,
+    pub bearer_token: Option<String>,
     pub extra_headers: Option<HashMap<String, String>>,
 }
 
@@ -328,13 +376,16 @@ pub struct HttpConnection {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum VecOrScalar { Scalar(f64), Vec(Vec<f64>) }
+pub enum VecOrScalar {
+    Scalar(f64),
+    Vec(Vec<f64>),
+}
 
 impl VecOrScalar {
     pub fn expand(&self, n: usize) -> Vec<f64> {
         match self {
             VecOrScalar::Scalar(v) => vec![*v; n],
-            VecOrScalar::Vec(v)    => v.clone(),
+            VecOrScalar::Vec(v) => v.clone(),
         }
     }
 }
@@ -342,49 +393,51 @@ impl VecOrScalar {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Reduction {
-    Mean, Min, Max,
-    Component   { index: usize },
+    Mean,
+    Min,
+    Max,
+    Component { index: usize },
     WeightedByP,
-    CountBelow  { threshold: f64, min_count: usize },
-    CountAbove  { threshold: f64, min_count: usize },
+    CountBelow { threshold: f64, min_count: usize },
+    CountAbove { threshold: f64, min_count: usize },
 }
 
 // ── Estado del agente ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AgentState {
-    pub pipeline_id:     String,
-    pub node_states:     HashMap<String, NodeState>,
-    pub last_signals:    HashMap<String, SignalSnapshot>,
-    pub cycle:           u64,
-    pub is_ready:        bool,
+    pub pipeline_id: String,
+    pub node_states: HashMap<String, NodeState>,
+    pub last_signals: HashMap<String, SignalSnapshot>,
+    pub cycle: u64,
+    pub is_ready: bool,
     pub override_active: bool,
-    pub label:           String,
+    pub label: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NodeState {
-    pub node_id:   String,
+    pub node_id: String,
     pub node_type: String,
-    pub data:      serde_json::Value,
-    pub is_ready:  bool,
+    pub data: serde_json::Value,
+    pub is_ready: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignalSnapshot {
     pub node_id: String,
-    pub signal:  Signal,
+    pub signal: Signal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullAgentState {
-    pub pipeline_id:     String,
-    pub label:           String,
-    pub cycle:           u64,
-    pub is_ready:        bool,
+    pub pipeline_id: String,
+    pub label: String,
+    pub cycle: u64,
+    pub is_ready: bool,
     pub override_active: bool,
-    pub node_states:     HashMap<String, NodeState>,
-    pub last_signals:    HashMap<String, SignalSnapshot>,
+    pub node_states: HashMap<String, NodeState>,
+    pub last_signals: HashMap<String, SignalSnapshot>,
 }
 
 // ── Protocolo NOTIFY / AgentCommand ──────────────────────────────────────────
@@ -395,7 +448,7 @@ pub enum AgentCommand {
     Stop,
 
     Override {
-        action:      NodeAction,
+        action: NodeAction,
         actuator_id: Option<String>,
     },
 
@@ -418,9 +471,9 @@ pub enum AgentCommand {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentCmdResult {
     pub pipeline_id: String,
-    pub cmd:         String,
-    pub ok:          bool,
-    pub message:     String,
-    pub data:        Option<serde_json::Value>,
-    pub ts:          String,
+    pub cmd: String,
+    pub ok: bool,
+    pub message: String,
+    pub data: Option<serde_json::Value>,
+    pub ts: String,
 }
