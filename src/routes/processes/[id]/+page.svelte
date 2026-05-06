@@ -8,7 +8,9 @@
   import LogsTab     from '$lib/components/processes/LogsTab.svelte';
   import ConfigTab   from '$lib/components/processes/ConfigTab.svelte';
 
-  const id = $derived(page.params.id);
+  // En esta ruta [id], params.id siempre existe cuando el componente monta.
+  // El cast a string es seguro — SvelteKit garantiza el param.
+  const id = $derived(page.params.id as string);
 
   type Tab = 'monitor' | 'logs' | 'config';
   let activeTab = $state<Tab>('monitor');
