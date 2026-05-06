@@ -10,7 +10,7 @@
 
   let { children } = $props();
 
-  const id = $derived($page.params.id);
+  const id = $derived($page.params.id ?? '');
   let pollInterval: ReturnType<typeof setInterval> | null = null;
   let ready = $state(false);
 

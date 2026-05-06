@@ -126,6 +126,7 @@
       id, label: `Pipeline ${draft.pipelines.length + 1}`,
       loop_interval_seconds: 60,
       nodes: [], edges: [], node_positions: {},
+      connections: undefined,
     }];
     activePl = draft.pipelines.length - 1;
     markDirty();

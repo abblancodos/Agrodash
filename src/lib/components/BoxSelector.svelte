@@ -37,7 +37,7 @@
   }
 
   function handleOutside(e: MouseEvent) {
-    if (open && panelEl && !panelEl.contains(e.target as Node) && !btnEl.contains(e.target as Node)) {
+    if (open && panelEl && !panelEl.contains(e.target as Node) && !btnEl?.contains(e.target as Node)) {
       open = false;
     }
   }

@@ -56,6 +56,13 @@ function createAuthStore() {
       set({ user, loading: false, checked: true });
     },
 
+    // Compatibilidad con flujo OAuth que pasa token en el hash.
+    // El token no se almacena en el cliente — las cookies HttpOnly lo manejan.
+    // Esta función solo actualiza el perfil en memoria.
+    setToken(_token: string, user: AuthUser) {
+      set({ user, loading: false, checked: true });
+    },
+
     async logout() {
       try {
         await fetch(`${API}/api/v1/auth/logout`, {

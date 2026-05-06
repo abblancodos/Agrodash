@@ -49,7 +49,7 @@
    * IDs de sensores que están correlacionados con OTRO sensor de la misma caja
    * en la misma variable. Estos se agrupan al final.
    */
-  const correlatedSensorIds = $derived<Set<string>>(() => {
+  const correlatedSensorIds = $derived(() => {
     const ids = new Set<string>();
     for (const c of correlations) {
       if (c.box_id === box.id) {

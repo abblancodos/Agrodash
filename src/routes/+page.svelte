@@ -118,8 +118,9 @@
 
   // ── Mount ─────────────────────────────────────────────────────────────────
 
-  onMount(async () => {
-    await Promise.all([
+  onMount(() => {
+    // IIFE async para no bloquear el retorno de onMount (Svelte requiere () => void)
+    (async () => { await Promise.all([
       fetchBoxes().then(b => {
         boxes = b;
         selectedBoxIds = new Set(b.map(box => box.id));
@@ -128,11 +129,13 @@
       loadTimeRange(),
       loadStats(),
     ]);
-    loading = false;
+      loading = false;
+    })();
 
     // Polling de stats cada 60s
     statsInterval = setInterval(loadStats, 60_000);
 
+    // cleanup síncrono — Svelte no acepta Promise como retorno de onMount
     return () => { if (statsInterval) clearInterval(statsInterval); };
   });
 </script>

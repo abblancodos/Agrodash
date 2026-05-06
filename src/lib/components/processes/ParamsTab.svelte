@@ -11,7 +11,7 @@
 
   let editQ    = $state('');
   let editR    = $state('');
-  let saving   = $state<string | null>(null);
+  let saving: string | null = $state(null);
   let msg      = $state('');
   let msgOk    = $state(true);
 
@@ -32,12 +32,12 @@
   }
 
   // Thresholds editables
-  let thresholds = $state<Record<string, [string, string]>>({});
+  let thresholds: Record<string, [string, string]> = $state({});
 
   $effect(() => {
     if (state?.rangos_linea && Object.keys(thresholds).length === 0) {
       thresholds = Object.fromEntries(
-        Object.entries(state.rangos_linea).map(([k, v]) => [k, [String(v[0]), String(v[1])]])
+        Object.entries(state.rangos_linea as Record<string, [unknown, unknown]>).map(([k, v]) => [k, [String((v as [unknown,unknown])[0]), String((v as [unknown,unknown])[1])]])
       );
     }
   });
@@ -51,7 +51,8 @@
 
   async function saveAllThresholds() {
     const rangos: Record<string, [number, number]> = {};
-    for (const [k, [minS, maxS]] of Object.entries(thresholds)) {
+    for (const [k, pair] of Object.entries(thresholds)) {
+      const [minS, maxS] = pair as [string, string];
       const min = parseFloat(minS), max = parseFloat(maxS);
       if (isNaN(min) || isNaN(max)) { msg = 'Hay valores inválidos'; msgOk = false; return; }
       rangos[k] = [min, max];
@@ -135,7 +136,8 @@
     </div>
 
     <div class="thresh-grid">
-      {#each Object.entries(thresholds).sort() as [linea, [minV, maxV]]}
+      {#each Object.entries(thresholds).sort() as [linea, pair]}
+        {@const [minV, maxV] = pair as [string, string]}
         <div class="thresh-row">
           <span class="thresh-label">Línea {linea}</span>
           <div class="thresh-inputs">

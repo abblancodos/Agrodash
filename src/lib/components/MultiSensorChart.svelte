@@ -10,6 +10,8 @@
 
   interface Props {
     sensors: Sensor[]; from: Date; to: Date; live?: boolean;
+    sensorType?: string;
+    boxName?: string;
     onRangeChange?: (from: Date, to: Date) => void;
   }
   let { sensors, from, to, live = false, onRangeChange }: Props = $props();

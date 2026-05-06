@@ -291,7 +291,7 @@
             borderColor: cssVar('--chart-tooltip-border'),
             borderWidth: 1, padding: 8,
             callbacks: {
-              label: (ctx: any) => ctx.dataset.label === '_act' ? null
+              label: (ctx: any) => ctx.dataset.label === '_act' ? undefined
                 : ` ${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(4) ?? '—'}`,
             },
           },

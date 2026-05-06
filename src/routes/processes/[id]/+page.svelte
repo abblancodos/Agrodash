@@ -8,7 +8,7 @@
   import LogsTab     from '$lib/components/processes/LogsTab.svelte';
   import ConfigTab   from '$lib/components/processes/ConfigTab.svelte';
 
-  const id = $derived(page.params.id);
+  const id = $derived(($page.params.id ?? ''));
 
   type Tab = 'monitor' | 'logs' | 'config';
   let activeTab = $state<Tab>('monitor');

@@ -2,6 +2,20 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? '';
+// Helper con credentials incluidas — equivale al antiguo fetch con token en header.
+// Todas las rutas autenticadas usan esto en vez de fetch() directo.
+function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(`${API_BASE}${path}`, {
+    ...init,
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init.headers ?? {}),
+    },
+  });
+}
+
+
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
