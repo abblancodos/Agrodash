@@ -11,68 +11,71 @@
 //   payload recibido via un Arc<Mutex<SubscriberState>>. El execute() lee
 //   ese estado en cada ciclo del agente sin bloquear.
 
-use async_trait::async_trait;
-use agrodash_shared::{
-    NodeState, Signal, NodeAction,
-    MqttSubscriberConfig, MqttConnection,
-};
+use super::{resolve_mqtt_connection, NodeInstance};
+use agrodash_shared::{ConnectionRef, SharedConnections};
+use agrodash_shared::{MqttConnection, MqttSubscriberConfig, NodeAction, NodeState, Signal};
 use anyhow::Result;
-use rumqttc::{AsyncClient, MqttOptions, QoS, Event, Packet};
+use async_trait::async_trait;
+use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS};
 use sqlx::PgPool;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use super::{NodeInstance, resolve_mqtt_connection};
-use agrodash_shared::{SharedConnections, ConnectionRef};
 
 // ── Estado compartido entre la task MQTT y el nodo ───────────────────────────
 
 #[derive(Debug, Clone)]
 struct SubscriberState {
-    last_action:  Option<NodeAction>,
+    last_action: Option<NodeAction>,
     last_received: Option<Instant>,
-    last_payload:  Option<String>,
+    last_payload: Option<String>,
 }
 
 impl SubscriberState {
     fn new() -> Self {
-        Self { last_action: None, last_received: None, last_payload: None }
+        Self {
+            last_action: None,
+            last_received: None,
+            last_payload: None,
+        }
     }
 }
 
 // ── Nodo ─────────────────────────────────────────────────────────────────────
 
 pub struct MqttSubscriberNode {
-    id:    String,
-    cfg:   MqttSubscriberConfig,
+    id: String,
+    cfg: MqttSubscriberConfig,
     state: Arc<Mutex<SubscriberState>>,
     // Guardamos el cliente para que el Drop no lo cierre antes de tiempo
     _client: Option<AsyncClient>,
 }
 
 impl MqttSubscriberNode {
-    pub async fn new(
-        id:      String,
-        cfg:     MqttSubscriberConfig,
-        conn:    MqttConnection,
-    ) -> Result<Self> {
+    pub async fn new(id: String, cfg: MqttSubscriberConfig, conn: MqttConnection) -> Result<Self> {
         let state = Arc::new(Mutex::new(SubscriberState::new()));
         let client = Self::spawn_subscriber(id.clone(), &cfg, conn, Arc::clone(&state)).await?;
-        Ok(Self { id, cfg, state, _client: Some(client) })
+        Ok(Self {
+            id,
+            cfg,
+            state,
+            _client: Some(client),
+        })
     }
 
     async fn spawn_subscriber(
         node_id: String,
-        cfg:     &MqttSubscriberConfig,
-        conn:    MqttConnection,
-        state:   Arc<Mutex<SubscriberState>>,
+        cfg: &MqttSubscriberConfig,
+        conn: MqttConnection,
+        state: Arc<Mutex<SubscriberState>>,
     ) -> Result<AsyncClient> {
         let url = conn.broker_url.trim_start_matches("mqtt://");
-        let (host, port) = url.split_once(':')
+        let (host, port) = url
+            .split_once(':')
             .map(|(h, p)| (h.to_string(), p.parse::<u16>().unwrap_or(1883)))
             .unwrap_or((url.to_string(), 1883));
 
         let client_id = format!("{}-sub-{}", conn.client_id, uuid::Uuid::new_v4());
-        let mut opts  = MqttOptions::new(client_id, host, port);
+        let mut opts = MqttOptions::new(client_id, host, port);
         opts.set_keep_alive(Duration::from_secs(conn.keepalive_secs.unwrap_or(30)));
         if let (Some(u), Some(p)) = (conn.username.clone(), conn.password.clone()) {
             opts.set_credentials(u, p);
@@ -87,7 +90,7 @@ impl MqttSubscriberNode {
         let (client, mut eventloop) = AsyncClient::new(opts, 16);
         client.subscribe(&cfg.topic, qos).await?;
 
-        let topic      = cfg.topic.clone();
+        let topic = cfg.topic.clone();
         let payload_on = cfg.payload_on.clone();
         let payload_off = cfg.payload_off.clone();
 
@@ -105,22 +108,28 @@ impl MqttSubscriberNode {
                         } else {
                             tracing::warn!(
                                 "[MqttSubscriber:{}] payload desconocido en '{}': '{}'",
-                                node_id, topic, payload
+                                node_id,
+                                topic,
+                                payload
                             );
                             None
                         };
                         if let Some(a) = action {
-                            let mut s = state.lock().expect("subscriber state lock poisoned — task panicked");
-                            s.last_action   = Some(a);
+                            let mut s = state
+                                .lock()
+                                .expect("subscriber state lock poisoned — task panicked");
+                            s.last_action = Some(a);
                             s.last_received = Some(Instant::now());
-                            s.last_payload  = Some(payload);
+                            s.last_payload = Some(payload);
                         }
                     }
                     Ok(_) => {}
                     Err(e) => {
                         tracing::warn!(
                             "[MqttSubscriber:{}] error MQTT: {} — reintento en {}s",
-                            node_id, e, backoff.as_secs()
+                            node_id,
+                            e,
+                            backoff.as_secs()
                         );
                         tokio::time::sleep(backoff).await;
                         backoff = (backoff * 2).min(Duration::from_secs(60));
@@ -134,11 +143,14 @@ impl MqttSubscriberNode {
 
     /// Devuelve el estado actual considerando staleness.
     fn read_action(&self) -> (Option<NodeAction>, bool) {
-        let s = self.state.lock().expect("subscriber state lock poisoned — task panicked");
+        let s = self
+            .state
+            .lock()
+            .expect("subscriber state lock poisoned — task panicked");
         let stale = match (self.cfg.stale_after_secs, &s.last_received) {
             (Some(secs), Some(t)) => t.elapsed().as_secs() > secs,
-            (Some(_), None)       => true,   // nunca recibimos nada → stale
-            (None, _)             => false,  // sin límite de staleness
+            (Some(_), None) => true, // nunca recibimos nada → stale
+            (None, _) => false,      // sin límite de staleness
         };
         (s.last_action.clone(), stale)
     }
@@ -146,7 +158,12 @@ impl MqttSubscriberNode {
 
 #[async_trait]
 impl NodeInstance for MqttSubscriberNode {
-    async fn execute(&mut self, _inputs: Vec<Signal>, _dt: f64, _pool: &PgPool) -> Result<Option<Signal>> {
+    async fn execute(
+        &mut self,
+        _inputs: Vec<Signal>,
+        _dt: f64,
+        _pool: &PgPool,
+    ) -> Result<Option<Signal>> {
         let (action, stale) = self.read_action();
         if stale {
             tracing::debug!("[MqttSubscriber:{}] lectura obsoleta (stale)", self.id);
@@ -157,19 +174,22 @@ impl NodeInstance for MqttSubscriberNode {
         match action {
             Some(a) => Ok(Some(Signal::Action(a))),
             // Todavía no recibimos ningún mensaje → mismo tratamiento que stale
-            None    => Ok(Some(Signal::Action(NodeAction::Hold))),
+            None => Ok(Some(Signal::Action(NodeAction::Hold))),
         }
     }
 
     fn save_state(&self) -> NodeState {
-        let s = self.state.lock().expect("subscriber state lock poisoned — task panicked");
+        let s = self
+            .state
+            .lock()
+            .expect("subscriber state lock poisoned — task panicked");
         let stale = match (self.cfg.stale_after_secs, &s.last_received) {
             (Some(secs), Some(t)) => t.elapsed().as_secs() > secs,
-            (Some(_), None)       => true,
-            (None, _)             => false,
+            (Some(_), None) => true,
+            (None, _) => false,
         };
         NodeState {
-            node_id:   self.id.clone(),
+            node_id: self.id.clone(),
             node_type: "mqtt_subscriber".into(),
             data: serde_json::json!({
                 "last_action":  s.last_action,
