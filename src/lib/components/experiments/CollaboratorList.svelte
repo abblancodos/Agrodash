@@ -3,6 +3,7 @@
   import { auth } from '$lib/stores/auth';
   import AddDefinitionMenu from './AddDefinitionMenu.svelte';
 
+  let { onClose: _onClose }: { onClose?: () => void } = $props();
   let addOpen = $state(false);
 
   const owner = $derived($experimentStore.experiment?.owner_id);

@@ -108,7 +108,7 @@
         animation: { duration: 300 },
         plugins: {
           legend: { display: false },
-          annotation: { annotations },
+          ...({ annotation: { annotations } } as any),
           tooltip: {
             backgroundColor: cssVar('--chart-tooltip-bg'),
             titleColor: cssVar('--chart-tooltip-title'),

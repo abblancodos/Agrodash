@@ -27,7 +27,7 @@
   );
 
   const addedKeys   = $derived(new Set(columns.map(c => c.key)));
-  const hasGroupCol = $derived(columns.some(c => c.type === 'group'));
+  const hasGroupCol = $derived(columns.some(c => (c.type as string) === 'group'));
   const entryValues = $derived($experimentStore.entryValues);
   const events      = $derived($activeEvents);
 
@@ -355,8 +355,8 @@
       if (typeof val === 'number') ctx[d.key] = val;
     }
     const ev = events.find(e => e.id === entryId);
-    if (ev?.group_id) {
-      for (const d of $experimentStore.definitions.filter(d => d.type === 'constant' && d.group_id === ev.group_id)) {
+    if ((ev as any)?.group_id) {
+      for (const d of $experimentStore.definitions.filter(d => d.type === 'constant' && (d as any).group_id === (ev as any).group_id)) {
         const val = (d.payload as any).value;
         if (typeof val === 'number') ctx[d.key] = val;
       }
@@ -527,7 +527,7 @@
                 <td class="td-ts muted">ahora</td>
                 {#each columns as col}
                   <td class="td-val">
-                    {#if col.type === 'group'}
+                    {#if (col.type as string) === 'group'}
                       <select class="cell-in" bind:value={newRowValues['_group']}>
                         <option value="">sin grupo</option>
                         {#each $groups as g}<option value={g.id}>{g.name}</option>{/each}
