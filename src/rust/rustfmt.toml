@@ -1,0 +1,33 @@
+# rustfmt.toml — agrodash/rust
+# Colocar en src/rust/rustfmt.toml (raíz del workspace)
+#
+# Aplicar con:   cargo fmt
+# Verificar con: cargo fmt -- --check   (lo corre el CI)
+
+edition = "2021"
+
+# Ancho máximo de línea. 100 es más generoso que el default (80)
+# pero evita líneas horizontalmente irrastreables.
+max_width = 100
+
+# Los imports se agrupan y ordenan automáticamente:
+#   1. std
+#   2. dependencias externas
+#   3. crate propio
+imports_granularity = "Crate"
+group_imports       = "StdExternalCrate"
+
+# Trailing comma en listas multi-línea — más diffs limpios en git
+trailing_comma = "Always"
+
+# Llaves de struct/enum en la misma línea cuando caben
+brace_style = "SameLineWhere"
+
+# fn cortas que caben en una línea se dejan en una línea
+fn_single_line = false   # ser explícito — no colapsar fns
+
+# Comentarios se reformatean para que quepan en max_width
+wrap_comments = true
+
+# Los atributos de un item no se separan con línea en blanco
+blank_lines_upper_bound = 1

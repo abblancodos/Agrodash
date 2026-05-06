@@ -1,8 +1,15 @@
-[package]
-name    = "agrodash-shared"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members  = ["api", "agent", "shared"]
+resolver = "2"
 
-[dependencies]
-serde      = { workspace = true }
-serde_json = { workspace = true }
+[workspace.dependencies]
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx       = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"] }
+tokio      = { version = "1", features = ["full"] }
+uuid       = { version = "1", features = ["serde", "v4"] }
+chrono     = { version = "0.4", features = ["serde"] }
+anyhow     = "1"
+tracing    = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+reqwest    = { version = "0.12", features = ["json"] }

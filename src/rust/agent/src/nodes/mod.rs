@@ -13,6 +13,8 @@ pub mod filters;
 pub mod decisions;
 pub mod actuators;
 pub mod utils;
+pub mod subscriber;
+pub mod watchdog;
 
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
@@ -29,22 +31,27 @@ pub trait NodeInstance: Send + Sync {
         &mut self,
         action: NodeAction,
     ) -> Result<Option<Signal>> {
-        let _ = action;
+        let _action = action;  // default: nodo no es actuador, ignora la acción
         Ok(None)
     }
 
     fn is_actuator(&self) -> bool { false }
     fn is_ready(&self)    -> bool { true  }
 
-    /// Métricas internas del nodo para series temporales.
-    /// Se persisten en scope_values como "{tag}:{key}" cada ciclo.
-    /// Permite graficar valores internos (ej: distancia Mahalanobis, LLR del SPRT)
-    /// que no se propagan como Signal pero son útiles para monitoreo.
+    /// Métricas internas para series temporales (scope_values).
     fn metrics(&self) -> Vec<(String, f64)> { vec![] }
+
+    // Watchdog control — implementación vacía por defecto.
+    // WatchdogNode overridea estos métodos.
+    fn watchdog_reset(&mut self) {}
+    fn watchdog_confirm(&mut self) {}
+    fn watchdog_set_override(&mut self, _action: NodeAction) {}
+    fn has_watchdog_override(&self) -> bool { false }
 
     fn save_state(&self) -> NodeState;
     fn load_state(&mut self, state: &NodeState);
 }
+
 
 // ── Factory ───────────────────────────────────────────────────────────────────
 
@@ -69,9 +76,9 @@ pub async fn build(
             Ok(Box::new(utils::WeightedMeanNode::new(cfg.id.clone(), weights.clone())))
         }
 
-        NodeKind::Logger { tag }        => Ok(Box::new(utils::LoggerNode::new(cfg.id.clone(), tag.clone()))),
-        NodeKind::Select { indices }    => Ok(Box::new(utils::SelectNode::new(cfg.id.clone(), indices.clone()))),
-        NodeKind::LinearScale { a, b }  => Ok(Box::new(utils::LinearScaleNode::new(cfg.id.clone(), a.clone(), b.clone()))),
+        NodeKind::Logger { tag }       => Ok(Box::new(utils::LoggerNode::new(cfg.id.clone(), tag.clone()))),
+        NodeKind::Select { indices }   => Ok(Box::new(utils::SelectNode::new(cfg.id.clone(), indices.clone()))),
+        NodeKind::LinearScale { a, b } => Ok(Box::new(utils::LinearScaleNode::new(cfg.id.clone(), a.clone(), b.clone()))),
 
         NodeKind::Mahalanobis(c) => Ok(Box::new(decisions::MahalanobisNode::new(cfg.id.clone(), c.clone()))),
         NodeKind::Hysteresis(c)  => Ok(Box::new(decisions::HysteresisNode::new(cfg.id.clone(), c.clone()))),
@@ -82,10 +89,18 @@ pub async fn build(
             Ok(Box::new(actuators::MqttActuatorNode::new(cfg.id.clone(), c.clone(), conn).await?))
         }
 
-        // FIX: resolvemos HttpConnection en vez de dejar base_url vacío
         NodeKind::HttpActuator(c) => {
             let conn = resolve_http_connection(&c.connection, shared_connections)?;
             Ok(Box::new(actuators::HttpActuatorNode::new(cfg.id.clone(), c.clone(), conn)))
+        }
+
+        NodeKind::MqttSubscriber(c) => {
+            let conn = resolve_mqtt_connection(&c.connection, shared_connections)?;
+            Ok(Box::new(subscriber::MqttSubscriberNode::new(cfg.id.clone(), c.clone(), conn).await?))
+        }
+
+        NodeKind::Watchdog(c) => {
+            Ok(Box::new(watchdog::WatchdogNode::new(cfg.id.clone(), c.clone())))
         }
     }
 }

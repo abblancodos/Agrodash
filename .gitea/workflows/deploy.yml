@@ -1,10 +1,14 @@
+# .gitea/workflows/deploy.yml
+
 name: Deploy
+
 on:
   push:
     branches: [main]
 
 jobs:
-  # ── Detectar qué cambió ────────────────────────────────────────────────────
+
+  # ── Detectar qué cambió ──────────────────────────────────────────────────────
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -24,11 +28,88 @@ jobs:
               - '!src/rust/**'
             backend:
               - 'src/rust/**'
-              - 'Dockerfile.api'
 
-  # ── Frontend ───────────────────────────────────────────────────────────────
-  deploy-frontend:
+  # ── Lint + check de tipos (siempre, en paralelo con changes) ─────────────────
+  # No bloquea el deploy si solo cambió frontend o solo backend,
+  # pero sí bloquea si el job correspondiente falla.
+  lint-frontend:
     needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('package-lock.json') }}
+
+      - run: npm ci
+
+      - name: svelte-check
+        run: npx svelte-check --tsconfig ./tsconfig.json
+
+  lint-backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/rust/target
+          key: rust-${{ hashFiles('src/rust/Cargo.lock') }}
+          restore-keys: rust-
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: rustfmt
+        working-directory: src/rust
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        working-directory: src/rust
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # ── Tests backend ─────────────────────────────────────────────────────────────
+  test-backend:
+    needs: lint-backend
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/rust/target
+          key: rust-${{ hashFiles('src/rust/Cargo.lock') }}
+          restore-keys: rust-
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Tests
+        working-directory: src/rust
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: cargo test --workspace -- --nocapture
+
+  # ── Deploy frontend ───────────────────────────────────────────────────────────
+  deploy-frontend:
+    needs: lint-frontend
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -54,9 +135,9 @@ jobs:
           docker cp build/. agrodash-web-tmp:/output/
           docker rm -f agrodash-web-tmp
 
-  # ── Backend Rust ───────────────────────────────────────────────────────────
+  # ── Deploy backend ────────────────────────────────────────────────────────────
   deploy-backend:
-    needs: changes
+    needs: test-backend
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -72,8 +153,7 @@ jobs:
           key: rust-${{ hashFiles('src/rust/Cargo.lock') }}
           restore-keys: rust-
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Install sqlx-cli
         uses: actions/cache@v4
@@ -117,6 +197,7 @@ jobs:
 
       - name: Deploy Agent binary
         run: |
+          docker rm -f agrodash-agent-tmp 2>/dev/null || true
           docker run -d --name agrodash-agent-tmp \
             -v /home/embebidos/.server-lab/agrodash/api:/output \
             alpine sleep 30

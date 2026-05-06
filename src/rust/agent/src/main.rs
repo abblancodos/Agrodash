@@ -10,18 +10,20 @@
 //     5. LISTEN "agent_cmd_{pipeline_id}" en conexión dedicada.
 //
 //   En cada ciclo:
-//     - Ejecutar grafo con override si aplica.
+//     - Ejecutar grafo (el Watchdog arbitra entre decisor y actuador).
 //     - Escribir process_readings.
 //     - Cada N ciclos: guardar pipeline_states.
 //     - Procesar comandos NOTIFY pendientes (canal mpsc).
 //
-//   Al recibir NOTIFY:
-//     - Stop       → marcar stop_flag, terminar loop.
-//     - Override   → aplicar a actuador(es) con validación.
-//     - ClearOverride → limpiar override.
-//     - Reload     → re-leer config de DB, reconstruir grafo.
-//     - Checkpoint → guardar estado ahora.
-//     - SelfTest   → dry-run, escribir en process_self_test.
+//   Comandos soportados:
+//     Stop, Override, ClearWatchdog, ConfirmWatchdog, Reload, Checkpoint, SelfTest
+//
+//   Si el pipeline tiene Watchdog:
+//     - Override → se pasa al Watchdog, no al actuador directamente.
+//     - ClearWatchdog → reset watchdog + limpia override.
+//     - ConfirmWatchdog → modo Ugly: confirma acción pendiente.
+//   Si NO tiene Watchdog:
+//     - Override/ClearWatchdog → comportamiento clásico directo al actuador.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -55,7 +57,8 @@ struct Args {
 
 struct AgentShared {
     graph:          RwLock<PipelineGraph>,
-    override_acts:  RwLock<HashMap<String, NodeAction>>, // actuator_id → action
+    /// Override directo al actuador — solo se usa cuando NO hay Watchdog.
+    override_acts:  RwLock<HashMap<String, NodeAction>>,
     stop_flag:      tokio::sync::Mutex<bool>,
     cycle:          tokio::sync::Mutex<u64>,
     pipeline_label: String,
@@ -117,8 +120,8 @@ async fn main() -> Result<()> {
     ).await?;
     graph.load_state(&saved_state);
 
-    info!("Grafo construido — {} nodos, ready={}",
-        pipeline.nodes.len(), graph.is_ready());
+    info!("Grafo construido — {} nodos, ready={}, watchdog={}",
+        pipeline.nodes.len(), graph.is_ready(), graph.has_watchdog());
 
     let shared = Arc::new(AgentShared {
         graph:          RwLock::new(graph),
@@ -155,7 +158,6 @@ async fn run_listener(pool: PgPool, pipeline_id: String, tx: mpsc::Sender<AgentC
     let channel = format!("agent_cmd_{pipeline_id}");
 
     loop {
-        // sqlx::PgListener necesita conexión propia — no comparte pool
         let mut listener = match sqlx::postgres::PgListener::connect_with(&pool).await {
             Ok(l)  => l,
             Err(e) => {
@@ -179,9 +181,7 @@ async fn run_listener(pool: PgPool, pipeline_id: String, tx: mpsc::Sender<AgentC
                     let payload = notif.payload();
                     match serde_json::from_str::<AgentCommand>(payload) {
                         Ok(cmd) => {
-                            if tx.send(cmd).await.is_err() {
-                                return; // canal cerrado — agente terminó
-                            }
+                            if tx.send(cmd).await.is_err() { return; }
                         }
                         Err(e) => {
                             warn!("Listener: payload inválido '{payload}': {e}");
@@ -190,7 +190,7 @@ async fn run_listener(pool: PgPool, pipeline_id: String, tx: mpsc::Sender<AgentC
                 }
                 Err(e) => {
                     error!("Listener: error de recepción: {e} — reconectando");
-                    break; // salir del loop interno → reconectar
+                    break;
                 }
             }
         }
@@ -202,36 +202,35 @@ async fn run_listener(pool: PgPool, pipeline_id: String, tx: mpsc::Sender<AgentC
 // ── Loop principal ────────────────────────────────────────────────────────────
 
 async fn run_loop(
-    pool:    &PgPool,
-    shared:  Arc<AgentShared>,
+    pool:       &PgPool,
+    shared:     Arc<AgentShared>,
     mut cmd_rx: mpsc::Receiver<AgentCommand>,
     loop_secs:  f64,
 ) {
-    let interval = Duration::from_secs_f64(loop_secs.max(10.0)); // mínimo realista 10s
-    const SAVE_EVERY: u64 = 6; // guardar estado cada N ciclos
-    let mut prev_ready    = false; // para detectar transición warmup → ready
-    let mut last_data_cycle: u64 = 0; // último ciclo con dato nuevo del sensor
-    let mut last_raw: Option<Vec<f64>> = None; // último raw para detectar sensor muerto
-    let mut on_since_cycle: Option<u64> = None; // ciclo en que arrancó el actuador
-    let MAX_SILENT_CYCLES: u64 = 3;  // ciclos sin dato nuevo antes de alertar
-    let MAX_ON_WITHOUT_CHANGE: u64 = 10; // ciclos con actuador ON sin subir humedad
+    let interval  = Duration::from_secs_f64(loop_secs.max(10.0));
+    const SAVE_EVERY: u64 = 6;
+    let mut prev_ready = false;
 
     loop {
         // Procesar todos los comandos pendientes antes del ciclo
         while let Ok(cmd) = cmd_rx.try_recv() {
-            if !process_cmd(pool, &shared, cmd).await {
-                // Stop recibido
-                save_state(pool, &shared).await;
-                return;
-            }
+            if !process_cmd(pool, &shared, cmd).await { break; }
         }
 
         if *shared.stop_flag.lock().await { break; }
 
         let t0 = Instant::now();
 
-        // Ejecutar ciclo del grafo
-        let ov_snapshot = shared.override_acts.read().await.clone();
+        // Decidir si el override va por watchdog o directo
+        let has_watchdog = shared.graph.read().await.has_watchdog();
+        let ov_snapshot  = if has_watchdog {
+            // Con Watchdog: el override ya está inyectado en el nodo watchdog.
+            // El run_cycle opera sin overrides externos — el watchdog arbitra todo.
+            HashMap::new()
+        } else {
+            shared.override_acts.read().await.clone()
+        };
+
         let result = {
             let mut graph = shared.graph.write().await;
             graph.run_cycle(pool, interval.as_secs_f64(), &ov_snapshot).await
@@ -249,8 +248,8 @@ async fn run_loop(
                 write_agent_error(pool, shared.process_id, &shared.pipeline_id, &e.to_string()).await;
             }
             Ok(signals) => {
-                let is_ready  = shared.graph.read().await.is_ready();
-                let act_str   = actuator_state_str(&signals);
+                let is_ready = shared.graph.read().await.is_ready();
+                let act_str  = actuator_state_str(&signals);
                 let (raw, filtered, p_diag) = {
                     let graph = shared.graph.read().await;
                     let (r, f) = graph.extract_raw_filtered(&signals);
@@ -258,7 +257,6 @@ async fn run_loop(
                     (r, f, p)
                 };
 
-                // Recoger scope_values de los Logger del grafo
                 let scope_values = shared.graph.read().await.collect_scope_values(&signals);
                 let scope_json = if scope_values.as_object().map(|m| !m.is_empty()).unwrap_or(false) {
                     Some(scope_values)
@@ -268,76 +266,32 @@ async fn run_loop(
 
                 write_readings(pool, &shared, &raw, &filtered, &p_diag, &act_str, scope_json).await;
 
-                // ── Watchdog ──────────────────────────────────────────────────
-                // 1. Sensor silencioso: raw no cambia en MAX_SILENT_CYCLES ciclos
-                if let Some(ref r) = raw {
-                    if last_raw.as_ref() != Some(r) {
-                        last_raw = Some(r.clone());
-                        last_data_cycle = cycle;
-                    } else if cycle - last_data_cycle >= MAX_SILENT_CYCLES {
-                        warn!("[Watchdog] Sensor sin datos nuevos hace {} ciclos (raw={:?})",
-                            cycle - last_data_cycle, r);
-                        sqlx::query!(
-                            "INSERT INTO process_logs (process_id, source, level, message)
-                             VALUES ($1, $2, 'warn', $3)",
-                            shared.process_id,
-                            format!("watchdog:{}", shared.pipeline_id),
-                            format!("Sensor sin datos nuevos hace {} ciclos", cycle - last_data_cycle)
-                        ).execute(pool).await.ok();
-                    }
-                }
-
-                // 2. Actuador ON sin subir la señal filtrada en MAX_ON_WITHOUT_CHANGE ciclos
-                if act_str == "on" {
-                    if on_since_cycle.is_none() { on_since_cycle = Some(cycle); }
-                    if let (Some(start), Some(ref f)) = (on_since_cycle, &filtered) {
-                        let cycles_on = cycle - start;
-                        if cycles_on >= MAX_ON_WITHOUT_CHANGE {
-                            // Comparar con el filtered de cuando arrancó — si no subió, alerta
-                            warn!("[Watchdog] Actuador ON hace {} ciclos sin cambio aparente en señal ({:.4})",
-                                cycles_on, f[0]);
-                            if cycles_on % MAX_ON_WITHOUT_CHANGE == 0 { // no spamear
-                                sqlx::query!(
-                                    "INSERT INTO process_logs (process_id, source, level, message)
-                                     VALUES ($1, $2, 'warn', $3)",
-                                    shared.process_id,
-                                    format!("watchdog:{}", shared.pipeline_id),
-                                    format!("Actuador ON hace {} ciclos — humedad no parece subir ({:.4})",
-                                        cycles_on, f[0])
-                                ).execute(pool).await.ok();
-                            }
-                        }
-                    }
-                } else {
-                    on_since_cycle = None;
-                }
+                // Log de watchdog pendiente (Ugly mode) — alerta persistente
+                // Escritura solo cuando cambia el estado para no spamear los logs.
+                log_watchdog_alerts(pool, &shared).await;
 
                 if is_ready && !prev_ready {
                     info!("✓ Pipeline LISTO — salió de warmup en ciclo {cycle}");
-                    // Guardar estado inmediatamente al salir de warmup
                     save_state(pool, &shared).await;
                 }
                 prev_ready = is_ready;
                 info!("Ciclo {cycle} ready={is_ready} act={act_str}");
 
-                // Guardar estado cada N ciclos
                 if cycle % SAVE_EVERY == 0 {
                     save_state(pool, &shared).await;
                 }
             }
         }
 
-        // Esperar el resto del intervalo
         let elapsed = t0.elapsed();
         if elapsed < interval {
-            // Procesar comandos mientras esperamos — así el stop es inmediato
             let wait = interval - elapsed;
             match tokio::time::timeout(wait, cmd_rx.recv()).await {
                 Ok(Some(cmd)) => {
                     if !process_cmd(pool, &shared, cmd).await { break; }
                 }
-                Ok(None) => break, // canal cerrado
-                Err(_)   => {}     // timeout normal
+                Ok(None) => break,
+                Err(_)   => {}
             }
         }
     }
@@ -346,9 +300,66 @@ async fn run_loop(
     mark_stopped(pool, shared.process_id).await;
 }
 
-// ── Procesador de comandos ────────────────────────────────────────────────────
+// ── Watchdog alerts ───────────────────────────────────────────────────────────
 //
-// Retorna false si el agente debe detenerse.
+// Escribe en process_logs cuando algún watchdog está en estado pending_user
+// o blocked. Se llama cada ciclo pero solo escribe si el estado cambió
+// (usando last_seen de la row en logs no es práctico sin estado extra,
+// así que escribimos con nivel "warn" y el frontend los deduplica por fuente).
+
+async fn log_watchdog_alerts(pool: &PgPool, shared: &AgentShared) {
+    let graph = shared.graph.read().await;
+    for (node_id, node) in graph.nodes() {
+        let ns = node.save_state();
+        if ns.node_type != "watchdog" { continue; }
+
+        let status   = ns.data.get("status").and_then(|v| v.as_str()).unwrap_or("ok");
+        let act_id   = ns.data.get("actuator_id").and_then(|v| v.as_str()).unwrap_or(node_id);
+        let notify   = ns.data.get("notify_message").and_then(|v| v.as_str());
+
+        let (level, msg) = match status {
+            "pending_user" => {
+                let pending = ns.data.get("pending_action")
+                    .and_then(|v| v.as_str()).unwrap_or("?");
+                let base = format!(
+                    "Watchdog [{act_id}]: acción '{pending}' pendiente de confirmación manual"
+                );
+                let full = match notify {
+                    Some(n) => format!("{base} — {n}"),
+                    None    => base,
+                };
+                ("warn", full)
+            }
+            "blocked" => {
+                let since = ns.data.get("blocked_since")
+                    .and_then(|v| v.as_str()).unwrap_or("?");
+                (
+                    "error",
+                    format!("Watchdog [{act_id}]: bloqueado desde {since} — usá ClearWatchdog para resetear"),
+                )
+            }
+            "retrying" => {
+                let n = ns.data.get("retry_count").and_then(|v| v.as_u64()).unwrap_or(0);
+                ("warn", format!("Watchdog [{act_id}]: reintento #{n}"))
+            }
+            _ => continue,
+        };
+
+        sqlx::query!(
+            "INSERT INTO process_logs (process_id, source, level, message)
+             VALUES ($1, $2, $3, $4)",
+            shared.process_id,
+            format!("watchdog:{}", shared.pipeline_id),
+            level,
+            msg,
+        )
+        .execute(pool)
+        .await
+        .ok();
+    }
+}
+
+// ── Procesador de comandos ────────────────────────────────────────────────────
 
 async fn process_cmd(pool: &PgPool, shared: &Arc<AgentShared>, cmd: AgentCommand) -> bool {
     match cmd {
@@ -361,68 +372,105 @@ async fn process_cmd(pool: &PgPool, shared: &Arc<AgentShared>, cmd: AgentCommand
         }
 
         // ── Override ──────────────────────────────────────────────────────────
+        // Si hay watchdog: el override se pasa al watchdog que protege ese actuador.
+        // Si no hay watchdog: override directo al actuador (comportamiento clásico).
         AgentCommand::Override { action, actuator_id } => {
-            let actuators = shared.graph.read().await.actuator_ids();
+            let has_watchdog = shared.graph.read().await.has_watchdog();
 
-            if actuators.is_empty() {
-                write_cmd_result(pool, shared, "override", false,
-                    "Este pipeline no tiene actuadores configurados", None).await;
-                return true;
-            }
-
-            let target_id = match actuator_id {
-                Some(id) => {
-                    if !actuators.contains(&id) {
+            if has_watchdog {
+                // Necesitamos saber a qué actuador aplicar
+                let target_id = match resolve_actuator_id(shared, actuator_id.clone()).await {
+                    Ok(id)   => id,
+                    Err(msg) => {
+                        write_cmd_result(pool, shared, "override", false, &msg, None).await;
+                        return true;
+                    }
+                };
+                shared.graph.write().await.set_watchdog_override(&target_id, action.clone());
+                let msg = format!("Override {:?} enviado al watchdog de '{target_id}'", action);
+                info!("{msg}");
+                write_cmd_result(pool, shared, "override", true, &msg, None).await;
+            } else {
+                // Sin watchdog — comportamiento clásico
+                let actuators = shared.graph.read().await.actuator_ids();
+                if actuators.is_empty() {
+                    write_cmd_result(pool, shared, "override", false,
+                        "Este pipeline no tiene actuadores configurados", None).await;
+                    return true;
+                }
+                let target_id = match actuator_id {
+                    Some(id) => {
+                        if !actuators.contains(&id) {
+                            let msg = format!(
+                                "Actuador '{}' no existe. Disponibles: {}", id, actuators.join(", ")
+                            );
+                            write_cmd_result(pool, shared, "override", false, &msg, None).await;
+                            return true;
+                        }
+                        id
+                    }
+                    None if actuators.len() == 1 => actuators[0].clone(),
+                    None => {
                         let msg = format!(
-                            "Actuador '{}' no existe. Actuadores disponibles: {}",
-                            id, actuators.join(", ")
+                            "Este pipeline tiene {} actuadores: {}. Especificá actuator_id.",
+                            actuators.len(), actuators.join(", ")
                         );
                         write_cmd_result(pool, shared, "override", false, &msg, None).await;
                         return true;
                     }
-                    id
-                }
-                None if actuators.len() == 1 => actuators[0].clone(),
-                None => {
-                    let msg = format!(
-                        "Este pipeline tiene {} actuadores: {}. Especificá cuál con actuator_id.",
-                        actuators.len(), actuators.join(", ")
-                    );
-                    write_cmd_result(pool, shared, "override", false, &msg, None).await;
-                    return true;
-                }
-            };
-
-            shared.override_acts.write().await.insert(target_id.clone(), action.clone());
-            persist_overrides(pool, shared).await;
-
-            let msg = format!("Override {:?} aplicado a '{target_id}'", action);
-            info!("{msg}");
-            write_cmd_result(pool, shared, "override", true, &msg, None).await;
+                };
+                shared.override_acts.write().await.insert(target_id.clone(), action.clone());
+                persist_overrides(pool, shared).await;
+                let msg = format!("Override {:?} aplicado a '{target_id}'", action);
+                info!("{msg}");
+                write_cmd_result(pool, shared, "override", true, &msg, None).await;
+            }
         }
 
-        // ── ClearOverride ─────────────────────────────────────────────────────
-        AgentCommand::ClearOverride { actuator_id } => {
-            let mut ovs = shared.override_acts.write().await;
+        // ── ClearWatchdog ─────────────────────────────────────────────────────
+        // Resetea el watchdog (retry_count=0, status=Ok) y limpia el override.
+        // Si no hay watchdog, actúa igual que el antiguo ClearOverride.
+        AgentCommand::ClearWatchdog { actuator_id } => {
+            let has_watchdog = shared.graph.read().await.has_watchdog();
 
-            if ovs.is_empty() {
-                write_cmd_result(pool, shared, "clear_override", false,
-                    "No hay overrides activos", None).await;
+            if has_watchdog {
+                let target = actuator_id.as_deref();
+                shared.graph.write().await.reset_watchdog(target);
+                // Limpiar también el override directo por si había uno residual
+                shared.override_acts.write().await.clear();
+                persist_overrides(pool, shared).await;
+                write_cmd_result(pool, shared, "clear_watchdog", true,
+                    "Watchdog reseteado — modo automático", None).await;
+            } else {
+                // Sin watchdog: limpiar override clásico
+                let mut ovs = shared.override_acts.write().await;
+                match actuator_id {
+                    Some(ref id) => { ovs.remove(id); }
+                    None         => { ovs.clear(); }
+                }
+                drop(ovs);
+                persist_overrides(pool, shared).await;
+                write_cmd_result(pool, shared, "clear_watchdog", true,
+                    "Override limpiado — modo automático", None).await;
+            }
+        }
+
+        // ── ConfirmWatchdog ───────────────────────────────────────────────────
+        // Modo Ugly: el usuario confirma que el actuador está en el estado esperado.
+        AgentCommand::ConfirmWatchdog { actuator_id } => {
+            let has_watchdog = shared.graph.read().await.has_watchdog();
+            if !has_watchdog {
+                write_cmd_result(pool, shared, "confirm_watchdog", false,
+                    "Este pipeline no tiene Watchdog configurado", None).await;
                 return true;
             }
-
-            match actuator_id {
-                Some(id) => { ovs.remove(&id); }
-                None     => { ovs.clear(); }
-            }
-            drop(ovs);
-            persist_overrides(pool, shared).await;
-
-            write_cmd_result(pool, shared, "clear_override", true,
-                "Override limpiado — modo automático", None).await;
+            let target = actuator_id.as_deref();
+            shared.graph.write().await.confirm_watchdog(target);
+            write_cmd_result(pool, shared, "confirm_watchdog", true,
+                "Acción confirmada por usuario", None).await;
         }
 
-        // ── Reload config ─────────────────────────────────────────────────────
+        // ── Reload ────────────────────────────────────────────────────────────
         AgentCommand::Reload => {
             match fetch_config(pool, shared.process_id).await {
                 Err(e) => {
@@ -446,14 +494,14 @@ async fn process_cmd(pool: &PgPool, shared: &Arc<AgentShared>, cmd: AgentCommand
                                         &format!("Error en grafo: {e}"), None).await;
                                 }
                                 Ok(mut new_graph) => {
-                                    // Preservar estado de nodos que no cambiaron
-                                    // (Kalman, EWMA, etc. mantienen su estado estimado)
                                     let old_state = shared.graph.read().await
                                         .save_state(&shared.pipeline_id, 0, "", false);
                                     new_graph.load_state(&old_state);
                                     *shared.graph.write().await = new_graph;
-                                    let msg = format!("Config recargada en caliente — {} nodos (estado preservado)",
-                                        pl.nodes.len());
+                                    let msg = format!(
+                                        "Config recargada en caliente — {} nodos (estado preservado)",
+                                        pl.nodes.len()
+                                    );
                                     info!("{msg}");
                                     write_cmd_result(pool, shared, "reload", true, &msg, None).await;
                                 }
@@ -473,7 +521,7 @@ async fn process_cmd(pool: &PgPool, shared: &Arc<AgentShared>, cmd: AgentCommand
 
         // ── SelfTest ──────────────────────────────────────────────────────────
         AgentCommand::SelfTest => {
-            let t0 = Instant::now();
+            let t0     = Instant::now();
             let result = {
                 let mut graph = shared.graph.write().await;
                 graph.run_cycle_dry(pool, 1.0).await
@@ -513,7 +561,32 @@ async fn process_cmd(pool: &PgPool, shared: &Arc<AgentShared>, cmd: AgentCommand
         }
     }
 
-    true // continuar
+    true
+}
+
+// ── Helper para resolver actuator_id ─────────────────────────────────────────
+
+async fn resolve_actuator_id(
+    shared:      &AgentShared,
+    actuator_id: Option<String>,
+) -> Result<String, String> {
+    let actuators = shared.graph.read().await.actuator_ids();
+    if actuators.is_empty() {
+        return Err("Este pipeline no tiene actuadores configurados".into());
+    }
+    match actuator_id {
+        Some(id) => {
+            if actuators.contains(&id) { Ok(id) }
+            else {
+                Err(format!("Actuador '{}' no existe. Disponibles: {}", id, actuators.join(", ")))
+            }
+        }
+        None if actuators.len() == 1 => Ok(actuators[0].clone()),
+        None => Err(format!(
+            "Pipeline tiene {} actuadores: {}. Especificá actuator_id.",
+            actuators.len(), actuators.join(", ")
+        )),
+    }
 }
 
 // ── Helpers de escritura ──────────────────────────────────────────────────────
@@ -535,7 +608,7 @@ async fn write_cmd_result(
         ts:          Utc::now().to_rfc3339(),
     };
 
-    let _ = sqlx::query!(
+    sqlx::query!(
         r#"INSERT INTO agent_cmd_results
            (pipeline_id, process_id, cmd, ok, message, data, ts)
            VALUES ($1, $2, $3, $4, $5, $6, now())"#,
@@ -547,7 +620,8 @@ async fn write_cmd_result(
         result.data,
     )
     .execute(pool)
-    .await;
+    .await
+    .ok();
 
     if !ok {
         warn!("[{}] cmd={cmd} error: {message}", shared.pipeline_id);
@@ -556,12 +630,13 @@ async fn write_cmd_result(
 
 async fn save_state(pool: &PgPool, shared: &AgentShared) {
     let cycle = *shared.cycle.lock().await;
-    let override_active = !shared.override_acts.read().await.is_empty();
+    let override_active = !shared.override_acts.read().await.is_empty()
+        || shared.graph.read().await.has_watchdog_override();
     let state = shared.graph.read().await.save_state(
         &shared.pipeline_id, cycle, &shared.pipeline_label, override_active
     );
 
-    let _ = sqlx::query!(
+    sqlx::query!(
         r#"INSERT INTO pipeline_states (process_id, pipeline_id, state, updated_at)
            VALUES ($1, $2, $3, now())
            ON CONFLICT (process_id, pipeline_id)
@@ -571,14 +646,15 @@ async fn save_state(pool: &PgPool, shared: &AgentShared) {
         serde_json::to_value(&state).unwrap_or_default(),
     )
     .execute(pool)
-    .await;
+    .await
+    .ok();
 }
 
 async fn persist_overrides(pool: &PgPool, shared: &AgentShared) {
-    let ovs = shared.override_acts.read().await.clone();
+    let ovs  = shared.override_acts.read().await.clone();
     let json = serde_json::to_value(&ovs).unwrap_or_default();
 
-    let _ = sqlx::query!(
+    sqlx::query!(
         r#"INSERT INTO pipeline_states (process_id, pipeline_id, override_action, updated_at)
            VALUES ($1, $2, $3, now())
            ON CONFLICT (process_id, pipeline_id)
@@ -588,20 +664,22 @@ async fn persist_overrides(pool: &PgPool, shared: &AgentShared) {
         json,
     )
     .execute(pool)
-    .await;
+    .await
+    .ok();
 }
 
 async fn mark_stopped(pool: &PgPool, process_id: Uuid) {
-    let _ = sqlx::query!(
+    sqlx::query!(
         "UPDATE processes SET status='stopped', updated_at=now() WHERE id=$1",
         process_id
     )
     .execute(pool)
-    .await;
+    .await
+    .ok();
 }
 
 async fn write_agent_error(pool: &PgPool, process_id: Uuid, pipeline_id: &str, msg: &str) {
-    let _ = sqlx::query!(
+    sqlx::query!(
         "INSERT INTO process_logs (process_id, level, source, message)
          VALUES ($1, 'error', $2, $3)",
         process_id,
@@ -609,7 +687,8 @@ async fn write_agent_error(pool: &PgPool, process_id: Uuid, pipeline_id: &str, m
         msg,
     )
     .execute(pool)
-    .await;
+    .await
+    .ok();
 }
 
 async fn write_readings(
@@ -621,7 +700,7 @@ async fn write_readings(
     act_str:      &str,
     scope_values: Option<serde_json::Value>,
 ) {
-    let _ = sqlx::query!(
+    sqlx::query!(
         r#"INSERT INTO process_readings
            (process_id, pipeline_id, raw, filtered, p_diag, actuator, scope_values)
            VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
@@ -634,15 +713,16 @@ async fn write_readings(
         scope_values,
     )
     .execute(pool)
-    .await;
+    .await
+    .ok();
 
-    // Actualizar last_seen_at del proceso
-    let _ = sqlx::query!(
+    sqlx::query!(
         "UPDATE processes SET last_seen_at=now() WHERE id=$1",
         shared.process_id
     )
     .execute(pool)
-    .await;
+    .await
+    .ok();
 }
 
 // ── DB reads ──────────────────────────────────────────────────────────────────
@@ -683,7 +763,7 @@ async fn load_overrides(
 
     match row {
         Ok(Some(r)) if r.override_action.is_some() => {
-            serde_json::from_value(r.override_action.unwrap()).unwrap_or_default()
+            serde_json::from_value(r.override_action.unwrap_or_default()).unwrap_or_default()
         }
         _ => HashMap::new(),
     }

@@ -844,8 +844,12 @@ pub async fn send_command(
             agrodash_shared::AgentCommand::Override { action, actuator_id }
         }
 
-        "ClearOverride" => {
-            // Desired state: limpiar override
+        // ClearWatchdog: resetea el watchdog (retry_count, status) y limpia el override.
+        // Si el pipeline no tiene Watchdog, actúa igual que el antiguo ClearOverride.
+        // También aceptamos "ClearOverride" como alias para compatibilidad con
+        // clientes frontend que aún no migraron.
+        "ClearWatchdog" | "ClearOverride" => {
+            // Desired state: limpiar override en DB
             sqlx::query!(
                 r#"INSERT INTO pipeline_states (process_id, pipeline_id, override_action, updated_at)
                    VALUES ($1, $2, NULL, now())
@@ -857,7 +861,13 @@ pub async fn send_command(
             .await
             .map_err(err)?;
 
-            agrodash_shared::AgentCommand::ClearOverride { actuator_id }
+            agrodash_shared::AgentCommand::ClearWatchdog { actuator_id }
+        }
+
+        // ConfirmWatchdog: modo Ugly — el usuario confirma el estado del actuador.
+        // No escribe desired state en DB (es una confirmación puntual, no persistente).
+        "ConfirmWatchdog" => {
+            agrodash_shared::AgentCommand::ConfirmWatchdog { actuator_id }
         }
 
         "Checkpoint" => agrodash_shared::AgentCommand::Checkpoint,
