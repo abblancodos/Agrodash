@@ -1,12 +1,14 @@
 // agent/src/scheduler.rs
 #![allow(clippy::panic)] // sqlx::query! genera panics internos que son falsos positivos
 
-use agrodash_shared::{
-    AgentState, EdgeConfig, EdgeKind, NodeAction, NodeConfig, NodeState, Signal,
-};
-use anyhow::{Context, Result};
-use sqlx::PgPool;
+
 use std::collections::{HashMap, VecDeque};
+use anyhow::{Context, Result};
+use agrodash_shared::{
+    NodeConfig, EdgeConfig, EdgeKind, Signal, NodeAction,
+    NodeState, AgentState,
+};
+use sqlx::PgPool;
 
 use crate::nodes::{self, NodeInstance};
 
@@ -14,81 +16,72 @@ use crate::nodes::{self, NodeInstance};
 
 #[allow(dead_code)]
 pub struct PipelineGraph {
-    nodes: HashMap<String, Box<dyn NodeInstance>>,
-    topo: Vec<String>,
+    nodes:     HashMap<String, Box<dyn NodeInstance>>,
+    topo:      Vec<String>,
     /// from_id → Vec<(to_id, to_port, edge_kind)>
     out_edges: HashMap<String, Vec<EdgeTarget>>,
     /// to_id   → Vec<(from_id, to_port, edge_kind)>
-    in_edges: HashMap<String, Vec<EdgeSource>>,
+    in_edges:  HashMap<String, Vec<EdgeSource>>,
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 struct EdgeTarget {
-    to: String,
+    to:      String,
     to_port: Option<String>,
-    kind: EdgeKind,
+    kind:    EdgeKind,
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 struct EdgeSource {
-    from: String,
+    from:    String,
     to_port: Option<String>,
-    kind: EdgeKind,
+    kind:    EdgeKind,
 }
 
 impl PipelineGraph {
     pub async fn build(
-        nodes_cfg: &[NodeConfig],
-        edges_cfg: &[EdgeConfig],
+        nodes_cfg:          &[NodeConfig],
+        edges_cfg:          &[EdgeConfig],
         shared_connections: &Option<agrodash_shared::SharedConnections>,
-        pool: &PgPool,
+        pool:               &PgPool,
     ) -> Result<Self> {
         let mut nodes = HashMap::new();
         for node_cfg in nodes_cfg {
-            let inst = nodes::build(node_cfg, shared_connections, pool)
-                .await
+            let inst = nodes::build(node_cfg, shared_connections, pool).await
                 .with_context(|| format!("Error construyendo nodo '{}'", node_cfg.id))?;
             nodes.insert(node_cfg.id.clone(), inst);
         }
 
         let mut out_edges: HashMap<String, Vec<EdgeTarget>> = HashMap::new();
-        let mut in_edges: HashMap<String, Vec<EdgeSource>> = HashMap::new();
+        let mut in_edges:  HashMap<String, Vec<EdgeSource>> = HashMap::new();
 
         for e in edges_cfg {
-            out_edges
-                .entry(e.from.clone())
-                .or_default()
-                .push(EdgeTarget {
-                    to: e.to.clone(),
-                    to_port: e.to_port.clone(),
-                    kind: e.kind.clone(),
-                });
-            in_edges.entry(e.to.clone()).or_default().push(EdgeSource {
-                from: e.from.clone(),
+            out_edges.entry(e.from.clone()).or_default().push(EdgeTarget {
+                to:      e.to.clone(),
                 to_port: e.to_port.clone(),
-                kind: e.kind.clone(),
+                kind:    e.kind.clone(),
+            });
+            in_edges.entry(e.to.clone()).or_default().push(EdgeSource {
+                from:    e.from.clone(),
+                to_port: e.to_port.clone(),
+                kind:    e.kind.clone(),
             });
         }
 
         // Para el sort topológico usamos solo el grafo de aristas (sin puerto)
-        let simple_out: HashMap<String, Vec<String>> = out_edges
-            .iter()
+        let simple_out: HashMap<String, Vec<String>> = out_edges.iter()
             .map(|(k, vs)| (k.clone(), vs.iter().map(|v| v.to.clone()).collect()))
             .collect();
-        let simple_in: HashMap<String, Vec<String>> = in_edges
-            .iter()
+        let simple_in: HashMap<String, Vec<String>> = in_edges.iter()
             .map(|(k, vs)| (k.clone(), vs.iter().map(|v| v.from.clone()).collect()))
             .collect();
 
         let topo = topological_sort(&nodes, &simple_out, &simple_in)
             .context("El grafo tiene ciclos — no es un DAG válido")?;
 
-        Ok(Self {
-            nodes,
-            topo,
-            out_edges,
-            in_edges,
-        })
+        Ok(Self { nodes, topo, out_edges, in_edges })
     }
 
     pub fn load_state(&mut self, state: &AgentState) {
@@ -105,12 +98,10 @@ impl PipelineGraph {
     pub fn reset_watchdog(&mut self, actuator_id: Option<&str>) {
         for node in self.nodes.values_mut() {
             let ns = node.save_state();
-            if ns.node_type != "watchdog" {
-                continue;
-            }
+            if ns.node_type != "watchdog" { continue; }
             let node_act = ns.data.get("actuator_id").and_then(|v| v.as_str());
             let matches = match actuator_id {
-                None => true,
+                None     => true,
                 Some(id) => node_act == Some(id),
             };
             if matches {
@@ -125,12 +116,10 @@ impl PipelineGraph {
     pub fn confirm_watchdog(&mut self, actuator_id: Option<&str>) {
         for node in self.nodes.values_mut() {
             let ns = node.save_state();
-            if ns.node_type != "watchdog" {
-                continue;
-            }
+            if ns.node_type != "watchdog" { continue; }
             let node_act = ns.data.get("actuator_id").and_then(|v| v.as_str());
             let matches = match actuator_id {
-                None => true,
+                None     => true,
                 Some(id) => node_act == Some(id),
             };
             if matches {
@@ -144,9 +133,7 @@ impl PipelineGraph {
     pub fn set_watchdog_override(&mut self, actuator_id: &str, action: NodeAction) {
         for node in self.nodes.values_mut() {
             let ns = node.save_state();
-            if ns.node_type != "watchdog" {
-                continue;
-            }
+            if ns.node_type != "watchdog" { continue; }
             let node_act = ns.data.get("actuator_id").and_then(|v| v.as_str());
             if node_act == Some(actuator_id) {
                 node.watchdog_set_override(action.clone());
@@ -157,9 +144,7 @@ impl PipelineGraph {
 
     /// True si hay al menos un Watchdog en el grafo.
     pub fn has_watchdog(&self) -> bool {
-        self.nodes
-            .values()
-            .any(|n| n.save_state().node_type == "watchdog")
+        self.nodes.values().any(|n| n.save_state().node_type == "watchdog")
     }
 
     // ── Ciclo normal ──────────────────────────────────────────────────────────
@@ -168,18 +153,16 @@ impl PipelineGraph {
     /// en el pipeline — comportamiento idéntico al anterior.
     pub async fn run_cycle(
         &mut self,
-        pool: &PgPool,
-        dt: f64,
-        overrides: &HashMap<String, NodeAction>,
+        pool:         &PgPool,
+        dt:           f64,
+        overrides:    &HashMap<String, NodeAction>,
     ) -> Result<HashMap<String, Signal>> {
         let mut signals: HashMap<String, Signal> = HashMap::new();
 
         for node_id in &self.topo.clone() {
             let inputs = self.collect_inputs(node_id, &signals);
 
-            let node = self
-                .nodes
-                .get_mut(node_id)
+            let node = self.nodes.get_mut(node_id)
                 .context(format!("Nodo '{node_id}' no encontrado"))?;
 
             let output = if node.is_actuator() {
@@ -204,21 +187,17 @@ impl PipelineGraph {
     pub async fn run_cycle_dry(
         &mut self,
         pool: &PgPool,
-        dt: f64,
+        dt:   f64,
     ) -> Result<HashMap<String, Signal>> {
         let mut signals: HashMap<String, Signal> = HashMap::new();
 
         for node_id in &self.topo.clone() {
             let inputs = self.collect_inputs(node_id, &signals);
-            let node = self
-                .nodes
-                .get_mut(node_id)
+            let node = self.nodes.get_mut(node_id)
                 .context(format!("Nodo '{node_id}' no encontrado"))?;
 
             let ns = node.save_state();
-            if node.is_actuator() || ns.node_type == "watchdog" {
-                continue;
-            }
+            if node.is_actuator() || ns.node_type == "watchdog" { continue; }
 
             let output = node.execute(inputs, dt, pool).await?;
             if let Some(sig) = output {
@@ -229,27 +208,19 @@ impl PipelineGraph {
         Ok(signals)
     }
 
-    pub fn save_state(
-        &self,
-        pipeline_id: &str,
-        cycle: u64,
-        label: &str,
-        override_active: bool,
-    ) -> AgentState {
-        let node_states: HashMap<String, NodeState> = self
-            .nodes
-            .iter()
+    pub fn save_state(&self, pipeline_id: &str, cycle: u64, label: &str, override_active: bool) -> AgentState {
+        let node_states: HashMap<String, NodeState> = self.nodes.iter()
             .map(|(id, node)| (id.clone(), node.save_state()))
             .collect();
 
         AgentState {
-            pipeline_id: pipeline_id.to_string(),
+            pipeline_id:     pipeline_id.to_string(),
             node_states,
-            last_signals: HashMap::new(),
+            last_signals:    HashMap::new(),
             cycle,
-            is_ready: self.is_ready(),
+            is_ready:        self.is_ready(),
             override_active,
-            label: label.to_string(),
+            label:           label.to_string(),
         }
     }
 
@@ -257,20 +228,19 @@ impl PipelineGraph {
     ///
     /// 1. Para cada Logger: {tag: señal_que_le_llega}
     /// 2. Para cada nodo con metrics(): {tag_upstream:key: valor}
-    pub fn collect_scope_values(&self, signals: &HashMap<String, Signal>) -> serde_json::Value {
+    pub fn collect_scope_values(
+        &self,
+        signals: &HashMap<String, Signal>,
+    ) -> serde_json::Value {
         let mut map = serde_json::Map::new();
 
         let mut upstream_to_tag: HashMap<String, String> = HashMap::new();
 
         for (node_id, node) in &self.nodes {
             let state = node.save_state();
-            if state.node_type != "logger" {
-                continue;
-            }
+            if state.node_type != "logger" { continue; }
 
-            let tag = state
-                .data
-                .get("tag")
+            let tag = state.data.get("tag")
                 .and_then(|v| v.as_str())
                 .unwrap_or(node_id)
                 .to_string();
@@ -292,12 +262,9 @@ impl PipelineGraph {
 
         for (node_id, node) in &self.nodes {
             let metrics = node.metrics();
-            if metrics.is_empty() {
-                continue;
-            }
+            if metrics.is_empty() { continue; }
 
-            let prefix = upstream_to_tag
-                .get(node_id)
+            let prefix = upstream_to_tag.get(node_id)
                 .cloned()
                 .unwrap_or_else(|| node_id.clone());
 
@@ -310,8 +277,7 @@ impl PipelineGraph {
     }
 
     pub fn actuator_ids(&self) -> Vec<String> {
-        self.nodes
-            .iter()
+        self.nodes.iter()
             .filter(|(_, n)| n.is_actuator())
             .map(|(id, _)| id.clone())
             .collect()
@@ -322,8 +288,7 @@ impl PipelineGraph {
     }
 
     pub fn node_state_by_type(&self, node_type: &str) -> Option<NodeState> {
-        self.nodes
-            .values()
+        self.nodes.values()
             .map(|n| n.save_state())
             .find(|ns| ns.node_type == node_type)
     }
@@ -335,40 +300,32 @@ impl PipelineGraph {
         const SOURCE_TYPES: &[&str] = &["postgres_sensor"];
         const FILTER_TYPES: &[&str] = &["kalman", "ewma", "moving_avg", "lowpass", "passthrough"];
 
-        let source_ids: Vec<&str> = self
-            .topo
-            .iter()
+        let source_ids: Vec<&str> = self.topo.iter()
             .filter(|id| self.in_edges.get(*id).map(|v| v.is_empty()).unwrap_or(true))
             .map(|s| s.as_str())
             .collect();
 
-        let raw = source_ids
-            .iter()
-            .find_map(|id| {
-                signals.get(*id).and_then(|s| match s {
-                    Signal::Vector(v) => Some(v.clone()),
-                    _ => None,
-                })
+        let raw = source_ids.iter().find_map(|id| {
+            signals.get(*id).and_then(|s| match s {
+                Signal::Vector(v) => Some(v.clone()),
+                _ => None,
             })
-            .or_else(|| {
-                self.topo.iter().find_map(|id| {
-                    let ns = self.nodes.get(id)?.save_state();
-                    if SOURCE_TYPES.contains(&ns.node_type.as_str()) {
-                        signals.get(id).and_then(|s| match s {
-                            Signal::Vector(v) => Some(v.clone()),
-                            _ => None,
-                        })
-                    } else {
-                        None
-                    }
-                })
-            });
+        })
+        .or_else(|| {
+            self.topo.iter().find_map(|id| {
+                let ns = self.nodes.get(id)?.save_state();
+                if SOURCE_TYPES.contains(&ns.node_type.as_str()) {
+                    signals.get(id).and_then(|s| match s {
+                        Signal::Vector(v) => Some(v.clone()),
+                        _ => None,
+                    })
+                } else { None }
+            })
+        });
 
         let filtered = self.topo.iter().find_map(|id| {
             let ns = self.nodes.get(id)?.save_state();
-            if !FILTER_TYPES.contains(&ns.node_type.as_str()) {
-                return None;
-            }
+            if !FILTER_TYPES.contains(&ns.node_type.as_str()) { return None; }
             signals.get(id).and_then(|s| match s {
                 Signal::Vector(v) => Some(v.clone()),
                 _ => None,
@@ -397,18 +354,18 @@ impl PipelineGraph {
     fn collect_inputs(&self, node_id: &str, signals: &HashMap<String, Signal>) -> Vec<Signal> {
         let sources = match self.in_edges.get(node_id) {
             Some(s) => s,
-            None => return vec![],
+            None    => return vec![],
         };
 
         // Si hay puertos definidos, ordenamos: decision → feedback → signal → sin-puerto
         // para que el Watchdog siempre reciba los inputs en el orden correcto.
-        let mut with_port: Vec<(&EdgeSource, Signal)> = vec![];
-        let mut without_port: Vec<Signal> = vec![];
+        let mut with_port:    Vec<(&EdgeSource, Signal)> = vec![];
+        let mut without_port: Vec<Signal>                 = vec![];
 
         for src in sources {
             let sig = match signals.get(&src.from) {
                 Some(s) => s.clone(),
-                None => continue,
+                None    => continue,
             };
             if src.to_port.is_some() {
                 with_port.push((src, sig));
@@ -425,10 +382,7 @@ impl PipelineGraph {
         const PORT_ORDER: &[&str] = &["decision", "feedback", "signal"];
         with_port.sort_by_key(|(src, _)| {
             let port = src.to_port.as_deref().unwrap_or("");
-            PORT_ORDER
-                .iter()
-                .position(|&p| p == port)
-                .unwrap_or(PORT_ORDER.len())
+            PORT_ORDER.iter().position(|&p| p == port).unwrap_or(PORT_ORDER.len())
         });
 
         let mut result: Vec<Signal> = with_port.into_iter().map(|(_, s)| s).collect();
@@ -440,17 +394,15 @@ impl PipelineGraph {
 // ── Topological sort (Kahn's algorithm) ──────────────────────────────────────
 
 fn topological_sort(
-    nodes: &HashMap<String, Box<dyn NodeInstance>>,
+    nodes:     &HashMap<String, Box<dyn NodeInstance>>,
     out_edges: &HashMap<String, Vec<String>>,
-    in_edges: &HashMap<String, Vec<String>>,
+    in_edges:  &HashMap<String, Vec<String>>,
 ) -> Result<Vec<String>> {
-    let mut in_degree: HashMap<String, usize> = nodes
-        .keys()
+    let mut in_degree: HashMap<String, usize> = nodes.keys()
         .map(|id| (id.clone(), in_edges.get(id).map(|v| v.len()).unwrap_or(0)))
         .collect();
 
-    let mut queue: VecDeque<String> = in_degree
-        .iter()
+    let mut queue: VecDeque<String> = in_degree.iter()
         .filter(|(_, &deg)| deg == 0)
         .map(|(id, _)| id.clone())
         .collect();
@@ -461,13 +413,10 @@ fn topological_sort(
         order.push(id.clone());
         if let Some(successors) = out_edges.get(&id) {
             for succ in successors {
-                let deg = in_degree
-                    .get_mut(succ)
+                let deg = in_degree.get_mut(succ)
                     .expect("nodo sucesor no encontrado en in_degree — grafo inconsistente");
                 *deg -= 1;
-                if *deg == 0 {
-                    queue.push_back(succ.clone());
-                }
+                if *deg == 0 { queue.push_back(succ.clone()); }
             }
         }
     }
@@ -492,9 +441,7 @@ impl PipelineGraph {
     pub fn has_watchdog_override(&self) -> bool {
         self.nodes.values().any(|n| {
             let ns = n.save_state();
-            if ns.node_type != "watchdog" {
-                return false;
-            }
+            if ns.node_type != "watchdog" { return false; }
             // override_action en el watchdog se refleja en status != ok
             // pero lo más directo es mirar si pending o override está seteado.
             // Por ahora usamos el heurístico: si hay override_action en data
