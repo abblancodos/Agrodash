@@ -11,52 +11,60 @@
       category: 'Fuente',
       color: '#4a90d9',
       items: [
-        { type: 'postgres_sensor', label: 'Sensor PostgreSQL', desc: 'Lee lecturas de la DB' },
+        { type: 'postgres_sensor', label: 'Sensor PostgreSQL', desc: 'Lee lecturas de sensores desde la DB' },
       ]
     },
     {
       category: 'Filtro',
       color: '#7c6fcd',
       items: [
-        { type: 'kalman',     label: 'Kalman',     desc: 'Filtro de Kalman escalar' },
-        { type: 'moving_avg', label: 'Media móvil', desc: 'Promedio de ventana deslizante' },
-        { type: 'ewma',       label: 'EWMA',        desc: 'Media móvil exponencial' },
-        { type: 'lowpass',    label: 'Pasa-bajos',  desc: 'Filtro RC discreto' },
-        { type: 'passthrough',label: 'Passthrough', desc: 'Sin filtrado' },
-      ]
-    },
-    {
-      category: 'Combinador',
-      color: '#e8a838',
-      items: [
-        { type: 'concat',        label: 'Concat',         desc: 'Une vectores de múltiples entradas' },
-        { type: 'weighted_mean', label: 'Media ponderada', desc: 'Promedio con pesos' },
+        { type: 'kalman',      label: 'Kalman',       desc: 'Estimación óptima con ruido de proceso y medición' },
+        { type: 'moving_avg',  label: 'Media móvil',  desc: 'Promedio de las últimas N muestras' },
+        { type: 'ewma',        label: 'EWMA',          desc: 'Media exponencial — alpha controla velocidad vs suavidad' },
+        { type: 'lowpass',     label: 'Pasa-bajos',   desc: 'Filtro RC discreto controlado por constante de tiempo τ' },
+        { type: 'passthrough', label: 'Passthrough',  desc: 'Sin filtrado — pasa la señal tal cual' },
       ]
     },
     {
       category: 'Decisor',
       color: '#e07b54',
       items: [
-        { type: 'mahalanobis', label: 'Mahalanobis', desc: 'Distancia estadística multivariada' },
-        { type: 'hysteresis',  label: 'Histéresis',  desc: 'Control on/off con banda muerta' },
-        { type: 'sprt',        label: 'SPRT',         desc: 'Test secuencial de razón de probabilidad' },
+        { type: 'mahalanobis', label: 'Mahalanobis',  desc: 'Distancia estadística multivariada al vector objetivo' },
+        { type: 'hysteresis',  label: 'Histéresis',   desc: 'On/off con banda muerta para evitar oscilaciones' },
+        { type: 'sprt',        label: 'SPRT',          desc: 'Test secuencial: acumula evidencia antes de decidir' },
+      ]
+    },
+    {
+      category: 'Watchdog',
+      color: '#c084fc',
+      items: [
+        { type: 'mqtt_subscriber', label: 'MQTT Subscriber', desc: 'Lee estado del actuador desde un topic (feedback)' },
+        { type: 'watchdog',        label: 'Watchdog',         desc: 'Verifica que el actuador responda — Good / Bad / Ugly' },
       ]
     },
     {
       category: 'Actuador',
       color: '#3da85a',
       items: [
-        { type: 'mqtt_actuator', label: 'MQTT',  desc: 'Publica en un topic MQTT' },
-        { type: 'http_actuator', label: 'HTTP',  desc: 'Hace POST a un endpoint' },
+        { type: 'mqtt_actuator', label: 'MQTT',  desc: 'Publica ON/OFF en un topic MQTT' },
+        { type: 'http_actuator', label: 'HTTP',  desc: 'Hace POST a un endpoint en ON y otro en OFF' },
+      ]
+    },
+    {
+      category: 'Combinador',
+      color: '#e8a838',
+      items: [
+        { type: 'concat',        label: 'Concat',          desc: 'Une vectores de múltiples entradas en uno' },
+        { type: 'weighted_mean', label: 'Media ponderada', desc: 'Promedio pesado por componente' },
       ]
     },
     {
       category: 'Utilidad',
       color: '#8a9bb0',
       items: [
-        { type: 'logger',       label: 'Logger',       desc: 'Registra sin modificar la señal' },
-        { type: 'select',       label: 'Select',       desc: 'Selecciona componentes del vector' },
-        { type: 'linear_scale', label: 'Escala lineal', desc: 'y = a·x + b' },
+        { type: 'logger',       label: 'Logger',        desc: 'Registra la señal en process_readings' },
+        { type: 'select',       label: 'Select',        desc: 'Extrae componentes del vector por índice' },
+        { type: 'linear_scale', label: 'Escala lineal', desc: 'y = a·x + b por componente' },
       ]
     },
   ];
@@ -95,7 +103,7 @@
   .picker {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
     padding: calc(12px * var(--font-scale));
     overflow-y: auto;
     height: 100%;
@@ -129,7 +137,7 @@
     flex-direction: row;
     align-items: center;
     gap: 6px;
-    padding: calc(6px * var(--font-scale)) calc(8px * var(--font-scale));
+    padding: calc(5px * var(--font-scale)) calc(8px * var(--font-scale));
     border: 0.5px solid var(--border-default);
     border-left: 3px solid var(--nc);
     border-radius: 5px;

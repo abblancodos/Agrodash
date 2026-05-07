@@ -58,16 +58,33 @@
     }
   }
 
+  let prevStatus = $state<string>('');
+
   async function tick() {
     if (polling) return;
     polling = true;
     try {
+      const statusBefore = processStore.process?.status ?? '';
       await pollStatus();
-      await pollPipelineStates();
+      const statusAfter = processStore.process?.status ?? '';
+
+      // Transición stopped→running: recargar estado completo de pipelines
+      if (statusBefore !== statusAfter && statusAfter === 'running') {
+        await processStore.load(id);
+      } else {
+        await pollPipelineStates();
+      }
+      prevStatus = statusAfter;
     } finally {
       polling = false;
     }
-    pollTimer = setTimeout(tick, live ? LIVE_INTERVAL : PAUSE_INTERVAL) as any;
+
+    // Mientras está stopping, pollear cada 3s sin importar el modo live
+    const currentStatus = processStore.process?.status ?? '';
+    const interval = currentStatus === 'stopping'
+      ? 3_000
+      : live ? LIVE_INTERVAL : PAUSE_INTERVAL;
+    pollTimer = setTimeout(tick, interval) as any;
   }
 
   function toggleLive() {

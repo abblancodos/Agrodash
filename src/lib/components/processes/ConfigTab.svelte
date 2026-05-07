@@ -4,6 +4,7 @@
   import { processStore, type ProcessConfig } from '$lib/stores/process';
   import NodeCanvas from './NodeCanvas.svelte';
   import BlockPicker from './BlockPicker.svelte';
+  import ProcessCollaborators from './ProcessCollaborators.svelte';
 
   let { processId }: { processId: string } = $props();
 
@@ -168,6 +169,33 @@
     markDirty();
   }
 
+  // ── Pipeline validation errors from agent logs ───────────────────────────
+  let pipelineErrors = $state<Record<string, string>>({});
+
+  async function checkAgentErrors() {
+    // Leer logs recientes del proceso y mostrar errores de validación del agente
+    // El agente escribe "Pipeline '...' tiene actuadores pero..." en level=error
+    try {
+      const r = await fetch(`${API}/api/v1/processes/${processId}/logs?limit=20&level=error`, {
+        credentials: 'include',
+      });
+      if (!r.ok) return;
+      const data = await r.json();
+      const errs: Record<string, string> = {};
+      for (const log of (data.logs ?? [])) {
+        // Buscar errores de validación del agente que mencionan pipeline_id
+        const msg: string = log.message ?? '';
+        if (msg.includes('Pipeline') && (msg.includes('actuadores') || msg.includes('vacío') || msg.includes('decisor'))) {
+          // Extraer pipeline_id del source o del mensaje
+          const source: string = log.source ?? '';
+          const pl = draft?.pipelines.find(p => source.includes(p.id) || msg.includes(p.id));
+          if (pl) errs[pl.id] = msg;
+        }
+      }
+      pipelineErrors = errs;
+    } catch {}
+  }
+
   // ── Save to server ────────────────────────────────────────────────────────
   async function save() {
     if (!draft) return;
@@ -178,6 +206,11 @@
       if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
       localStorage.removeItem(STORAGE_KEY());
       saveMsg = '✓ guardado'; saveMsgOk = true;
+      // Si el proceso está running, verificar si el agente rechazó algún pipeline
+      const proc = processStore.process;
+      if (proc?.status === 'running') {
+        setTimeout(checkAgentErrors, 4000); // esperar que el agente intente arrancar
+      }
     } catch (e: any) {
       saveMsg = e.message; saveMsgOk = false;
     } finally { saving = false; }
@@ -240,6 +273,22 @@
     </div>
   {/if}
 
+  <!-- Pipeline validation errors -->
+  {#if draft && draft.pipelines.length > 0}
+    {@const pl = draft.pipelines[activePl]}
+    {#if pipelineErrors[pl.id]}
+      <div class="pl-error">
+        <span class="pl-error-icon">⚠</span>
+        <span>{pipelineErrors[pl.id]}</span>
+        <button class="pl-error-close" onclick={() => {
+          const e = { ...pipelineErrors };
+          delete e[pl.id];
+          pipelineErrors = e;
+        }}>✕</button>
+      </div>
+    {/if}
+  {/if}
+
   <!-- Main area: picker + canvas -->
   <div class="main-area">
     {#if processStore.canAdmin}
@@ -265,6 +314,9 @@
       {/if}
     </div>
   </div>
+
+  <!-- Collaborators -->
+  <ProcessCollaborators {processId} />
 
   <!-- Shared MQTT connection -->
   {#if draft && processStore.canAdmin}
@@ -332,6 +384,12 @@
   .pl-label { font-size: calc(11px * var(--font-scale)); color: var(--text-muted); }
   .pl-interval { width: 60px; border: none; border-bottom: 0.5px solid var(--border-default); background: none; font-size: calc(13px * var(--font-scale)); color: var(--text-primary); outline: none; padding: 2px 4px; }
   .mono { font-family: 'DM Mono', monospace; }
+
+  .pl-error { display:flex; align-items:flex-start; gap:8px; padding:8px 12px; background:#FEF3C7; border:0.5px solid #D97706; border-radius:6px; font-size:calc(12px * var(--font-scale)); color:#92400E; }
+  .pl-error-icon { flex-shrink:0; font-size:14px; }
+  .pl-error span { flex:1; line-height:1.4; }
+  .pl-error-close { background:none; border:none; cursor:pointer; color:#92400E; font-size:12px; flex-shrink:0; padding:0 2px; }
+  .pl-error-close:hover { opacity:0.7; }
 
   .main-area { display: flex; flex: 1; min-height: 500px; border: 0.5px solid var(--border-subtle); border-radius: 10px; overflow: hidden; }
   .picker-col { width: 180px; flex-shrink: 0; }

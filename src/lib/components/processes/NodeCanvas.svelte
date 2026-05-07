@@ -112,24 +112,47 @@
 
   // ── Node metadata ──────────────────────────────────────────────────────────
   const NODE_COLORS: Record<string, string> = {
-    postgres_sensor: '#4a90d9',
+    postgres_sensor:  '#4a90d9',
     kalman: '#7c6fcd', moving_avg: '#7c6fcd', ewma: '#7c6fcd',
     lowpass: '#7c6fcd', passthrough: '#8a9bb0',
     concat: '#e8a838', weighted_mean: '#e8a838',
     mahalanobis: '#e07b54', hysteresis: '#e07b54', sprt: '#e07b54',
     mqtt_actuator: '#3da85a', http_actuator: '#3da85a',
+    mqtt_subscriber: '#c084fc', watchdog: '#c084fc',
     logger: '#8a9bb0', select: '#8a9bb0', linear_scale: '#8a9bb0',
   };
 
   const NODE_CATEGORY: Record<string, string> = {
-    postgres_sensor: 'fuente',
+    postgres_sensor:  'fuente',
     kalman: 'filtro', moving_avg: 'filtro', ewma: 'filtro',
     lowpass: 'filtro', passthrough: 'filtro',
     concat: 'combinador', weighted_mean: 'combinador',
     mahalanobis: 'decisor', hysteresis: 'decisor', sprt: 'decisor',
     mqtt_actuator: 'actuador', http_actuator: 'actuador',
+    mqtt_subscriber: 'watchdog', watchdog: 'watchdog',
     logger: 'util', select: 'util', linear_scale: 'util',
   };
+
+  // ── Resize state ───────────────────────────────────────────────────────────
+  let resizing = $state<{
+    nodeId: string;
+    startX: number; startY: number;
+    origW: number;  origH: number;
+  } | null>(null);
+
+  // Block sizes (user-resized or measured)
+  let userSizes = $state<Record<string, { w: number; h: number }>>({});
+
+  function startResize(e: MouseEvent, nodeId: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    const size = blockSizes[nodeId] ?? { w: 220, h: 100 };
+    resizing = {
+      nodeId,
+      startX: e.clientX, startY: e.clientY,
+      origW: size.w, origH: size.h,
+    };
+  }
 
   // ── Dragging ───────────────────────────────────────────────────────────────
   function startDrag(e: MouseEvent, nodeId: string) {
@@ -155,6 +178,15 @@
       mouseX = e.clientX - rect.left - panX;
       mouseY = e.clientY - rect.top  - panY;
     }
+    if (resizing) {
+      const dx = e.clientX - resizing.startX;
+      const dy = e.clientY - resizing.startY;
+      const w  = Math.max(200, resizing.origW + dx);
+      const h  = Math.max(120, resizing.origH + dy);
+      userSizes = { ...userSizes, [resizing.nodeId]: { w, h } };
+      blockSizes = { ...blockSizes, [resizing.nodeId]: { w, h } };
+      return;
+    }
     if (dragging) {
       const dx = e.clientX - dragging.startX;
       const dy = e.clientY - dragging.startY;
@@ -174,6 +206,7 @@
   }
 
   function onMouseUp() {
+    if (resizing) { resizing = null; return; }
     if (dragging) {
       pipeline.node_positions = { ...pipeline.node_positions, ...positions };
       dragging = null;
@@ -363,12 +396,13 @@
     {@const color = NODE_COLORS[node.type] ?? '#8a9bb0'}
     {@const category = NODE_CATEGORY[node.type] ?? ''}
     {@const isExpanded = expanded.has(node.id)}
+    {@const usize = userSizes[node.id]}
 
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="block"
       class:expanded={isExpanded}
-      style="left:{pos.x}px; top:{pos.y}px; --nc:{color}"
+      style="left:{pos.x}px; top:{pos.y}px; --nc:{color}{usize && isExpanded ? `; width:${usize.w}px; height:${usize.h}px` : ''}"
       bind:this={blockRefs[node.id]}
       onmouseenter={() => measureBlock(node.id, blockRefs[node.id])}
     >
@@ -392,6 +426,7 @@
         onremove={() => removeNode(node.id)}
         onchange={onchange}
         onstartdrag={(e: MouseEvent) => startDrag(e, node.id)}
+        onresize={isExpanded && canEdit ? (e: MouseEvent) => startResize(e, node.id) : undefined}
       />
 
       <!-- Output port -->
@@ -445,7 +480,8 @@
     transition: filter .15s;
   }
   .block:active { cursor: grabbing; filter: drop-shadow(0 4px 16px rgba(0,0,0,0.14)); }
-  .block.expanded { z-index: 10; }
+  .block.expanded { z-index: 10; display: flex; flex-direction: column; }
+  .block.expanded :global(.block-inner) { flex: 1; max-width: none; width: 100%; height: 100%; }
 
   .port {
     width: 12px;

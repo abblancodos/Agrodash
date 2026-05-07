@@ -11,6 +11,7 @@
     onremove,
     onchange,
     onstartdrag,
+    onresize,
   }: {
     node: any;
     color: string;
@@ -22,6 +23,7 @@
     onremove: () => void;
     onchange: () => void;
     onstartdrag?: (e: MouseEvent) => void;
+    onresize?: (e: MouseEvent) => void;
   } = $props();
 
   function set(field: string, value: any) {
@@ -32,6 +34,28 @@
   function fmtType(t: string) {
     return t.replace(/_/g, ' ');
   }
+
+  // Hints por tipo de nodo
+  const HINTS: Record<string, string> = {
+    postgres_sensor:  'Cada sensor que agregues se convierte en una dimensión del vector de salida. El orden importa si usás Select o Mahalanobis.',
+    kalman:           'Q controla cuánto confiás en el modelo (bajo = más suave). R controla cuánto confiás en la medición (alto = más suave). Empezá con Q=1e-5, R=1e-3.',
+    moving_avg:       'Promedia las últimas N muestras. Más simple que Kalman pero introduce un retardo de N/2 muestras. Útil para señales sin ruido abrupto.',
+    ewma:             'Alpha cercano a 0 = muy suave pero lento. Alpha cercano a 1 = rápido pero ruidoso. Alpha=0.1 es un buen punto de partida.',
+    lowpass:          'Tau es la constante de tiempo en segundos. La señal tarda ~3τ en seguir un escalón. Equivalente a EWMA con alpha = dt/(tau+dt).',
+    passthrough:      'No modifica la señal. Útil para conectar nodos sin filtrado o para debug del pipeline.',
+    concat:           'Une los vectores de todas sus entradas en uno solo. Si tenés dos sensores de dim=1 cada uno, la salida es dim=2.',
+    weighted_mean:    'Los pesos deben coincidir en cantidad con las dimensiones de entrada. Si los pesos no suman 1, la salida estará sesgada.',
+    mahalanobis:      'La distancia de Mahalanobis mide qué tan lejos está la señal del vector objetivo en unidades de desviación estándar. threshold_act > threshold_deact genera histéresis.',
+    hysteresis:       'Enciende cuando la señal baja de "low" y apaga cuando sube de "high". La banda muerta (high-low) evita que el actuador oscile con señales ruidosas.',
+    sprt:             'Acumula evidencia estadística antes de decidir. Más robusto que histéresis para señales con ruido gaussiano. alpha y beta controlan la tasa de error.',
+    mqtt_actuator:    'Publica el payload en el topic cuando la señal decide ON u OFF. El broker se configura en la sección de conexión compartida abajo.',
+    http_actuator:    'Hace POST a path_on cuando la señal es ON y a path_off cuando es OFF. El base_url se configura en la conexión compartida.',
+    mqtt_subscriber:  'Lee el estado del actuador desde un topic MQTT para dárselo al Watchdog como feedback. Conectar al puerto "feedback" del Watchdog con un edge de tipo Feedback.',
+    watchdog:         'Good: verifica que el actuador reportó el estado correcto vía MQTT. Bad: verifica que la señal cambió en la dirección esperada. Ugly: pide confirmación manual antes de actuar.',
+    logger:           'Registra la señal en process_readings con el tag dado. El Monitor Tab usa estos tags para mostrar las gráficas.',
+    select:           'Extrae las dimensiones indicadas del vector. Índices base 0. Por ejemplo [0,2] de un vector dim=3 produce un vector dim=2.',
+    linear_scale:     'Aplica y = a·x + b componente a componente. Útil para convertir unidades (ej: voltios a humedad) o normalizar señales.',
+  };
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -41,7 +65,6 @@
   <div class="block-header"
     ondblclick={onexpand}
     onmousedown={(e) => {
-      // Only drag from header, not from buttons
       if ((e.target as HTMLElement).closest('button')) return;
       onstartdrag?.(e);
     }}
@@ -64,6 +87,7 @@
   {#if isExpanded}
     <div class="block-body">
 
+      <!-- ── postgres_sensor ── -->
       {#if node.type === 'postgres_sensor'}
         <div class="field-group">
           <div class="field-label">sensores</div>
@@ -100,63 +124,95 @@
           {/if}
         </div>
 
+      <!-- ── kalman ── -->
       {:else if node.type === 'kalman'}
         <div class="field-row">
           <div class="field">
-            <label for="pb-field-1">Q</label>
-            <input id="pb-field-1" class="inp mono" value={node.Q ?? 1e-5}
+            <label>Q</label>
+            <input class="inp mono" value={node.Q ?? 1e-5}
               oninput={(e) => set('Q', parseFloat((e.target as HTMLInputElement).value))} />
           </div>
           <div class="field">
-            <label for="pb-field-2">R</label>
-            <input id="pb-field-2" class="inp mono" value={node.R ?? 1e-3}
+            <label>R</label>
+            <input class="inp mono" value={node.R ?? 1e-3}
               oninput={(e) => set('R', parseFloat((e.target as HTMLInputElement).value))} />
           </div>
           <div class="field">
-            <label for="pb-field-3">P₀</label>
-            <input id="pb-field-3" class="inp mono" value={node.P0 ?? 1.0}
+            <label>P₀</label>
+            <input class="inp mono" value={node.P0 ?? 1.0}
               oninput={(e) => set('P0', parseFloat((e.target as HTMLInputElement).value))} />
           </div>
           <div class="field">
-            <label for="pb-field-4">warmup</label>
-            <input id="pb-field-4" class="inp mono" type="number" value={node.warmup_samples ?? 10}
+            <label>warmup</label>
+            <input class="inp mono" type="number" value={node.warmup_samples ?? 10}
               oninput={(e) => set('warmup_samples', parseInt((e.target as HTMLInputElement).value))} />
           </div>
         </div>
         <div class="field">
-          <label for="pb-field-5">convergence threshold</label>
-          <input id="pb-field-5" class="inp mono" value={node.convergence_threshold ?? 5e-4}
+          <label>convergence threshold</label>
+          <input class="inp mono" value={node.convergence_threshold ?? 5e-4}
             oninput={(e) => set('convergence_threshold', parseFloat((e.target as HTMLInputElement).value))} />
         </div>
 
+      <!-- ── moving_avg ── -->
       {:else if node.type === 'moving_avg'}
         <div class="field-row">
           <div class="field">
-            <label for="pb-field-6">ventana</label>
-            <input id="pb-field-6" class="inp mono" type="number" value={node.window_n ?? 10}
+            <label>ventana (N)</label>
+            <input class="inp mono" type="number" value={node.window_n ?? 10}
               oninput={(e) => set('window_n', parseInt((e.target as HTMLInputElement).value))} />
           </div>
           <div class="field">
-            <label for="pb-field-7">warmup</label>
-            <input id="pb-field-7" class="inp mono" type="number" value={node.warmup_samples ?? 10}
+            <label>warmup</label>
+            <input class="inp mono" type="number" value={node.warmup_samples ?? 10}
               oninput={(e) => set('warmup_samples', parseInt((e.target as HTMLInputElement).value))} />
           </div>
         </div>
 
+      <!-- ── ewma ── -->
       {:else if node.type === 'ewma'}
         <div class="field-row">
           <div class="field">
-            <label for="pb-field-8">alpha</label>
-            <input id="pb-field-8" class="inp mono" value={node.alpha ?? 0.1}
+            <label>alpha (0–1)</label>
+            <input class="inp mono" type="number" step="0.01" min="0.01" max="0.99" value={node.alpha ?? 0.1}
               oninput={(e) => set('alpha', parseFloat((e.target as HTMLInputElement).value))} />
           </div>
           <div class="field">
-            <label for="pb-field-9">warmup</label>
-            <input id="pb-field-9" class="inp mono" type="number" value={node.warmup_samples ?? 10}
+            <label>warmup</label>
+            <input class="inp mono" type="number" value={node.warmup_samples ?? 10}
               oninput={(e) => set('warmup_samples', parseInt((e.target as HTMLInputElement).value))} />
           </div>
         </div>
 
+      <!-- ── lowpass ── -->
+      {:else if node.type === 'lowpass'}
+        <div class="field-row">
+          <div class="field">
+            <label>tau (segundos)</label>
+            <input class="inp mono" type="number" step="1" min="1" value={node.tau_seconds ?? 120}
+              oninput={(e) => set('tau_seconds', parseFloat((e.target as HTMLInputElement).value))} />
+          </div>
+          <div class="field">
+            <label>warmup</label>
+            <input class="inp mono" type="number" value={node.warmup_samples ?? 10}
+              oninput={(e) => set('warmup_samples', parseInt((e.target as HTMLInputElement).value))} />
+          </div>
+        </div>
+
+      <!-- ── weighted_mean ── -->
+      {:else if node.type === 'weighted_mean'}
+        <div class="field">
+          <label>pesos <span class="hint">separados por comas, deben sumar 1.0</span></label>
+          <input class="inp mono"
+            value={(node.weights ?? []).join(', ')}
+            oninput={(e) => set('weights',
+              (e.target as HTMLInputElement).value.split(',')
+                .map((v: string) => parseFloat(v.trim()))
+                .filter((v: number) => !isNaN(v))
+            )} placeholder="0.5, 0.3, 0.2" />
+        </div>
+
+      <!-- ── mahalanobis ── -->
       {:else if node.type === 'mahalanobis'}
         <div class="field">
           <label>target <span class="hint">separado por comas</span></label>
@@ -170,13 +226,13 @@
         </div>
         <div class="field-row">
           <div class="field">
-            <label for="pb-field-10">threshold act</label>
-            <input id="pb-field-10" class="inp mono" type="number" step="0.1" value={node.threshold_act ?? 2.5}
+            <label>threshold act</label>
+            <input class="inp mono" type="number" step="0.1" value={node.threshold_act ?? 2.5}
               oninput={(e) => set('threshold_act', parseFloat((e.target as HTMLInputElement).value))} />
           </div>
           <div class="field">
-            <label for="pb-field-11">threshold deact</label>
-            <input id="pb-field-11" class="inp mono" type="number" step="0.1" value={node.threshold_deact ?? 1.0}
+            <label>threshold deact</label>
+            <input class="inp mono" type="number" step="0.1" value={node.threshold_deact ?? 1.0}
               oninput={(e) => set('threshold_deact', parseFloat((e.target as HTMLInputElement).value))} />
           </div>
         </div>
@@ -186,6 +242,7 @@
           <label for="use-P-{node.id}">usar P del Kalman como Σ</label>
         </div>
 
+      <!-- ── hysteresis ── -->
       {:else if node.type === 'hysteresis'}
         <div class="field-row">
           <div class="field">
@@ -199,37 +256,105 @@
             </select>
           </div>
           <div class="field">
-            <label for="pb-field-12">low</label>
-            <input id="pb-field-12" class="inp mono" type="number" step="0.001" value={node.low ?? 0.08}
+            <label>low</label>
+            <input class="inp mono" type="number" step="0.001" value={node.low ?? 0.08}
               oninput={(e) => set('low', parseFloat((e.target as HTMLInputElement).value))} />
           </div>
           <div class="field">
-            <label for="pb-field-13">high</label>
-            <input id="pb-field-13" class="inp mono" type="number" step="0.001" value={node.high ?? 0.085}
+            <label>high</label>
+            <input class="inp mono" type="number" step="0.001" value={node.high ?? 0.085}
               oninput={(e) => set('high', parseFloat((e.target as HTMLInputElement).value))} />
           </div>
         </div>
+        <div class="field-row">
+          <div class="field">
+            <label>acción &lt; low</label>
+            <select class="inp" value={node.action_below_low ?? 'on'}
+              onchange={(e) => set('action_below_low', (e.target as HTMLSelectElement).value)}>
+              <option value="on">ON</option>
+              <option value="off">OFF</option>
+              <option value="hold">HOLD</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>acción &gt; high</label>
+            <select class="inp" value={node.action_above_high ?? 'off'}
+              onchange={(e) => set('action_above_high', (e.target as HTMLSelectElement).value)}>
+              <option value="on">ON</option>
+              <option value="off">OFF</option>
+              <option value="hold">HOLD</option>
+            </select>
+          </div>
+        </div>
 
+      <!-- ── sprt ── -->
+      {:else if node.type === 'sprt'}
+        <div class="field-row">
+          <div class="field">
+            <label>μ H₀ (normal)</label>
+            <input class="inp mono" type="number" step="0.01" value={node.mu_H0 ?? 0.0}
+              oninput={(e) => set('mu_H0', parseFloat((e.target as HTMLInputElement).value))} />
+          </div>
+          <div class="field">
+            <label>μ H₁ (anómalo)</label>
+            <input class="inp mono" type="number" step="0.01" value={node.mu_H1 ?? 1.0}
+              oninput={(e) => set('mu_H1', parseFloat((e.target as HTMLInputElement).value))} />
+          </div>
+          <div class="field">
+            <label>σ</label>
+            <input class="inp mono" type="number" step="0.01" value={node.sigma ?? 0.1}
+              oninput={(e) => set('sigma', parseFloat((e.target as HTMLInputElement).value))} />
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>α (falso positivo)</label>
+            <input class="inp mono" type="number" step="0.01" min="0.01" max="0.2" value={node.alpha ?? 0.05}
+              oninput={(e) => set('alpha', parseFloat((e.target as HTMLInputElement).value))} />
+          </div>
+          <div class="field">
+            <label>β (falso negativo)</label>
+            <input class="inp mono" type="number" step="0.01" min="0.01" max="0.2" value={node.beta ?? 0.05}
+              oninput={(e) => set('beta', parseFloat((e.target as HTMLInputElement).value))} />
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>reducción</label>
+            <select class="inp" value={node.reduction?.type ?? 'mean'}
+              onchange={(e) => set('reduction', { type: (e.target as HTMLSelectElement).value })}>
+              <option value="mean">media</option>
+              <option value="min">mínimo</option>
+              <option value="max">máximo</option>
+            </select>
+          </div>
+          <div class="field checkbox-field" style="justify-content:flex-end; padding-top:14px">
+            <input type="checkbox" id="sprt-reset-{node.id}" checked={node.reset_on_action ?? true}
+              onchange={(e) => set('reset_on_action', (e.target as HTMLInputElement).checked)} />
+            <label for="sprt-reset-{node.id}">reset al actuar</label>
+          </div>
+        </div>
+
+      <!-- ── mqtt_actuator ── -->
       {:else if node.type === 'mqtt_actuator'}
         <div class="field">
-          <label for="pb-field-14">topic</label>
-          <input id="pb-field-14" class="inp mono" value={node.topic ?? ''}
+          <label>topic</label>
+          <input class="inp mono" value={node.topic ?? ''}
             oninput={(e) => set('topic', (e.target as HTMLInputElement).value)}
             placeholder="relay/control" />
         </div>
         <div class="field-row">
           <div class="field">
-            <label for="pb-field-15">ON</label>
-            <input id="pb-field-15" class="inp mono" value={node.payload_on ?? 'on'}
+            <label>payload ON</label>
+            <input class="inp mono" value={node.payload_on ?? 'on'}
               oninput={(e) => set('payload_on', (e.target as HTMLInputElement).value)} />
           </div>
           <div class="field">
-            <label for="pb-field-16">OFF</label>
-            <input id="pb-field-16" class="inp mono" value={node.payload_off ?? 'off'}
+            <label>payload OFF</label>
+            <input class="inp mono" value={node.payload_off ?? 'off'}
               oninput={(e) => set('payload_off', (e.target as HTMLInputElement).value)} />
           </div>
         </div>
-        <!-- Live switch -->
         <div class="actuator-switch">
           <span class="switch-label">override</span>
           <button class="sw-btn sw-on">ON</button>
@@ -237,26 +362,172 @@
           <button class="sw-btn sw-auto">↺ auto</button>
         </div>
 
+      <!-- ── http_actuator ── -->
       {:else if node.type === 'http_actuator'}
         <div class="field-row">
           <div class="field">
-            <label for="pb-field-17">path ON</label>
-            <input id="pb-field-17" class="inp mono" value={node.path_on ?? '/on'}
+            <label>path ON</label>
+            <input class="inp mono" value={node.path_on ?? '/on'}
               oninput={(e) => set('path_on', (e.target as HTMLInputElement).value)} />
           </div>
           <div class="field">
-            <label for="pb-field-18">path OFF</label>
-            <input id="pb-field-18" class="inp mono" value={node.path_off ?? '/off'}
+            <label>path OFF</label>
+            <input class="inp mono" value={node.path_off ?? '/off'}
               oninput={(e) => set('path_off', (e.target as HTMLInputElement).value)} />
           </div>
         </div>
 
+      <!-- ── mqtt_subscriber ── -->
+      {:else if node.type === 'mqtt_subscriber'}
+        <div class="field">
+          <label>topic</label>
+          <input class="inp mono" value={node.topic ?? ''}
+            oninput={(e) => set('topic', (e.target as HTMLInputElement).value)}
+            placeholder="relay/estado" />
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>payload ON</label>
+            <input class="inp mono" value={node.payload_on ?? 'on'}
+              oninput={(e) => set('payload_on', (e.target as HTMLInputElement).value)} />
+          </div>
+          <div class="field">
+            <label>payload OFF</label>
+            <input class="inp mono" value={node.payload_off ?? 'off'}
+              oninput={(e) => set('payload_off', (e.target as HTMLInputElement).value)} />
+          </div>
+        </div>
+        <div class="field">
+          <label>stale after <span class="hint">segundos sin mensaje → Hold. Vacío = nunca expira</span></label>
+          <input class="inp mono" type="number" min="0"
+            value={node.stale_after_secs ?? ''}
+            oninput={(e) => {
+              const v = (e.target as HTMLInputElement).value;
+              set('stale_after_secs', v === '' ? null : parseInt(v));
+            }} placeholder="120" />
+        </div>
+
+      <!-- ── watchdog ── -->
+      {:else if node.type === 'watchdog'}
+        <div class="field">
+          <label>actuator_id <span class="hint">ID del nodo actuador que protege</span></label>
+          <input class="inp mono" value={node.actuator_id ?? ''}
+            oninput={(e) => set('actuator_id', (e.target as HTMLInputElement).value)}
+            placeholder="mqtt_actuator_..." />
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>modo</label>
+            <select class="inp" value={node.mode?.level ?? 'good'}
+              onchange={(e) => {
+                const level = (e.target as HTMLSelectElement).value;
+                if (level === 'good')  set('mode', { level: 'good' });
+                if (level === 'bad')   set('mode', { level: 'bad', expected_on_trend: 'ascending', expected_off_trend: 'descending', min_change_pct: 0.05, component: null });
+                if (level === 'ugly')  set('mode', { level: 'ugly', notify_message: null });
+              }}>
+              <option value="good">Good — feedback MQTT</option>
+              <option value="bad">Bad — tendencia de señal</option>
+              <option value="ugly">Ugly — confirmación manual</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>timeout (s)</label>
+            <input class="inp mono" type="number" min="0" value={node.action_timeout_secs ?? 30}
+              oninput={(e) => set('action_timeout_secs', parseInt((e.target as HTMLInputElement).value))} />
+          </div>
+          <div class="field">
+            <label>max retries</label>
+            <input class="inp mono" type="number" min="0" value={node.max_retries ?? 3}
+              oninput={(e) => set('max_retries', parseInt((e.target as HTMLInputElement).value))} />
+          </div>
+        </div>
+
+        {#if node.mode?.level === 'bad'}
+          <div class="subpanel">
+            <div class="field-row">
+              <div class="field">
+                <label>tendencia ON</label>
+                <select class="inp" value={node.mode.expected_on_trend ?? 'ascending'}
+                  onchange={(e) => set('mode', { ...node.mode, expected_on_trend: (e.target as HTMLSelectElement).value })}>
+                  <option value="ascending">↑ ascendente</option>
+                  <option value="descending">↓ descendente</option>
+                  <option value="stable">— estable</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>tendencia OFF</label>
+                <select class="inp" value={node.mode.expected_off_trend ?? 'descending'}
+                  onchange={(e) => set('mode', { ...node.mode, expected_off_trend: (e.target as HTMLSelectElement).value })}>
+                  <option value="ascending">↑ ascendente</option>
+                  <option value="descending">↓ descendente</option>
+                  <option value="stable">— estable</option>
+                </select>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label>cambio mínimo %</label>
+                <input class="inp mono" type="number" step="0.01" min="0.01" max="1"
+                  value={node.mode.min_change_pct ?? 0.05}
+                  oninput={(e) => set('mode', { ...node.mode, min_change_pct: parseFloat((e.target as HTMLInputElement).value) })} />
+              </div>
+              <div class="field">
+                <label>componente <span class="hint">vacío = norma L2</span></label>
+                <input class="inp mono" type="number" min="0"
+                  value={node.mode.component ?? ''}
+                  oninput={(e) => {
+                    const v = (e.target as HTMLInputElement).value;
+                    set('mode', { ...node.mode, component: v === '' ? null : parseInt(v) });
+                  }} placeholder="0" />
+              </div>
+            </div>
+          </div>
+        {/if}
+
+        {#if node.mode?.level === 'ugly'}
+          <div class="field">
+            <label>mensaje de notificación <span class="hint">opcional</span></label>
+            <input class="inp" value={node.mode.notify_message ?? ''}
+              oninput={(e) => set('mode', { ...node.mode, notify_message: (e.target as HTMLInputElement).value || null })}
+              placeholder="Verificar presión manual" />
+          </div>
+        {/if}
+
+      <!-- ── logger ── -->
       {:else if node.type === 'logger'}
         <div class="field">
-          <label for="pb-field-19">tag</label>
-          <input id="pb-field-19" class="inp mono" value={node.tag ?? ''}
+          <label>tag</label>
+          <input class="inp mono" value={node.tag ?? ''}
             oninput={(e) => set('tag', (e.target as HTMLInputElement).value)}
-            placeholder="debug" />
+            placeholder="humedad" />
+        </div>
+
+      <!-- ── select ── -->
+      {:else if node.type === 'select'}
+        <div class="field">
+          <label>índices <span class="hint">base 0, separados por comas</span></label>
+          <input class="inp mono"
+            value={(node.indices ?? []).join(', ')}
+            oninput={(e) => set('indices',
+              (e.target as HTMLInputElement).value.split(',')
+                .map((v: string) => parseInt(v.trim()))
+                .filter((v: number) => !isNaN(v))
+            )} placeholder="0, 2" />
+        </div>
+
+      <!-- ── linear_scale ── -->
+      {:else if node.type === 'linear_scale'}
+        <div class="field-row">
+          <div class="field">
+            <label>a (escala)</label>
+            <input class="inp mono" type="number" step="0.01" value={node.a ?? 1.0}
+              oninput={(e) => set('a', parseFloat((e.target as HTMLInputElement).value))} />
+          </div>
+          <div class="field">
+            <label>b (offset)</label>
+            <input class="inp mono" type="number" step="0.01" value={node.b ?? 0.0}
+              oninput={(e) => set('b', parseFloat((e.target as HTMLInputElement).value))} />
+          </div>
         </div>
 
       {:else}
@@ -265,7 +536,22 @@
         </div>
       {/if}
 
+      <!-- Hint explicativo -->
+      {#if HINTS[node.type]}
+        <div class="node-hint">{HINTS[node.type]}</div>
+      {/if}
+
     </div>
+
+    <!-- Resize handle -->
+    {#if onresize}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="resize-handle"
+        title="arrastrar para redimensionar"
+        onmousedown={(e) => { e.stopPropagation(); onresize?.(e); }}
+      >⌟</div>
+    {/if}
   {/if}
 
 </div>
@@ -276,8 +562,9 @@
     border: 2px solid var(--nc);
     border-radius: 10px;
     min-width: 180px;
-    max-width: 260px;
     overflow: visible;
+    display: flex;
+    flex-direction: column;
   }
 
   .block-header {
@@ -288,6 +575,7 @@
     cursor: pointer;
     border-radius: 8px 8px 0 0;
     background: color-mix(in srgb, var(--nc) 8%, var(--bg-surface));
+    flex-shrink: 0;
   }
   .block-inner:not(.expanded) .block-header { border-radius: 8px; }
 
@@ -308,24 +596,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .header-actions {
-    display: flex;
-    gap: 3px;
-    flex-shrink: 0;
-  }
+  .header-actions { display: flex; gap: 3px; flex-shrink: 0; }
   .btn-expand, .btn-remove {
-    width: 18px;
-    height: 18px;
-    border: none;
-    background: none;
-    cursor: pointer;
-    font-size: 10px;
-    color: var(--text-muted);
-    border-radius: 3px;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    width: 18px; height: 18px; border: none; background: none;
+    cursor: pointer; font-size: 10px; color: var(--text-muted);
+    border-radius: 3px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
   }
   .drag-handle { font-size: 12px; color: var(--text-muted); opacity: 0.4; flex-shrink: 0; }
   .block-header:hover .drag-handle { opacity: 0.8; }
@@ -339,6 +615,8 @@
     flex-direction: column;
     gap: 6px;
     border-top: 1px solid color-mix(in srgb, var(--nc) 20%, transparent);
+    flex: 1;
+    overflow-y: auto;
   }
 
   .field { display: flex; flex-direction: column; gap: 2px; }
@@ -372,28 +650,53 @@
   .checkbox-field { flex-direction: row; align-items: center; gap: 6px; }
   .checkbox-field label { font-size: 11px; color: var(--text-secondary); }
 
-  /* Actuator switch */
-  .actuator-switch {
+  .subpanel {
+    background: color-mix(in srgb, var(--nc) 5%, var(--bg-elevated));
+    border: 0.5px solid color-mix(in srgb, var(--nc) 20%, transparent);
+    border-radius: 6px;
+    padding: 6px 8px;
     display: flex;
-    align-items: center;
-    gap: 4px;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .actuator-switch {
+    display: flex; align-items: center; gap: 4px;
     padding-top: 4px;
     border-top: 0.5px solid var(--border-subtle);
     margin-top: 2px;
   }
   .switch-label { font-size: 9px; color: var(--text-muted); font-family: 'DM Mono', monospace; flex: 1; }
-  .sw-btn {
-    padding: 2px 7px;
-    border-radius: 4px;
-    border: 0.5px solid var(--border-default);
-    background: none;
-    cursor: pointer;
-    font-size: 10px;
-    font-family: 'DM Mono', monospace;
-  }
+  .sw-btn { padding: 2px 7px; border-radius: 4px; border: 0.5px solid var(--border-default); background: none; cursor: pointer; font-size: 10px; font-family: 'DM Mono', monospace; }
   .sw-on  { color: #3da85a; border-color: #3da85a44; }
   .sw-on:hover  { background: #EAF3DE; }
   .sw-off { color: #e05454; border-color: #e0545444; }
   .sw-off:hover { background: #FCEBEB; }
   .sw-auto:hover { background: var(--interactive-hover); }
+
+  .node-hint {
+    margin-top: 4px;
+    padding: 6px 8px;
+    background: var(--bg-elevated);
+    border-left: 2px solid color-mix(in srgb, var(--nc) 40%, transparent);
+    border-radius: 0 4px 4px 0;
+    font-size: 9px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  /* Resize handle */
+  .resize-handle {
+    position: absolute;
+    bottom: 2px;
+    right: 4px;
+    font-size: 14px;
+    color: var(--text-muted);
+    opacity: 0.4;
+    cursor: nwse-resize;
+    user-select: none;
+    line-height: 1;
+    transition: opacity .15s;
+  }
+  .resize-handle:hover { opacity: 0.9; }
 </style>
