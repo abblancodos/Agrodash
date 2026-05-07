@@ -477,3 +477,7 @@ pub struct AgentCmdResult {
     pub data: Option<serde_json::Value>,
     pub ts: String,
 }
+
+#[cfg(test)]
+#[path = "tests.rs"]
+mod tests;

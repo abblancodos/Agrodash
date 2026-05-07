@@ -55,9 +55,9 @@ pub struct AgentKey {
     pub pipeline_id: String,
 }
 
-struct AgentEntry {
-    child: Child,
-    restarts: u32,
+pub(crate) struct AgentEntry {
+    pub(crate) child: Child,
+    pub(crate) restarts: u32,
 }
 
 // ── Manager ───────────────────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ struct AgentEntry {
 pub struct AgentManager {
     cfg: AgentManagerConfig,
     pool: PgPool,
-    agents: Arc<RwLock<HashMap<AgentKey, Mutex<AgentEntry>>>>,
+    pub(crate) agents: Arc<RwLock<HashMap<AgentKey, Mutex<AgentEntry>>>>,
 }
 
 impl AgentManager {
@@ -342,3 +342,7 @@ impl AgentManager {
         .ok();
     }
 }
+
+#[cfg(test)]
+#[path = "agent_manager_tests.rs"]
+mod agent_manager_tests;

@@ -2,8 +2,10 @@
 //
 // Tests de WatchdogNode. Declarado desde watchdog.rs con:
 //   #[cfg(test)]
+//   #[path = "watchdog_tests.rs"]
 //   mod watchdog_tests;
 //
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 // Cubre:
 //   - Las 9 transiciones FSM (TESTING.md §1.3)
 //   - Checklist obligatorio de nodo nuevo (TESTING.md §1.1)
@@ -78,7 +80,11 @@ async fn run(
     if let Some(sig) = signal {
         inputs.push(Signal::Vector(sig));
     }
-    match wd.execute(inputs, 1.0, pool).await.unwrap() {
+    match wd
+        .execute(inputs, 1.0, pool)
+        .await
+        .expect("execute no debe fallar en helper de test")
+    {
         Some(Signal::Action(a)) => a,
         other => panic!("se esperaba Signal::Action, got {:?}", other),
     }
