@@ -141,12 +141,7 @@ async fn notify_todos_los_comandos_serializan_correctamente() {
 
     for cmd in comandos {
         let result = mgr.notify(&key, cmd).await;
-        assert!(
-            result.is_ok(),
-            "notify falló para {:?}: {:?}",
-            result,
-            result.err()
-        );
+        assert!(result.is_ok(), "notify falló: {:?}", result.err());
     }
 }
 
