@@ -1,5 +1,5 @@
-// api/src/routes/processes.rs
 #![allow(clippy::panic)]
+// api/src/routes/processes.rs
 
 use axum::{
     extract::{Path, Query, State},
@@ -404,7 +404,8 @@ pub async fn update_process(
                         state
                             .manager
                             .notify(&key, agrodash_shared::AgentCommand::Checkpoint)
-                            .await;
+                            .await
+                            .ok();
                         // Luego Reload con la nueva config
                         state
                             .manager
@@ -664,8 +665,7 @@ pub async fn self_test(
                         sensor_id,
                     )
                     .fetch_optional(&state.pool)
-                    .await
-                    .ok();
+                    .await;
 
                     match res {
                         Err(e) => checks.push(json!({
@@ -746,7 +746,7 @@ pub async fn self_test(
                     "detail": "Timeout o error de conexión",
                 })),
             }
-            res; // evitar warning unused
+            let _ = res; // evitar warning unused
         }
 
         // ── 3. HTTP ping (si hay shared_connections.http) ─────────────────
@@ -803,11 +803,14 @@ pub async fn self_test(
                     pipeline_id,
                 )
                 .execute(&state.pool)
-                .await
-                .ok();
+                .await;
 
                 // Enviar SelfTest vía NOTIFY
-                state.manager.notify(&key, AgentCommand::SelfTest).await;
+                state
+                    .manager
+                    .notify(&key, AgentCommand::SelfTest)
+                    .await
+                    .ok();
 
                 // Esperar resultado (máx 8s)
                 let mut result = None;
@@ -943,8 +946,9 @@ pub async fn send_command(
             }
         }
 
-        "ClearOverride" => {
-            // Desired state: limpiar override
+        // ClearWatchdog: resetea watchdog y limpia override.
+        // Acepta "ClearOverride" como alias para compatibilidad.
+        "ClearWatchdog" | "ClearOverride" => {
             sqlx::query!(
                 r#"INSERT INTO pipeline_states (process_id, pipeline_id, override_action, updated_at)
                    VALUES ($1, $2, NULL, now())
@@ -956,8 +960,10 @@ pub async fn send_command(
             .await
             .map_err(err)?;
 
-            agrodash_shared::AgentCommand::ClearOverride { actuator_id }
+            agrodash_shared::AgentCommand::ClearWatchdog { actuator_id }
         }
+
+        "ConfirmWatchdog" => agrodash_shared::AgentCommand::ConfirmWatchdog { actuator_id },
 
         "Checkpoint" => agrodash_shared::AgentCommand::Checkpoint,
         "Reload" => agrodash_shared::AgentCommand::Reload,
@@ -1056,8 +1062,7 @@ pub async fn stream_state(
                 last_seen,
             )
             .fetch_optional(&pool)
-            .await
-            .ok();
+            .await;
 
             match row {
                 Ok(Some(r)) => {
