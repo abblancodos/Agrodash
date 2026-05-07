@@ -589,3 +589,7 @@ impl NodeInstance for WatchdogNode {
         ]
     }
 }
+
+#[cfg(test)]
+#[path = "watchdog_tests.rs"]
+mod watchdog_tests;
