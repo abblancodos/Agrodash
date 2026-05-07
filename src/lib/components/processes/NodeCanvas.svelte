@@ -156,7 +156,7 @@
 
   // ── Dragging ───────────────────────────────────────────────────────────────
   function startDrag(e: MouseEvent, nodeId: string) {
-    if ((e.target as HTMLElement).closest('.port, button, input, select, textarea')) return;
+    if ((e.target as HTMLElement).closest('.port, button, input, select, textarea, .resize-handle')) return;
     e.preventDefault();
     e.stopPropagation(); // prevent canvas pan from firing
     if (!canEdit) return;
@@ -167,7 +167,7 @@
   // Canvas panning
   function startPan(e: MouseEvent) {
     if (dragging || connecting) return;
-    if ((e.target as HTMLElement).closest('.block')) return;
+    if ((e.target as HTMLElement).closest('.block, .resize-handle')) return;
     e.preventDefault();
     panning = { startX: e.clientX, startY: e.clientY, origPanX: panX, origPanY: panY };
   }

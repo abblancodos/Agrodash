@@ -74,7 +74,10 @@
         `${API}/api/v1/users/search?q=${encodeURIComponent(searchQ)}`,
         { credentials: 'include' }
       );
-      if (r.ok) searchRes = await r.json();
+      if (r.ok) {
+        const data = await r.json();
+        searchRes = Array.isArray(data) ? data : (data.users ?? data.results ?? []);
+      }
     } finally { searching = false; }
   }
 
