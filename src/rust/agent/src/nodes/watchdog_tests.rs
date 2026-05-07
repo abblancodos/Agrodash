@@ -30,7 +30,9 @@ fn cfg_good(max_retries: u32, timeout_secs: u64) -> WatchdogConfig {
 fn cfg_ugly() -> WatchdogConfig {
     WatchdogConfig {
         actuator_id: "valvula_1".into(),
-        mode: WatchdogMode::Ugly { notify_message: None },
+        mode: WatchdogMode::Ugly {
+            notify_message: None,
+        },
         action_timeout_secs: 0,
         max_retries: 0,
     }
@@ -98,7 +100,11 @@ async fn t1_ok_feedback_correcto_permanece_ok() {
 
     // Segundo ciclo: feedback confirma On.
     let out2 = run(&mut wd, NodeAction::On, Some(NodeAction::On), None, &pool).await;
-    assert_eq!(out2, NodeAction::On, "T1: con feedback correcto debe propagar On");
+    assert_eq!(
+        out2,
+        NodeAction::On,
+        "T1: con feedback correcto debe propagar On"
+    );
     assert_eq!(wd.status, WatchdogStatus::Ok, "T1: status debe seguir Ok");
     assert_eq!(wd.retry_count, 0, "T1: no debe haber retries");
 }
@@ -122,7 +128,11 @@ async fn t2_ok_feedback_discrepa_pasa_a_retrying() {
             break;
         }
     }
-    assert_eq!(final_status, WatchdogStatus::Retrying, "T2: debe pasar a Retrying");
+    assert_eq!(
+        final_status,
+        WatchdogStatus::Retrying,
+        "T2: debe pasar a Retrying"
+    );
     assert!(wd.retry_count > 0, "T2: retry_count debe ser > 0");
 }
 
@@ -163,7 +173,11 @@ async fn t4_retrying_agota_retries_pasa_a_blocked() {
             break;
         }
     }
-    assert_eq!(wd.status, WatchdogStatus::Blocked, "T4: debe pasar a Blocked");
+    assert_eq!(
+        wd.status,
+        WatchdogStatus::Blocked,
+        "T4: debe pasar a Blocked"
+    );
     assert_eq!(final_out, NodeAction::Hold, "T4: Blocked debe emitir Hold");
 }
 
@@ -183,13 +197,17 @@ async fn t5_blocked_ignora_inputs_emite_hold() {
     assert_eq!(wd.status, WatchdogStatus::Blocked, "precondición T5");
 
     for (dec, fb) in [
-        (NodeAction::On,  Some(NodeAction::On)),
+        (NodeAction::On, Some(NodeAction::On)),
         (NodeAction::Off, Some(NodeAction::Off)),
-        (NodeAction::On,  None),
+        (NodeAction::On, None),
     ] {
         let out = run(&mut wd, dec, fb, None, &pool).await;
         assert_eq!(out, NodeAction::Hold, "T5: Blocked siempre emite Hold");
-        assert_eq!(wd.status, WatchdogStatus::Blocked, "T5: status no debe cambiar");
+        assert_eq!(
+            wd.status,
+            WatchdogStatus::Blocked,
+            "T5: status no debe cambiar"
+        );
     }
 }
 
@@ -210,12 +228,23 @@ async fn t6_blocked_clear_vuelve_a_ok() {
 
     wd.watchdog_reset();
 
-    assert_eq!(wd.status, WatchdogStatus::Ok, "T6: ClearWatchdog debe llevar a Ok");
+    assert_eq!(
+        wd.status,
+        WatchdogStatus::Ok,
+        "T6: ClearWatchdog debe llevar a Ok"
+    );
     assert_eq!(wd.retry_count, 0, "T6: retry_count debe ser 0");
-    assert!(wd.blocked_since.is_none(), "T6: blocked_since debe borrarse");
+    assert!(
+        wd.blocked_since.is_none(),
+        "T6: blocked_since debe borrarse"
+    );
 
     let out = run(&mut wd, NodeAction::On, Some(NodeAction::On), None, &pool).await;
-    assert_eq!(out, NodeAction::On, "T6: tras reset debe propagar decisión normal");
+    assert_eq!(
+        out,
+        NodeAction::On,
+        "T6: tras reset debe propagar decisión normal"
+    );
 }
 
 // T7: Ok + acción nueva (Ugly) → PendingUser, emite Hold
@@ -225,9 +254,21 @@ async fn t7_ok_accion_nueva_ugly_pasa_a_pending_user() {
     let mut wd = WatchdogNode::new("wd".into(), cfg_ugly());
 
     let out = run(&mut wd, NodeAction::On, None, None, &pool).await;
-    assert_eq!(out, NodeAction::Hold, "T7: primera acción Ugly debe emitir Hold");
-    assert_eq!(wd.status, WatchdogStatus::PendingUser, "T7: debe pasar a PendingUser");
-    assert_eq!(wd.pending_action, Some(NodeAction::On), "T7: debe guardar la acción pendiente");
+    assert_eq!(
+        out,
+        NodeAction::Hold,
+        "T7: primera acción Ugly debe emitir Hold"
+    );
+    assert_eq!(
+        wd.status,
+        WatchdogStatus::PendingUser,
+        "T7: debe pasar a PendingUser"
+    );
+    assert_eq!(
+        wd.pending_action,
+        Some(NodeAction::On),
+        "T7: debe guardar la acción pendiente"
+    );
 }
 
 // T8: PendingUser + ConfirmWatchdog → Ok, propaga acción confirmada
@@ -241,8 +282,15 @@ async fn t8_pending_user_confirm_vuelve_a_ok() {
 
     wd.watchdog_confirm();
 
-    assert_eq!(wd.status, WatchdogStatus::Ok, "T8: confirm debe llevar a Ok");
-    assert!(wd.pending_action.is_none(), "T8: pending_action debe borrarse");
+    assert_eq!(
+        wd.status,
+        WatchdogStatus::Ok,
+        "T8: confirm debe llevar a Ok"
+    );
+    assert!(
+        wd.pending_action.is_none(),
+        "T8: pending_action debe borrarse"
+    );
 
     let out = run(&mut wd, NodeAction::On, None, None, &pool).await;
     assert_eq!(out, NodeAction::On, "T8: tras confirm debe propagar On");
@@ -257,10 +305,19 @@ async fn t9_pending_user_sin_confirm_sigue_en_hold() {
     run(&mut wd, NodeAction::On, None, None, &pool).await;
     assert_eq!(wd.status, WatchdogStatus::PendingUser, "precondición T9");
 
-    for dec in [NodeAction::On, NodeAction::Off, NodeAction::Hold, NodeAction::On] {
+    for dec in [
+        NodeAction::On,
+        NodeAction::Off,
+        NodeAction::Hold,
+        NodeAction::On,
+    ] {
         let out = run(&mut wd, dec, None, None, &pool).await;
         assert_eq!(out, NodeAction::Hold, "T9: PendingUser debe emitir Hold");
-        assert_eq!(wd.status, WatchdogStatus::PendingUser, "T9: status no debe cambiar");
+        assert_eq!(
+            wd.status,
+            WatchdogStatus::PendingUser,
+            "T9: status no debe cambiar"
+        );
     }
 }
 
@@ -272,7 +329,9 @@ async fn t9_pending_user_sin_confirm_sigue_en_hold() {
 async fn ejecuta_con_entrada_valida() {
     let pool = pool();
     let mut wd = WatchdogNode::new("wd".into(), cfg_good(2, 30));
-    let res = wd.execute(vec![Signal::Action(NodeAction::On)], 1.0, &pool).await;
+    let res = wd
+        .execute(vec![Signal::Action(NodeAction::On)], 1.0, &pool)
+        .await;
     assert!(res.is_ok(), "execute falló con entrada válida: {:?}", res);
 }
 
@@ -302,15 +361,29 @@ async fn round_trip_blocked() {
             break;
         }
     }
-    assert_eq!(wd.status, WatchdogStatus::Blocked, "precondición round-trip");
+    assert_eq!(
+        wd.status,
+        WatchdogStatus::Blocked,
+        "precondición round-trip"
+    );
 
     let state = wd.save_state();
     let mut wd2 = WatchdogNode::new("wd".into(), cfg_good(0, 0));
     wd2.load_state(&state);
 
-    assert_eq!(wd2.status, WatchdogStatus::Blocked, "round-trip: status Blocked no se restauró");
-    assert_eq!(wd2.retry_count, wd.retry_count, "round-trip: retry_count no coincide");
-    assert_eq!(wd2.blocked_since, wd.blocked_since, "round-trip: blocked_since no coincide");
+    assert_eq!(
+        wd2.status,
+        WatchdogStatus::Blocked,
+        "round-trip: status Blocked no se restauró"
+    );
+    assert_eq!(
+        wd2.retry_count, wd.retry_count,
+        "round-trip: retry_count no coincide"
+    );
+    assert_eq!(
+        wd2.blocked_since, wd.blocked_since,
+        "round-trip: blocked_since no coincide"
+    );
 }
 
 // Round-trip save/load — estado PendingUser (Ugly).
@@ -320,14 +393,26 @@ async fn round_trip_pending_user() {
     let mut wd = WatchdogNode::new("wd".into(), cfg_ugly());
 
     run(&mut wd, NodeAction::On, None, None, &pool).await;
-    assert_eq!(wd.status, WatchdogStatus::PendingUser, "precondición round-trip Ugly");
+    assert_eq!(
+        wd.status,
+        WatchdogStatus::PendingUser,
+        "precondición round-trip Ugly"
+    );
 
     let state = wd.save_state();
     let mut wd2 = WatchdogNode::new("wd".into(), cfg_ugly());
     wd2.load_state(&state);
 
-    assert_eq!(wd2.status, WatchdogStatus::PendingUser, "round-trip: PendingUser no se restauró");
-    assert_eq!(wd2.pending_action, Some(NodeAction::On), "round-trip: pending_action no se restauró");
+    assert_eq!(
+        wd2.status,
+        WatchdogStatus::PendingUser,
+        "round-trip: PendingUser no se restauró"
+    );
+    assert_eq!(
+        wd2.pending_action,
+        Some(NodeAction::On),
+        "round-trip: pending_action no se restauró"
+    );
 }
 
 // Compatibilidad con estado antiguo (sin blocked_since).
@@ -348,7 +433,11 @@ fn load_state_acepta_formato_antiguo_sin_blocked_since() {
         serde_json::from_value(estado_antiguo).expect("NodeState no deserializa");
     let mut wd = WatchdogNode::new("wd".into(), cfg_good(3, 30));
     wd.load_state(&node_state); // no debe fallar
-    assert_eq!(wd.status, WatchdogStatus::Blocked, "debe cargarse como Blocked");
+    assert_eq!(
+        wd.status,
+        WatchdogStatus::Blocked,
+        "debe cargarse como Blocked"
+    );
     assert!(wd.blocked_since.is_none(), "blocked_since debe ser None");
 }
 
@@ -365,7 +454,11 @@ async fn override_en_ok_se_respeta() {
     wd.watchdog_set_override(NodeAction::Off);
 
     let out = run(&mut wd, NodeAction::On, None, None, &pool).await;
-    assert_eq!(out, NodeAction::Off, "override debe tener precedencia sobre la decisión");
+    assert_eq!(
+        out,
+        NodeAction::Off,
+        "override debe tener precedencia sobre la decisión"
+    );
 }
 
 // Override en Blocked → ignorado. Solo ClearWatchdog puede salir de Blocked.
@@ -381,10 +474,17 @@ async fn override_en_blocked_es_ignorado() {
             break;
         }
     }
-    assert_eq!(wd.status, WatchdogStatus::Blocked, "precondición override_blocked");
+    assert_eq!(
+        wd.status,
+        WatchdogStatus::Blocked,
+        "precondición override_blocked"
+    );
 
     wd.watchdog_set_override(NodeAction::On);
-    assert!(wd.override_action.is_none(), "override en Blocked debe ser rechazado");
+    assert!(
+        wd.override_action.is_none(),
+        "override en Blocked debe ser rechazado"
+    );
 
     let out = run(&mut wd, NodeAction::On, None, None, &pool).await;
     assert_eq!(out, NodeAction::Hold, "Blocked debe seguir emitiendo Hold");
@@ -403,6 +503,14 @@ async fn bad_mode_dentro_de_ventana_propaga_decision() {
 
     let out = run(&mut wd, NodeAction::On, None, Some(vec![50.0_f64]), &pool).await;
 
-    assert_eq!(out, NodeAction::On, "Bad mode dentro de ventana debe propagar la decisión");
-    assert_ne!(wd.status, WatchdogStatus::Blocked, "no debe bloquear mientras no expire el timeout");
+    assert_eq!(
+        out,
+        NodeAction::On,
+        "Bad mode dentro de ventana debe propagar la decisión"
+    );
+    assert_ne!(
+        wd.status,
+        WatchdogStatus::Blocked,
+        "no debe bloquear mientras no expire el timeout"
+    );
 }
