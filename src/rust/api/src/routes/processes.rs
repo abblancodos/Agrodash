@@ -798,12 +798,13 @@ pub async fn self_test(
                 };
 
                 // Borrar resultado anterior para este pipeline
-                let _ = sqlx::query!(
+                sqlx::query!(
                     "DELETE FROM agent_cmd_results WHERE pipeline_id=$1 AND cmd='self_test'",
                     pipeline_id,
                 )
                 .execute(&state.pool)
-                .await;
+                .await
+                .ok();
 
                 // Enviar SelfTest vía NOTIFY
                 state
