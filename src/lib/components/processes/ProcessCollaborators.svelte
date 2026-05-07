@@ -161,7 +161,6 @@
           placeholder="buscar por nombre o email..."
           bind:value={searchQ}
           oninput={onSearchInput}
-          autofocus
         />
         <select class="inp inp--role" bind:value={newRole}>
           <option value="admin">admin</option>

@@ -1,4 +1,5 @@
 <!-- src/lib/components/processes/PipelineBlock.svelte -->
+<!-- svelte-ignore a11y_label_has_associated_control -->
 <script lang="ts">
   let {
     node,

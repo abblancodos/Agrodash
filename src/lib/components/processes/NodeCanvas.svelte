@@ -167,8 +167,8 @@
     let origX: number, origY: number;
     if (el && canvasRect) {
       const rect = el.getBoundingClientRect();
-      origX = (rect.left - canvasRect.left - panX) / (scale ?? 1);
-      origY = (rect.top  - canvasRect.top  - panY) / (scale ?? 1);
+      origX = (rect.left - canvasRect.left - panX);
+      origY = (rect.top  - canvasRect.top  - panY);
     } else {
       const pos = positions[nodeId] ?? { x: 0, y: 0 };
       origX = pos.x; origY = pos.y;
