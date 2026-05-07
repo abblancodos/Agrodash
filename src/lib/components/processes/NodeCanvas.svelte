@@ -160,8 +160,20 @@
     e.preventDefault();
     e.stopPropagation(); // prevent canvas pan from firing
     if (!canEdit) return;
-    const pos = positions[nodeId] ?? { x: 0, y: 0 };
-    dragging = { nodeId, startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y };
+    // Leer posición visual desde el DOM para que funcione aunque el nodo
+    // no haya sido movido antes (positions[nodeId] podría ser undefined o stale)
+    const el = blockRefs[nodeId];
+    const canvasRect = canvasEl?.getBoundingClientRect();
+    let origX: number, origY: number;
+    if (el && canvasRect) {
+      const rect = el.getBoundingClientRect();
+      origX = (rect.left - canvasRect.left - panX) / (scale ?? 1);
+      origY = (rect.top  - canvasRect.top  - panY) / (scale ?? 1);
+    } else {
+      const pos = positions[nodeId] ?? { x: 0, y: 0 };
+      origX = pos.x; origY = pos.y;
+    }
+    dragging = { nodeId, startX: e.clientX, startY: e.clientY, origX, origY };
   }
 
   // Canvas panning
@@ -480,7 +492,7 @@
     transition: filter .15s;
   }
   .block:active { cursor: grabbing; filter: drop-shadow(0 4px 16px rgba(0,0,0,0.14)); }
-  .block.expanded { z-index: 10; display: flex; flex-direction: column; }
+  .block.expanded { z-index: 10; display: flex; flex-direction: column; min-width: 260px; }
   .block.expanded :global(.block-inner) { flex: 1; max-width: none; width: 100%; height: 100%; }
 
   .port {
