@@ -78,6 +78,11 @@ impl AgentManager {
     }
 
     /// Al arrancar la API: spawnar procesos con status='running'.
+    /// Al arrancar la API: spawnar procesos con status='running'.
+    ///
+    /// Cada pipeline se spawna en un tokio::spawn independiente para que
+    /// start_all retorne inmediatamente y el HTTP server pueda arrancar.
+    /// Un pipeline con config inválida o agente colgado NO bloquea el arranque.
     pub async fn start_all(self: &Arc<Self>) {
         let rows = sqlx::query!("SELECT id, config FROM processes WHERE status = 'running'")
             .fetch_all(&self.pool)
@@ -89,8 +94,16 @@ impl AgentManager {
                 for row in rows {
                     if let Ok(cfg) = serde_json::from_value::<ProcessConfig>(row.config) {
                         for pipeline in &cfg.pipelines {
-                            self.spawn(row.id, pipeline.id.clone()).await;
+                            let mgr = Arc::clone(self);
+                            let pid = row.id;
+                            let pl_id = pipeline.id.clone();
+                            // Fire-and-forget — nunca bloquea start_all
+                            tokio::spawn(async move {
+                                mgr.spawn(pid, pl_id).await;
+                            });
                         }
+                    } else {
+                        error!("Proceso {}: config JSON inválida — saltando", row.id);
                     }
                 }
             }

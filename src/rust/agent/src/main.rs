@@ -119,6 +119,47 @@ async fn main() -> Result<()> {
     let override_acts = load_overrides(&pool, process_id, &args.pipeline_id).await;
 
     // ── 5. Construir grafo ────────────────────────────────────────────────────
+    // ── 5a. Validar pipeline antes de construir el grafo ─────────────────────
+    // Un pipeline sin fuentes ni decisores no tiene sentido y puede colgar
+    // el arranque si los actuadores esperan señales que nunca llegan.
+    {
+        use agrodash_shared::NodeKind;
+        let has_source = pipeline
+            .nodes
+            .iter()
+            .any(|n| matches!(n.kind, NodeKind::PostgresSensor(_)));
+        let has_actuator = pipeline.nodes.iter().any(|n| {
+            matches!(
+                n.kind,
+                NodeKind::MqttActuator(_) | NodeKind::HttpActuator(_)
+            )
+        });
+        let has_decisor = pipeline.nodes.iter().any(|n| {
+            matches!(
+                n.kind,
+                NodeKind::Hysteresis(_) | NodeKind::Mahalanobis(_) | NodeKind::Sprt(_)
+            )
+        });
+
+        if pipeline.nodes.is_empty() {
+            anyhow::bail!("Pipeline '{}' vacío — no tiene nodos", args.pipeline_id);
+        }
+        if has_actuator && !has_source {
+            anyhow::bail!(
+                "Pipeline '{}' tiene actuadores pero no tiene fuente (PostgresSensor). \
+                 Agregá un nodo fuente o quitá los actuadores.",
+                args.pipeline_id
+            );
+        }
+        if has_actuator && !has_decisor {
+            anyhow::bail!(
+                "Pipeline '{}' tiene actuadores pero no tiene decisor (Hysteresis/Mahalanobis/SPRT). \
+                 Los actuadores nunca recibirán señales.",
+                args.pipeline_id
+            );
+        }
+    }
+
     let mut graph = PipelineGraph::build(
         &pipeline.nodes,
         &pipeline.edges,
