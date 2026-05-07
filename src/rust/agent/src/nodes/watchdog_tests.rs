@@ -447,9 +447,9 @@ fn load_state_acepta_formato_antiguo_sin_blocked_since() {
     assert!(wd.blocked_since.is_none(), "blocked_since debe ser None");
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
 // Override manual
-// ═════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
 
 // Override en Ok → tiene precedencia sobre la decisión del decisor.
 #[tokio::test]
