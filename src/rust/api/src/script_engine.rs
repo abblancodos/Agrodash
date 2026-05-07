@@ -84,72 +84,93 @@ pub fn run_script(
 
     let s = state.clone();
     engine.register_fn("log", move |msg: &str| {
-        s.lock().unwrap().outputs.push(ScriptOutput::Log {
-            level: "info".into(),
-            message: msg.to_string(),
-        });
+        s.lock()
+            .expect("script engine state lock poisoned")
+            .outputs
+            .push(ScriptOutput::Log {
+                level: "info".into(),
+                message: msg.to_string(),
+            });
     });
 
     let s = state.clone();
     engine.register_fn("warn", move |msg: &str| {
-        s.lock().unwrap().outputs.push(ScriptOutput::Log {
-            level: "warn".into(),
-            message: msg.to_string(),
-        });
+        s.lock()
+            .expect("script engine state lock poisoned")
+            .outputs
+            .push(ScriptOutput::Log {
+                level: "warn".into(),
+                message: msg.to_string(),
+            });
     });
 
     let s = state.clone();
     engine.register_fn("error", move |msg: &str| {
-        s.lock().unwrap().outputs.push(ScriptOutput::Log {
-            level: "error".into(),
-            message: msg.to_string(),
-        });
+        s.lock()
+            .expect("script engine state lock poisoned")
+            .outputs
+            .push(ScriptOutput::Log {
+                level: "error".into(),
+                message: msg.to_string(),
+            });
     });
 
     // output(key, value, unit)
     let s = state.clone();
     engine.register_fn("output", move |key: &str, value: f64, unit: &str| {
-        s.lock().unwrap().outputs.push(ScriptOutput::Value {
-            key: key.to_string(),
-            value,
-            unit: unit.to_string(),
-        });
+        s.lock()
+            .expect("script engine state lock poisoned")
+            .outputs
+            .push(ScriptOutput::Value {
+                key: key.to_string(),
+                value,
+                unit: unit.to_string(),
+            });
     });
 
     // output sin unidad
     let s = state.clone();
     engine.register_fn("output", move |key: &str, value: f64| {
-        s.lock().unwrap().outputs.push(ScriptOutput::Value {
-            key: key.to_string(),
-            value,
-            unit: String::new(),
-        });
+        s.lock()
+            .expect("script engine state lock poisoned")
+            .outputs
+            .push(ScriptOutput::Value {
+                key: key.to_string(),
+                value,
+                unit: String::new(),
+            });
     });
 
     // plot(id, config_map)
     let s = state.clone();
     engine.register_fn("plot", move |id: &str, config: Map| {
         let config_json = rhai_map_to_json(config);
-        s.lock().unwrap().outputs.push(ScriptOutput::Plot {
-            id: id.to_string(),
-            config: config_json,
-        });
+        s.lock()
+            .expect("script engine state lock poisoned")
+            .outputs
+            .push(ScriptOutput::Plot {
+                id: id.to_string(),
+                config: config_json,
+            });
     });
 
     // table(id, config_map)
     let s = state.clone();
     engine.register_fn("table", move |id: &str, config: Map| {
         let config_json = rhai_map_to_json(config);
-        s.lock().unwrap().outputs.push(ScriptOutput::Table {
-            id: id.to_string(),
-            config: config_json,
-        });
+        s.lock()
+            .expect("script engine state lock poisoned")
+            .outputs
+            .push(ScriptOutput::Table {
+                id: id.to_string(),
+                config: config_json,
+            });
     });
 
     // goto(step_key)
     let s = state.clone();
     engine.register_fn("goto", move |step: &str| {
-        s.lock().unwrap().goto = Some(step.to_string());
+        s.lock().expect("script engine state lock poisoned").goto = Some(step.to_string());
     });
 
     // ── Construir scope con constantes y pasos anteriores ─────────────────────
@@ -165,7 +186,10 @@ pub fn run_script(
         Err(e) => Some(format!("{e}")),
     };
 
-    let final_state = state.lock().unwrap().clone();
+    let final_state = state
+        .lock()
+        .expect("script engine state lock poisoned")
+        .clone();
     ScriptResult {
         outputs: final_state.outputs,
         goto: final_state.goto,

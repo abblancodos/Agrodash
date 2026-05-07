@@ -1,4 +1,5 @@
 // api/src/main.rs
+#![allow(clippy::panic)]
 
 mod agent_manager;
 mod auth;
@@ -366,6 +367,8 @@ async fn main() {
         .unwrap_or(3000);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("Escuchando en http://{}", addr);
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .expect("no se pudo bindear el puerto");
+    axum::serve(listener, app).await.expect("servidor falló");
 }

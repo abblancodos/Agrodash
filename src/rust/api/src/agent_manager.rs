@@ -9,6 +9,7 @@
 //
 // El agente se comunica con la API escribiendo en la DB, no con sockets.
 // La dirección del agente es el pipeline_id — asignado al crear, nunca cambia.
+#![allow(clippy::panic)]
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -139,7 +140,7 @@ impl AgentManager {
         let payload = serde_json::to_string(&cmd).unwrap_or_default();
 
         // PG NOTIFY via query — sqlx no tiene API directa para NOTIFY
-        sqlx::query(&format!("SELECT pg_notify($1, $2)"))
+        sqlx::query("SELECT pg_notify($1, $2)")
             .bind(&channel)
             .bind(&payload)
             .execute(&self.pool)
@@ -174,7 +175,7 @@ impl AgentManager {
         for key in &keys {
             // Remover antes de NOTIFY — el monitor verá que ya no está
             self.agents.write().await.remove(key);
-            let _ = self.notify(key, AgentCommand::Stop).await;
+            self.notify(key, AgentCommand::Stop).await.ok();
         }
 
         // Si no había agentes en el mapa (arrancaron antes del manager),
@@ -188,7 +189,7 @@ impl AgentManager {
         let keys: Vec<AgentKey> = self.agents.read().await.keys().cloned().collect();
 
         for key in &keys {
-            let _ = self.notify(key, AgentCommand::Checkpoint).await;
+            self.notify(key, AgentCommand::Checkpoint).await.ok();
         }
 
         sleep(Duration::from_secs(3)).await;
@@ -196,7 +197,7 @@ impl AgentManager {
         // Matar child processes
         let entries: Vec<_> = self.agents.write().await.drain().collect();
         for (_, entry) in entries {
-            let _ = entry.lock().await.child.kill().await;
+            entry.lock().await.child.kill().await.ok();
         }
     }
 
@@ -331,12 +332,13 @@ impl AgentManager {
     }
 
     async fn mark_status(&self, process_id: Uuid, status: &str) {
-        let _ = sqlx::query!(
+        sqlx::query!(
             "UPDATE processes SET status=$1, updated_at=now() WHERE id=$2",
             status,
             process_id,
         )
         .execute(&self.pool)
-        .await;
+        .await
+        .ok();
     }
 }

@@ -26,6 +26,7 @@
 //
 // CSV:
 //   POST   /api/v1/experiments/:id/upload-csv    — subir y parsear CSV
+#![allow(clippy::panic)]
 
 use axum::{
     extract::{Multipart, Path, Query, State},
@@ -168,6 +169,7 @@ pub async fn get_template(
 #[derive(Serialize, sqlx::FromRow)]
 pub struct ExperimentRow {
     pub id: Uuid,
+    #[allow(dead_code)]
     pub template_id: Option<Uuid>,
     pub owner_id: Uuid,
     pub title: String,
@@ -180,6 +182,7 @@ pub struct ExperimentRow {
 
 #[derive(Deserialize)]
 pub struct CreateExperimentRequest {
+    #[allow(dead_code)]
     pub template_id: Option<Uuid>,
     pub title: String,
     pub description: Option<String>,
@@ -189,6 +192,7 @@ pub struct CreateExperimentRequest {
 
 #[derive(Deserialize)]
 pub struct ListQuery {
+    #[allow(dead_code)]
     pub template_id: Option<Uuid>,
 }
 
@@ -472,13 +476,14 @@ pub async fn create_event(
 
     // Update group_id if provided
     if let Some(gid) = body.group_id {
-        let _ = sqlx::query!(
+        sqlx::query!(
             "UPDATE experiment_events SET group_id = $1 WHERE id = $2",
             gid as Uuid,
             row.id as Uuid,
         )
         .execute(&pool)
-        .await;
+        .await
+        .ok();
     }
 
     Ok(Json(row))
@@ -529,6 +534,7 @@ pub struct SeriesPoint {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 pub struct CreateSeriesPointRequest {
     pub series_key: String,
     pub soil_id: Option<String>,
@@ -708,8 +714,8 @@ pub async fn upload_csv(
     }
 
     let row_count = rows.len() as i32;
-    let columns_json = serde_json::to_value(&headers).unwrap();
-    let parsed_json = serde_json::to_value(&rows).unwrap();
+    let columns_json = serde_json::to_value(&headers).expect("headers siempre serializan");
+    let parsed_json = serde_json::to_value(&rows).expect("rows siempre serializan");
 
     let file_id = sqlx::query_scalar!(
         r#"

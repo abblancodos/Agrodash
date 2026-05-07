@@ -1,4 +1,5 @@
 // src/routes/auth.rs
+#![allow(clippy::panic)]
 
 use axum::{extract::State, http::StatusCode, Json};
 use axum_extra::extract::cookie::CookieJar;
@@ -47,6 +48,7 @@ pub struct ChangePasswordRequest {
 // Devuelve la llave pública RSA en PEM para que el cliente cifre la contraseña.
 // Se llama una vez al cargar la página de login.
 
+#[allow(dead_code)]
 pub async fn public_key() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "public_key": public_key_pem() }))
 }
@@ -424,6 +426,7 @@ pub async fn change_password(
 
 // ── POST /api/v1/auth/logout ──────────────────────────────────────────────────
 
+#[allow(dead_code)]
 pub async fn logout(jar: CookieJar) -> (CookieJar, StatusCode) {
     let new_jar = jar.add(crate::auth::clear_session_cookie());
     (new_jar, StatusCode::NO_CONTENT)

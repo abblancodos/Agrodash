@@ -1,4 +1,5 @@
 // src/tasks/stats_worker.rs
+#![allow(clippy::panic)]
 
 use chrono::Utc;
 use sqlx::PgPool;

@@ -3,6 +3,7 @@
 // Endpoints adicionales para el sistema de experimentos:
 //   Colaboradores, correcciones con audit, definitions, objetivos,
 //   export CSV, hora del servidor, búsqueda de usuarios.
+#![allow(clippy::panic)]
 
 use axum::{
     extract::{Path, Query, State},
@@ -837,10 +838,10 @@ pub async fn delete_experiment(
 ",
         exp.title
     ));
-    csv.push_str(&format!(
+    csv.push_str(
         "# BACKUP COMPLETO — incluye entries anuladas
-"
-    ));
+",
+    );
     if let Some(consts) = exp.constants.as_object() {
         for (k, v) in consts {
             csv.push_str(&format!(

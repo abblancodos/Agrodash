@@ -24,6 +24,7 @@ pub fn get_or_init_keys() -> &'static (RsaPrivateKey, RsaPublicKey) {
 }
 
 /// Devuelve la llave pública en formato PEM (para enviar al cliente).
+#[allow(dead_code)]
 pub fn public_key_pem() -> String {
     let (_, public) = get_or_init_keys();
     public

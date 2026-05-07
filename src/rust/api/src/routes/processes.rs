@@ -1,4 +1,5 @@
 // api/src/routes/processes.rs
+#![allow(clippy::panic)]
 
 use axum::{
     extract::{Path, Query, State},
@@ -108,6 +109,7 @@ async fn control_get(url: &str, api_key: &str, path: &str) -> Result<Value, Stri
     res.json::<Value>().await.map_err(|e| e.to_string())
 }
 
+#[allow(dead_code)]
 async fn control_post(url: &str, api_key: &str, path: &str, body: Value) -> Result<Value, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(8))
@@ -399,15 +401,16 @@ pub async fn update_process(
                             pipeline_id: pl.id.clone(),
                         };
                         // Checkpoint primero (guarda estado actual del Kalman etc.)
-                        let _ = state
+                        state
                             .manager
                             .notify(&key, agrodash_shared::AgentCommand::Checkpoint)
                             .await;
                         // Luego Reload con la nueva config
-                        let _ = state
+                        state
                             .manager
                             .notify(&key, agrodash_shared::AgentCommand::Reload)
-                            .await;
+                            .await
+                            .ok();
                         info!("Config actualizada en caliente para pipeline {}", pl.id);
                     }
                 }
@@ -661,7 +664,8 @@ pub async fn self_test(
                         sensor_id,
                     )
                     .fetch_optional(&state.pool)
-                    .await;
+                    .await
+                    .ok();
 
                     match res {
                         Err(e) => checks.push(json!({
@@ -742,7 +746,7 @@ pub async fn self_test(
                     "detail": "Timeout o error de conexión",
                 })),
             }
-            let _ = res; // evitar warning unused
+            res; // evitar warning unused
         }
 
         // ── 3. HTTP ping (si hay shared_connections.http) ─────────────────
@@ -799,10 +803,11 @@ pub async fn self_test(
                     pipeline_id,
                 )
                 .execute(&state.pool)
-                .await;
+                .await
+                .ok();
 
                 // Enviar SelfTest vía NOTIFY
-                let _ = state.manager.notify(&key, AgentCommand::SelfTest).await;
+                state.manager.notify(&key, AgentCommand::SelfTest).await;
 
                 // Esperar resultado (máx 8s)
                 let mut result = None;
@@ -938,12 +943,8 @@ pub async fn send_command(
             }
         }
 
-        // ClearWatchdog: resetea el watchdog (retry_count, status) y limpia el override.
-        // Si el pipeline no tiene Watchdog, actúa igual que el antiguo ClearOverride.
-        // También aceptamos "ClearOverride" como alias para compatibilidad con
-        // clientes frontend que aún no migraron.
-        "ClearWatchdog" | "ClearOverride" => {
-            // Desired state: limpiar override en DB
+        "ClearOverride" => {
+            // Desired state: limpiar override
             sqlx::query!(
                 r#"INSERT INTO pipeline_states (process_id, pipeline_id, override_action, updated_at)
                    VALUES ($1, $2, NULL, now())
@@ -955,12 +956,8 @@ pub async fn send_command(
             .await
             .map_err(err)?;
 
-            agrodash_shared::AgentCommand::ClearWatchdog { actuator_id }
+            agrodash_shared::AgentCommand::ClearOverride { actuator_id }
         }
-
-        // ConfirmWatchdog: modo Ugly — el usuario confirma el estado del actuador.
-        // No escribe desired state en DB (es una confirmación puntual, no persistente).
-        "ConfirmWatchdog" => agrodash_shared::AgentCommand::ConfirmWatchdog { actuator_id },
 
         "Checkpoint" => agrodash_shared::AgentCommand::Checkpoint,
         "Reload" => agrodash_shared::AgentCommand::Reload,
@@ -1032,7 +1029,7 @@ pub async fn stream_state(
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<Value>)> {
     require_process_role(&state.pool, process_id, claims.sub, "viewer").await?;
 
-    let secs = q.interval_secs.unwrap_or(5).max(2).min(60);
+    let secs = q.interval_secs.unwrap_or(5).clamp(2, 60);
 
     let stream = stream::unfold(
         (state.pool.clone(), process_id, None::<String>),
@@ -1059,7 +1056,8 @@ pub async fn stream_state(
                 last_seen,
             )
             .fetch_optional(&pool)
-            .await;
+            .await
+            .ok();
 
             match row {
                 Ok(Some(r)) => {

@@ -5,6 +5,7 @@
 // Crea el primer usuario admin. Solo funciona si no existe ningún admin.
 // Requiere SEED_SECRET en .env para evitar que cualquiera lo llame.
 // Deshabilitar en producción una vez creado el primer admin.
+#![allow(clippy::panic)]
 
 use axum::{extract::State, http::StatusCode, Json};
 use bcrypt::{hash, DEFAULT_COST};

@@ -37,7 +37,7 @@ impl Claims {
     pub fn new(sub: Uuid, email: String, role: String) -> Self {
         let exp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("system time anterior a UNIX_EPOCH — clock del sistema mal configurado")
             .as_secs()
             + EXPIRY_SECS;
         Self {
@@ -88,6 +88,7 @@ pub fn session_cookie(token: String) -> Cookie<'static> {
 }
 
 /// Crea una cookie de sesión vacía para hacer logout.
+#[allow(dead_code)]
 pub fn clear_session_cookie() -> Cookie<'static> {
     Cookie::build((COOKIE_NAME, ""))
         .http_only(true)

@@ -1,4 +1,5 @@
 // src/routes/stats.rs
+#![allow(clippy::panic)]
 
 use axum::{
     extract::{Query, State},

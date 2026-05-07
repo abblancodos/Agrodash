@@ -1,3 +1,4 @@
+#![allow(clippy::panic)]
 // src/routes/oauth.rs
 //
 // OAuth2 con Gitea como proveedor.
@@ -128,7 +129,7 @@ pub async fn gitea_callback(
             )
         })?;
 
-    let token_data: GiteaTokenResponse = token_res.json().await.map_err(|_| {
+    let token_data: GiteaTokenResponse = token_res.json().await.map_err(|_e| {
         (
             StatusCode::BAD_GATEWAY,
             Json(serde_json::json!({ "error": "Respuesta de token inválida" })),
@@ -149,7 +150,7 @@ pub async fn gitea_callback(
         })?
         .json()
         .await
-        .map_err(|_| {
+        .map_err(|_e| {
             (
                 StatusCode::BAD_GATEWAY,
                 Json(serde_json::json!({ "error": "Perfil de usuario inválido" })),

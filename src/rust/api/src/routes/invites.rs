@@ -1,4 +1,5 @@
 // src/routes/invites.rs
+#![allow(clippy::panic)]
 
 use axum::{extract::State, http::StatusCode, Json};
 use bcrypt::{hash, DEFAULT_COST};
@@ -10,6 +11,7 @@ use crate::auth::{encode_token, Claims};
 use crate::crypto::decrypt_password;
 use crate::routes::auth::{AuthResponse, UserInfo};
 
+#[allow(dead_code)]
 const TEMP_PASSWORD: &str = "Estacion2";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -148,6 +150,7 @@ pub async fn list_invites(
 // Público pero requiere código de invitación válido y de un solo uso.
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 pub struct RegisterRequest {
     pub invite_code: String,
     pub email: String,
@@ -156,6 +159,7 @@ pub struct RegisterRequest {
     pub password: Option<String>, // solo para dev/testing
 }
 
+#[allow(dead_code)]
 pub async fn register(
     State(pool): State<PgPool>,
     Json(body): Json<RegisterRequest>,

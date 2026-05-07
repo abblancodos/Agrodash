@@ -2,6 +2,7 @@
 //
 // La DB guarda timestamps en hora CR (UTC-6) sin indicación de timezone.
 // Todas las conversiones se hacen aquí para que el frontend trabaje en UTC puro.
+#![allow(clippy::panic)]
 
 use axum::{
     extract::{Query, State},

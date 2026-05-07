@@ -7,12 +7,14 @@ use uuid::Uuid;
 // ── Tablas base ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, sqlx::FromRow)]
+#[allow(dead_code)]
 pub struct Box {
     pub id: Uuid,
     pub name: String,
 }
 
 #[derive(Debug, sqlx::FromRow)]
+#[allow(dead_code)]
 pub struct Sensor {
     pub id: Uuid,
     pub box_id: Uuid,
@@ -22,6 +24,7 @@ pub struct Sensor {
 }
 
 #[derive(Debug, sqlx::FromRow)]
+#[allow(dead_code)]
 pub struct Reading {
     pub id: Uuid,
     pub sensor_id: Uuid,
