@@ -48,8 +48,10 @@
 
   // Block element refs — for edge calculation
   let blockRefs: Record<string, HTMLDivElement> = {};
+  // Watchdog port element refs — for accurate edge calculation
+  let wdPortEls = $state<Record<string, Record<string, HTMLElement | undefined>>>({});
   // Track block dimensions for edge calculation
-  let blockSizes = $state<Record<string, { w: number; h: number }>>({});
+  let blockSizes = $state<Record<string, { w: number; h: number }>>({});;
 
   // Update block size after render
   function measureBlock(nodeId: string, el: HTMLDivElement | null) {
@@ -73,7 +75,7 @@
   let panY = $state(0);
 
   // Connecting state — drawing an edge
-  let connecting = $state<{ fromId: string; fromPort: 'output'; x: number; y: number } | null>(null);
+  let connecting = $state<{ fromId: string; fromPort: 'output'; fromPortName?: string; x: number; y: number } | null>(null);
   let mouseX = $state(0);
   let mouseY = $state(0);
 
@@ -230,7 +232,7 @@
   }
 
   // ── Connecting ports ───────────────────────────────────────────────────────
-  function startConnect(e: MouseEvent, fromId: string) {
+  function startConnect(e: MouseEvent, fromId: string, fromPortName?: string) {
     if (!canEdit) return;
     e.stopPropagation();
     if (!canvasEl) return;
@@ -238,6 +240,7 @@
     connecting = {
       fromId,
       fromPort: 'output',
+      fromPortName,
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
     };
@@ -252,11 +255,14 @@
     if (!exists && connecting.fromId !== toId) {
       pipeline.edges = [...edges, {
         id: `${connecting.fromId}-${toId}`,
-        from: connecting.fromId,
-        to: toId,
+        from:      connecting.fromId,
+        to:        toId,
+        from_port: connecting.fromPortName ?? null,
+        to_port:   toPortName ?? null,
       }];
       setTimeout(() => { renderTick++; }, 20);
       onchange();
+      syncWatchdogActuatorIds();
     }
     connecting = null;
   }
@@ -637,7 +643,6 @@
   .block:active { cursor: grabbing; filter: drop-shadow(0 4px 16px rgba(0,0,0,0.14)); }
   .block.expanded { z-index: 10; display: flex; flex-direction: column; min-width: 260px; }
   .block-watchdog { position: absolute; }
-  .port-feedback { border-color: #c084fc; background: #f3e8ff; }
   .block.expanded :global(.block-inner) { flex: 1; max-width: none; width: 100%; height: 100%; }
 
   .port-column {
@@ -649,23 +654,7 @@
     flex-shrink: 0;
   }
   .port-column-empty { width: 12px; }
-  .port-wrap {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-  }
-  .port-label {
-    font-size: 8px;
-    font-family: 'DM Mono', monospace;
-    color: var(--text-muted);
-    white-space: nowrap;
-    pointer-events: none;
-    max-width: 60px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .port-label--in  { order: 2; }
-  .port-label--out { order: -1; }
+
   .port {
     width: 12px;
     height: 12px;

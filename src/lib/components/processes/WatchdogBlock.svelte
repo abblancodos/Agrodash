@@ -21,8 +21,9 @@
     onchange,
     onstartdrag,
     onresize,
-    onconnectstart,   // (e, nodeId, portName) — inicia edge desde output
-    onconnectend,     // (e, nodeId, portName) — termina edge en input
+    onconnectstart,
+    onconnectend,
+    portEls = $bindable<Record<string, HTMLElement | undefined>>({}),
   }: {
     node: any;
     color: string;
@@ -35,10 +36,10 @@
     onresize?: (e: MouseEvent) => void;
     onconnectstart?: (e: MouseEvent, nodeId: string, portName: string) => void;
     onconnectend?:   (e: MouseEvent, nodeId: string, portName: string) => void;
+    portEls?: Record<string, HTMLElement | undefined>;
   } = $props();
 
-  // Port element refs — exposed so NodeCanvas can getBoundingClientRect on them
-  export let portEls: Record<string, HTMLElement | undefined> = {};
+
 
   const INPUTS  = ['act_in', 'mqtt_ret_in', 'sig_in'] as const;
   const OUTPUTS = ['act_out'] as const;

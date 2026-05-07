@@ -13,6 +13,8 @@
     onchange,
     onstartdrag,
     onresize,
+    inputPorts = [],
+    outputPorts = [],
   }: {
     node: any;
     color: string;
@@ -25,6 +27,8 @@
     onchange: () => void;
     onstartdrag?: (e: MouseEvent) => void;
     onresize?: (e: MouseEvent) => void;
+    inputPorts?: string[];
+    outputPorts?: string[];
   } = $props();
 
   function set(field: string, value: any) {
@@ -83,6 +87,22 @@
       {/if}
     </div>
   </div>
+
+  <!-- Port names row — visible when collapsed -->
+  {#if !isExpanded && ((inputPorts?.length ?? 0) > 0 || (outputPorts?.length ?? 0) > 0)}
+    <div class="port-names-row">
+      <div class="port-names-side port-names-in">
+        {#each (inputPorts ?? []) as p (p)}
+          <span class="pn pn--in">{p}</span>
+        {/each}
+      </div>
+      <div class="port-names-side port-names-out">
+        {#each (outputPorts ?? []) as p (p)}
+          <span class="pn pn--out">{p}</span>
+        {/each}
+      </div>
+    </div>
+  {/if}
 
   <!-- Expanded body -->
   {#if isExpanded}
@@ -562,7 +582,7 @@
     background: var(--bg-surface);
     border: 2px solid var(--nc);
     border-radius: 10px;
-    min-width: 180px;
+    min-width: 220px;
     overflow: visible;
     display: flex;
     flex-direction: column;
@@ -608,6 +628,28 @@
   .block-header:hover .drag-handle { opacity: 0.8; }
   .btn-expand:hover { background: var(--interactive-hover); }
   .btn-remove:hover { background: var(--error-bg); color: var(--error-color); }
+
+  .port-names-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 8px 6px;
+    gap: 4px;
+    border-top: 0.5px solid color-mix(in srgb, var(--nc) 15%, transparent);
+    background: color-mix(in srgb, var(--nc) 4%, var(--bg-surface));
+    border-radius: 0 0 8px 8px;
+    min-height: 42px;
+  }
+  .port-names-side { display: flex; flex-direction: column; gap: 2px; }
+  .port-names-out { align-items: flex-end; }
+  .pn {
+    font-size: 7.5px;
+    font-family: 'DM Mono', monospace;
+    padding: 1px 4px;
+    border-radius: 2px;
+    line-height: 1.3;
+  }
+  .pn--in  { background: #EFF6FF; color: #1D4ED8; }
+  .pn--out { background: #F0FDF4; color: #166534; }
 
   .block-body {
     padding: 8px 10px;
