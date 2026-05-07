@@ -52,7 +52,8 @@
         credentials: 'include',
       });
       if (!r.ok) throw new Error(`${r.status}`);
-      collabs = await r.json();
+      const data = await r.json();
+      collabs = Array.isArray(data) ? data : (data.collaborators ?? data.users ?? data.members ?? []);
     } catch (e: any) {
       error = e.message;
     } finally {
