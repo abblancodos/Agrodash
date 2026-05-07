@@ -24,6 +24,7 @@
     return d[type] ?? {};
   }
   import PipelineBlock from './PipelineBlock.svelte';
+  import WatchdogBlock from './WatchdogBlock.svelte';
   import type { ProcessConfig } from '$lib/stores/process';
 
   let {
@@ -242,7 +243,7 @@
     };
   }
 
-  function endConnect(e: MouseEvent, toId: string) {
+  function endConnect(e: MouseEvent, toId: string, toPortName?: string) {
     if (!connecting || connecting.fromId === toId) { connecting = null; return; }
     e.stopPropagation();
     // Add edge if not duplicate
@@ -283,6 +284,7 @@
   function removeEdge(edgeId: string) {
     pipeline.edges = (pipeline.edges ?? []).filter((e: any) => e.id !== edgeId);
     onchange();
+    syncWatchdogActuatorIds();
   }
 
   function removeNode(nodeId: string) {
@@ -303,7 +305,83 @@
   }
 
   // ── Edge SVG paths ─────────────────────────────────────────────────────────
-  function getPortCenter(nodeId: string, port: 'input' | 'output'): { x: number; y: number } | null {
+  // Port names per node type
+  const PORT_NAMES: Record<string, { inputs: string[]; outputs: string[] }> = {
+    postgres_sensor:  { inputs: [],                                    outputs: ['sig_out'] },
+    kalman:           { inputs: ['sig_in'],                            outputs: ['sig_out'] },
+    moving_avg:       { inputs: ['sig_in'],                            outputs: ['sig_out'] },
+    ewma:             { inputs: ['sig_in'],                            outputs: ['sig_out'] },
+    lowpass:          { inputs: ['sig_in'],                            outputs: ['sig_out'] },
+    passthrough:      { inputs: ['sig_in'],                            outputs: ['sig_out'] },
+    concat:           { inputs: ['sig_in×N'],                          outputs: ['sig_out'] },
+    weighted_mean:    { inputs: ['sig_in×N'],                          outputs: ['sig_out'] },
+    mahalanobis:      { inputs: ['sig_in'],                            outputs: ['act_out'] },
+    hysteresis:       { inputs: ['sig_in'],                            outputs: ['act_out'] },
+    sprt:             { inputs: ['sig_in'],                            outputs: ['act_out'] },
+    mqtt_actuator:    { inputs: ['act_in'],                            outputs: [] },
+    http_actuator:    { inputs: ['act_in'],                            outputs: [] },
+    mqtt_subscriber:  { inputs: [],                                    outputs: ['mqtt_ret_out'] },
+    watchdog:         { inputs: ['act_in', 'mqtt_ret_in', 'sig_in'],   outputs: ['act_out'] },
+    logger:           { inputs: ['sig_in'],                            outputs: ['sig_out'] },
+    select:           { inputs: ['sig_in'],                            outputs: ['sig_out'] },
+    linear_scale:     { inputs: ['sig_in'],                            outputs: ['sig_out'] },
+  };
+
+  function portName(nodeType: string, port: 'input' | 'output', index = 0): string {
+    const names = PORT_NAMES[nodeType];
+    if (!names) return port === 'input' ? 'in' : 'out';
+    const list = port === 'input' ? names.inputs : names.outputs;
+    return list[index] ?? (port === 'input' ? 'in' : 'out');
+  }
+
+  // Short label for a node — used in edge labels
+  function nodeLabel(nodeId: string): string {
+    const node = (pipeline.nodes ?? []).find((n: any) => n.id === nodeId);
+    if (!node) return nodeId.slice(-6);
+    const type = (node.type as string).replace(/_/g, ' ');
+    // Use tag/topic/label if available, else type
+    const detail = node.tag || node.topic || node.label || '';
+    return detail ? `${type} · ${detail}` : type;
+  }
+
+  // Derive actuator_id for watchdog nodes from their output edge
+  function watchdogActuatorId(nodeId: string): string {
+    const edge = (pipeline.edges ?? []).find((e: any) => e.from === nodeId);
+    return edge?.to ?? '';
+  }
+
+  // Sync actuator_id for all watchdog nodes based on edges
+  function syncWatchdogActuatorIds() {
+    let changed = false;
+    for (const node of (pipeline.nodes ?? [])) {
+      if (node.type === 'watchdog') {
+        const derived = watchdogActuatorId(node.id);
+        if (derived && node.actuator_id !== derived) {
+          node.actuator_id = derived;
+          changed = true;
+        }
+      }
+    }
+    if (changed) onchange();
+  }
+
+  function getPortCenter(nodeId: string, port: 'input' | 'output', portNameArg?: string): { x: number; y: number } | null {
+    const node = (pipeline.nodes ?? []).find((n: any) => n.id === nodeId);
+
+    // Watchdog: use actual DOM element positions for each named port
+    if (node?.type === 'watchdog' && wdPortEls[nodeId]) {
+      const portName = port === 'input' ? portNameArg : 'act_out';
+      const el = wdPortEls[nodeId][portName ?? (port === 'input' ? 'act_in' : 'act_out')];
+      if (el && canvasEl) {
+        const rect = el.getBoundingClientRect();
+        const crect = canvasEl.getBoundingClientRect();
+        return {
+          x: rect.left + rect.width  / 2 - crect.left,
+          y: rect.top  + rect.height / 2 - crect.top,
+        };
+      }
+    }
+
     const pos  = positions[nodeId];
     const size = blockSizes[nodeId];
     if (!pos) return null;
@@ -340,8 +418,8 @@
   <!-- SVG layer for edges -->
   <svg class="edge-svg" bind:this={svgEl}>
     {#each (pipeline.edges ?? []) as edge (edge.id)}
-      {@const p1 = getPortCenter(edge.from, 'output')}
-      {@const p2 = getPortCenter(edge.to, 'input')}
+      {@const p1 = getPortCenter(edge.from, 'output', edge.from_port)}
+      {@const p2 = getPortCenter(edge.to, 'input', edge.to_port)}
       {#if p1 && p2}
         <!-- Edge line -->
         <path
@@ -357,11 +435,34 @@
           fill="var(--text-muted)"
           opacity="0.7"
         />
+        <!-- Edge label — from→to -->
+        {@const mx = (p1.x + p2.x) / 2}
+        {@const my = (p1.y + p2.y) / 2}
+        {@const fromLabel = nodeLabel(edge.from)}
+        {@const toLabel   = nodeLabel(edge.to)}
+        <rect
+          x={mx - 54} y={my - 9}
+          width="108" height="16"
+          rx="4"
+          fill="var(--bg-elevated)"
+          stroke="var(--border-subtle)"
+          stroke-width="0.5"
+          opacity="0.92"
+          pointer-events="none"
+        />
+        <text
+          x={mx} y={my + 3}
+          text-anchor="middle"
+          font-size="8"
+          font-family="DM Mono, monospace"
+          fill="var(--text-muted)"
+          pointer-events="none"
+        >{fromLabel} → {toLabel}</text>
+
         <!-- Edge delete button -->
         {#if canEdit}
           <circle
-            cx={(p1.x + p2.x) / 2}
-            cy={(p1.y + p2.y) / 2}
+            cx={mx + 60} cy={my}
             r="7"
             fill="var(--bg-elevated)"
             stroke="var(--border-default)"
@@ -373,8 +474,7 @@
             onkeydown={(e) => e.key === 'Enter' && removeEdge(edge.id)}
           />
           <text
-            x={(p1.x + p2.x) / 2}
-            y={(p1.y + p2.y) / 2 + 4}
+            x={mx + 60} y={my + 4}
             text-anchor="middle"
             font-size="10"
             fill="var(--text-muted)"
@@ -411,44 +511,87 @@
     {@const usize = userSizes[node.id]}
 
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="block"
-      class:expanded={isExpanded}
-      style="left:{pos.x}px; top:{pos.y}px; --nc:{color}{usize && isExpanded ? `; width:${usize.w}px; height:${usize.h}px` : ''}"
-      bind:this={blockRefs[node.id]}
-      onmouseenter={() => measureBlock(node.id, blockRefs[node.id])}
-    >
-      <!-- Input port -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
+    {#if node.type === 'watchdog'}
+      <!-- Watchdog: special layout with named multi-port block -->
       <div
-        class="port port-input"
-        title="input"
-        onmouseup={(e) => endConnect(e, node.id)}
-      ></div>
-
-      <!-- Block content -->
-      <PipelineBlock
-        {node}
-        {color}
-        {category}
-        {isExpanded}
-        {availableSensors}
-        {canEdit}
-        onexpand={() => toggleExpand(node.id)}
-        onremove={() => removeNode(node.id)}
-        onchange={onchange}
-        onstartdrag={(e: MouseEvent) => startDrag(e, node.id)}
-        onresize={isExpanded && canEdit ? (e: MouseEvent) => startResize(e, node.id) : undefined}
-      />
-
-      <!-- Output port -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
+        class="block block-watchdog"
+        style="left:{pos.x}px; top:{pos.y}px; --nc:{color}{usize && isExpanded ? `; width:${usize.w}px; height:${usize.h}px` : ''}"
+        bind:this={blockRefs[node.id]}
+        onmouseenter={() => measureBlock(node.id, blockRefs[node.id])}
+      >
+        <WatchdogBlock
+          {node}
+          {color}
+          {isExpanded}
+          {canEdit}
+          onexpand={() => toggleExpand(node.id)}
+          onremove={() => removeNode(node.id)}
+          onchange={onchange}
+          onstartdrag={(e: MouseEvent) => startDrag(e, node.id)}
+          onresize={isExpanded && canEdit ? (e: MouseEvent) => startResize(e, node.id) : undefined}
+          onconnectstart={(e, nid, pname) => startConnect(e, nid, pname)}
+          onconnectend={(e, nid, pname) => endConnect(e, nid, pname)}
+          bind:portEls={wdPortEls[node.id]}
+        />
+      </div>
+    {:else}
       <div
-        class="port port-output"
-        title="output"
-        onmousedown={(e) => startConnect(e, node.id)}
-      ></div>
-    </div>
+        class="block"
+        class:expanded={isExpanded}
+        style="left:{pos.x}px; top:{pos.y}px; --nc:{color}{usize && isExpanded ? `; width:${usize.w}px; height:${usize.h}px` : ''}"
+        bind:this={blockRefs[node.id]}
+        onmouseenter={() => measureBlock(node.id, blockRefs[node.id])}
+      >
+        <!-- Input ports -->
+        {#if (PORT_NAMES[node.type]?.inputs ?? []).length > 0}
+          <div class="port-column port-column-input">
+            {#each (PORT_NAMES[node.type]?.inputs ?? []) as pname, pi (pi)}
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div
+                class="port port-input"
+                title={pname}
+                onmouseup={(e) => endConnect(e, node.id, pname)}
+              ></div>
+            {/each}
+          </div>
+        {:else}
+          <div class="port-column port-column-input port-column-empty"></div>
+        {/if}
+
+        <!-- Block content -->
+        <PipelineBlock
+          {node}
+          {color}
+          {category}
+          {isExpanded}
+          {availableSensors}
+          {canEdit}
+          inputPorts={PORT_NAMES[node.type]?.inputs ?? []}
+          outputPorts={PORT_NAMES[node.type]?.outputs ?? []}
+          onexpand={() => toggleExpand(node.id)}
+          onremove={() => removeNode(node.id)}
+          onchange={onchange}
+          onstartdrag={(e: MouseEvent) => startDrag(e, node.id)}
+          onresize={isExpanded && canEdit ? (e: MouseEvent) => startResize(e, node.id) : undefined}
+        />
+
+        <!-- Output port -->
+        {#if (PORT_NAMES[node.type]?.outputs ?? []).length > 0}
+          <div class="port-column port-column-output">
+            {#each (PORT_NAMES[node.type]?.outputs ?? []) as pname, pi (pi)}
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div
+                class="port port-output"
+                title={pname}
+                onmousedown={(e) => startConnect(e, node.id, pname)}
+              ></div>
+            {/each}
+          </div>
+        {:else}
+          <div class="port-column port-column-output port-column-empty"></div>
+        {/if}
+      </div>
+    {/if}
   {/each}
 
   </div><!-- end blocks-layer -->
@@ -493,8 +636,36 @@
   }
   .block:active { cursor: grabbing; filter: drop-shadow(0 4px 16px rgba(0,0,0,0.14)); }
   .block.expanded { z-index: 10; display: flex; flex-direction: column; min-width: 260px; }
+  .block-watchdog { position: absolute; }
+  .port-feedback { border-color: #c084fc; background: #f3e8ff; }
   .block.expanded :global(.block-inner) { flex: 1; max-width: none; width: 100%; height: 100%; }
 
+  .port-column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .port-column-empty { width: 12px; }
+  .port-wrap {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .port-label {
+    font-size: 8px;
+    font-family: 'DM Mono', monospace;
+    color: var(--text-muted);
+    white-space: nowrap;
+    pointer-events: none;
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .port-label--in  { order: 2; }
+  .port-label--out { order: -1; }
   .port {
     width: 12px;
     height: 12px;
