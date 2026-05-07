@@ -29,9 +29,7 @@ jobs:
             backend:
               - 'src/rust/**'
 
-  # ── Lint + check de tipos (siempre, en paralelo con changes) ─────────────────
-  # No bloquea el deploy si solo cambió frontend o solo backend,
-  # pero sí bloquea si el job correspondiente falla.
+  # ── Lint + check de tipos ─────────────────────────────────────────────────────
   lint-frontend:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
@@ -83,7 +81,7 @@ jobs:
 
   # ── Tests backend ─────────────────────────────────────────────────────────────
   test-backend:
-    needs: lint-backend
+    needs: [changes, lint-backend]
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -109,7 +107,7 @@ jobs:
 
   # ── Deploy frontend ───────────────────────────────────────────────────────────
   deploy-frontend:
-    needs: lint-frontend
+    needs: [changes, lint-frontend]
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -137,7 +135,7 @@ jobs:
 
   # ── Deploy backend ────────────────────────────────────────────────────────────
   deploy-backend:
-    needs: test-backend
+    needs: [changes, test-backend]
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
