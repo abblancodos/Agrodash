@@ -206,10 +206,19 @@
       if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
       localStorage.removeItem(STORAGE_KEY());
       saveMsg = '✓ guardado'; saveMsgOk = true;
-      // Si el proceso está running, verificar si el agente rechazó algún pipeline
+      // Si el proceso está running: reload en caliente + verificar errores de validación
       const proc = processStore.process;
       if (proc?.status === 'running') {
-        setTimeout(checkAgentErrors, 4000); // esperar que el agente intente arrancar
+        // Enviar Reload a cada pipeline activo — el agente reconstruye el grafo
+        // preservando el estado (warmup, Kalman, etc.) sin reiniciar el contenedor
+        try {
+          await processStore.command(processId, { cmd: 'reload' });
+          saveMsg = '✓ config aplicada'; saveMsgOk = true;
+        } catch {
+          saveMsg = '✓ guardado — reiniciá el proceso para aplicar cambios';
+          saveMsgOk = true;
+        }
+        setTimeout(checkAgentErrors, 4000);
       }
     } catch (e: any) {
       saveMsg = e.message; saveMsgOk = false;
