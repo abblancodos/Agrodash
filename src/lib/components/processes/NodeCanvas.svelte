@@ -519,6 +519,7 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     {#if node.type === 'watchdog'}
       <!-- Watchdog: special layout with named multi-port block -->
+      {@const _ = wdPortEls[node.id] ?? (wdPortEls[node.id] = {})}
       <div
         class="block block-watchdog"
         style="left:{pos.x}px; top:{pos.y}px; --nc:{color}{usize && isExpanded ? `; width:${usize.w}px; height:${usize.h}px` : ''}"
@@ -537,7 +538,7 @@
           onresize={isExpanded && canEdit ? (e: MouseEvent) => startResize(e, node.id) : undefined}
           onconnectstart={(e, nid, pname) => startConnect(e, nid, pname)}
           onconnectend={(e, nid, pname) => endConnect(e, nid, pname)}
-          bind:portEls={wdPortEls[node.id] ??= {}}
+          bind:portEls={wdPortEls[node.id]}
         />
       </div>
     {:else}
