@@ -240,38 +240,24 @@
 </div>
 
 <style>
-  .wd-block {
+  /* Outer wrapper — holds ports + block in a row */
+  .wd-outer {
     display: flex;
     flex-direction: row;
-    align-items: stretch;
-    border: 2px solid var(--nc);
-    border-radius: 10px;
-    background: var(--bg-surface);
-    min-width: 220px;
-    min-height: 90px;
-    cursor: grab;
-    user-select: none;
-    position: relative;
+    align-items: center;
+    gap: 0;
   }
-  .wd-block:active { cursor: grabbing; }
-  .wd-block.expanded { min-width: 280px; min-height: 120px; cursor: default; }
 
-  /* Left/right port columns */
+  /* Port columns — outside the border, like normal blocks */
   .ports-left, .ports-right {
     display: flex;
     flex-direction: column;
     justify-content: space-around;
-    padding: 8px 0;
-    gap: 4px;
-    flex-shrink: 0;
-  }
-  .ports-left  { padding-left: 0; }
-  .ports-right { padding-right: 0; }
-
-  .port-wd-wrap {
-    display: flex;
     align-items: center;
-    gap: 3px;
+    padding: 8px 0;
+    gap: 8px;
+    flex-shrink: 0;
+    z-index: 1;
   }
 
   .port-wd {
@@ -280,54 +266,62 @@
     border-radius: 50%;
     border: 2px solid var(--pc);
     background: var(--bg-surface);
-    cursor: crosshair;
     flex-shrink: 0;
     transition: background .1s;
   }
-  .port-wd:hover { background: var(--pc); }
   .port-wd-in  { cursor: crosshair; }
   .port-wd-out { cursor: cell; }
+  .port-wd:hover { background: var(--pc); }
 
-  .port-wd-label {
-    font-size: 7.5px;
-    font-family: 'DM Mono', monospace;
-    white-space: nowrap;
-    padding: 1px 4px;
-    border-radius: 2px;
-    line-height: 1.3;
-  }
-  .port-wd-label-in  { background: #EFF6FF; color: #1D4ED8; }
-  .port-wd-label-out { background: #F0FDF4; color: #166534; }
-
-  /* Center */
-  .wd-center {
-    flex: 1;
+  /* Main block */
+  .wd-block {
     display: flex;
     flex-direction: column;
-    min-width: 0;
-    padding: 6px 4px;
-    border-left:  0.5px solid color-mix(in srgb, var(--nc) 20%, transparent);
-    border-right: 0.5px solid color-mix(in srgb, var(--nc) 20%, transparent);
+    border: 2px solid var(--nc);
+    border-radius: 10px;
+    background: var(--bg-surface);
+    min-width: 200px;
+    min-height: 80px;
+    user-select: none;
+    position: relative;
+    overflow: hidden;
+    flex: 1;
   }
+  .wd-block.expanded { min-width: 260px; min-height: 120px; }
 
+  /* Header — matches PipelineBlock style */
   .wd-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 4px;
+    gap: 6px;
+    padding: 8px 10px;
+    background: color-mix(in srgb, var(--nc) 8%, var(--bg-surface));
+    border-radius: 8px 8px 0 0;
+    cursor: grab;
+    flex-shrink: 0;
   }
+  .wd-block:not(.expanded) .wd-header { border-radius: 8px; }
+  .drag-handle { font-size: 12px; color: var(--text-muted); opacity: 0.4; flex-shrink: 0; }
+  .wd-header:hover .drag-handle { opacity: 0.8; }
   .wd-cat {
     font-size: 8px;
     text-transform: uppercase;
     letter-spacing: .08em;
     color: var(--nc);
     font-family: 'DM Mono', monospace;
+    flex-shrink: 0;
   }
-  .wd-header-actions { display: flex; gap: 2px; }
+  .wd-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    flex: 1;
+  }
+  .wd-header-actions { display: flex; gap: 3px; flex-shrink: 0; }
   .btn-expand, .btn-remove {
-    width: 16px; height: 16px;
+    width: 18px; height: 18px;
     border: none; background: none;
-    cursor: pointer; font-size: 9px;
+    cursor: pointer; font-size: 10px;
     color: var(--text-muted);
     border-radius: 3px; padding: 0;
     display: flex; align-items: center; justify-content: center;
@@ -335,17 +329,26 @@
   .btn-expand:hover { background: var(--interactive-hover); }
   .btn-remove:hover { background: var(--error-bg); color: var(--error-color); }
 
-  .wd-mode {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--nc);
-    text-align: center;
-    padding: 4px 0;
-    flex: 1;
+  /* Port name pills */
+  .port-names-row {
     display: flex;
-    align-items: center;
-    justify-content: center;
+    justify-content: space-between;
+    padding: 4px 8px 6px;
+    gap: 4px;
+    border-top: 0.5px solid color-mix(in srgb, var(--nc) 15%, transparent);
+    background: color-mix(in srgb, var(--nc) 4%, var(--bg-surface));
   }
+  .port-names-in, .port-names-out { display: flex; flex-direction: column; gap: 2px; }
+  .port-names-out { align-items: flex-end; }
+  .pn {
+    font-size: 7.5px;
+    font-family: 'DM Mono', monospace;
+    padding: 1px 4px;
+    border-radius: 2px;
+    line-height: 1.3;
+  }
+  .pn--in  { background: #EFF6FF; color: #1D4ED8; }
+  .pn--out { background: #F0FDF4; color: #166534; }
 
   /* Expanded body */
   .wd-body {
