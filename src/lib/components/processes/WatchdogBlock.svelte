@@ -23,7 +23,8 @@
     onresize,
     onconnectstart,
     onconnectend,
-    portEls = $bindable<Record<string, HTMLElement | undefined>>({}),
+    portEls = {} as Record<string, HTMLElement | undefined>,
+    onPortEls,
   }: {
     node: any;
     color: string;
@@ -37,9 +38,17 @@
     onconnectstart?: (e: MouseEvent, nodeId: string, portName: string) => void;
     onconnectend?:   (e: MouseEvent, nodeId: string, portName: string) => void;
     portEls?: Record<string, HTMLElement | undefined>;
+    onPortEls?: (els: Record<string, HTMLElement | undefined>) => void;
   } = $props();
 
 
+
+  // Notify parent when port elements are mounted
+  $effect(() => {
+    if (Object.keys(portEls).length > 0) {
+      onPortEls?.(portEls);
+    }
+  });
 
   const INPUTS  = ['act_in', 'mqtt_ret_in', 'sig_in'] as const;
   const OUTPUTS = ['act_out'] as const;
@@ -84,6 +93,7 @@
           style="--pc:{PORT_COLOR[pname]}"
           title={pname}
           bind:this={portEls[pname]}
+
           onmouseup={(e) => onconnectend?.(e, node.id, pname)}
         ></div>
         <span class="port-wd-label port-wd-label-in">{pname}</span>
@@ -221,6 +231,7 @@
           style="--pc:{PORT_COLOR[pname]}"
           title={pname}
           bind:this={portEls[pname]}
+
           onmousedown={(e) => onconnectstart?.(e, node.id, pname)}
         ></div>
       </div>
