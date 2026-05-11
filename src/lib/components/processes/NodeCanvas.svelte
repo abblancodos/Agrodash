@@ -537,7 +537,7 @@
           onresize={isExpanded && canEdit ? (e: MouseEvent) => startResize(e, node.id) : undefined}
           onconnectstart={(e, nid, pname) => startConnect(e, nid, pname)}
           onconnectend={(e, nid, pname) => endConnect(e, nid, pname)}
-          bind:portEls={wdPortEls[node.id]}
+          bind:portEls={wdPortEls[node.id] ??= {}}
         />
       </div>
     {:else}
