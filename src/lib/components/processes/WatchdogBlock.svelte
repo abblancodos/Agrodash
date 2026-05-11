@@ -1,16 +1,6 @@
 <!-- src/lib/components/processes/WatchdogBlock.svelte -->
-<!--
-  Bloque especial para el nodo Watchdog con layout de 5 puntos:
-  - 3 inputs a la izquierda: act_in, mqtt_ret_in, sig_in
-  - nombre + estado en el centro
-  - 1 output a la derecha: act_out
-
-  Los puertos se exponen como bind:portEls para que NodeCanvas
-  pueda calcular las coordenadas exactas de cada puerto.
--->
+<!-- svelte-ignore a11y_label_has_associated_control -->
 <script lang="ts">
-  import { onMount } from 'svelte';
-
   let {
     node,
     color,
@@ -41,13 +31,8 @@
     onPortEls?: (els: Record<string, HTMLElement | undefined>) => void;
   } = $props();
 
-
-
-  // Notify parent when port elements are mounted
   $effect(() => {
-    if (Object.keys(portEls).length > 0) {
-      onPortEls?.(portEls);
-    }
+    if (Object.keys(portEls).length > 0) onPortEls?.(portEls);
   });
 
   const INPUTS  = ['act_in', 'mqtt_ret_in', 'sig_in'] as const;
@@ -61,75 +46,78 @@
   };
 
   const MODE_LABEL: Record<string, string> = {
-    good:  'Good',
-    bad:   'Bad',
-    ugly:  'Ugly',
+    good: 'Good', bad: 'Bad', ugly: 'Ugly',
   };
 
-  function set(field: string, value: any) {
-    node[field] = value;
-    onchange();
-  }
+  function set(field: string, value: any) { node[field] = value; onchange(); }
 </script>
 
+<!--
+  Layout: [ports-left] [.wd-block] [ports-right]
+  Los puertos están FUERA del borde del bloque, igual que PipelineBlock.
+-->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-  class="wd-block"
-  class:expanded={isExpanded}
-  style="--nc:{color}"
-  ondblclick={onexpand}
-  onmousedown={(e) => {
-    if ((e.target as HTMLElement).closest('button, .port-wd')) return;
-    onstartdrag?.(e);
-  }}
->
-  <!-- Left ports -->
-  <div class="ports-left">
-    {#each INPUTS as pname (pname)}
-      <div class="port-wd-wrap">
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="port-wd port-wd-in"
-          style="--pc:{PORT_COLOR[pname]}"
-          title={pname}
-          bind:this={portEls[pname]}
+<div class="wd-outer" style="--nc:{color}">
 
-          onmouseup={(e) => onconnectend?.(e, node.id, pname)}
-        ></div>
-        <span class="port-wd-label port-wd-label-in">{pname}</span>
-      </div>
+  <!-- ── Left ports ── -->
+  <div class="port-col port-col-left">
+    {#each INPUTS as pname (pname)}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="port-dot"
+        style="--pc:{PORT_COLOR[pname]}"
+        title={pname}
+        bind:this={portEls[pname]}
+        onmouseup={(e) => { e.stopPropagation(); onconnectend?.(e, node.id, pname); }}
+      ></div>
     {/each}
   </div>
 
-  <!-- Center -->
-  <div class="wd-center">
-    <div class="wd-header">
+  <!-- ── Main block ── -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="wd-block"
+    class:expanded={isExpanded}
+    onmousedown={(e) => {
+      if ((e.target as HTMLElement).closest('button, .port-dot, input, select')) return;
+      onstartdrag?.(e);
+    }}
+  >
+    <!-- Header -->
+    <div class="wd-header" ondblclick={onexpand}>
+      <span class="drag-handle">⠿</span>
       <span class="wd-cat">watchdog</span>
-      <div class="wd-header-actions">
-        <button class="btn-expand" onclick={onexpand}>{isExpanded ? '▲' : '▼'}</button>
-        {#if canEdit}
-          <button class="btn-remove" onclick={onremove}>✕</button>
-        {/if}
+      <span class="wd-name">{MODE_LABEL[node.mode?.level ?? 'good']}</span>
+      <div class="wd-actions">
+        <button onclick={onexpand}>{isExpanded ? '▲' : '▼'}</button>
+        {#if canEdit}<button onclick={onremove}>✕</button>{/if}
       </div>
     </div>
 
-    <div class="wd-mode">
-      {MODE_LABEL[node.mode?.level ?? 'good']}
-    </div>
+    <!-- Collapsed: port name pills -->
+    {#if !isExpanded}
+      <div class="port-pills">
+        <div class="pills-left">
+          {#each INPUTS as p (p)}<span class="pill pill-in">{p}</span>{/each}
+        </div>
+        <div class="pills-right">
+          {#each OUTPUTS as p (p)}<span class="pill pill-out">{p}</span>{/each}
+        </div>
+      </div>
+    {/if}
 
-    <!-- Expanded config panel -->
+    <!-- Expanded: config -->
     {#if isExpanded}
-      <!-- svelte-ignore a11y_label_has_associated_control -->
       <div class="wd-body">
-        <div class="field-row">
+        <div class="row">
           <div class="field">
             <label>modo</label>
             <select class="inp" value={node.mode?.level ?? 'good'}
               onchange={(e) => {
-                const level = (e.target as HTMLSelectElement).value;
-                if (level === 'good') set('mode', { level: 'good' });
-                if (level === 'bad')  set('mode', { level: 'bad', expected_on_trend: 'ascending', expected_off_trend: 'descending', min_change_pct: 0.05, component: null });
-                if (level === 'ugly') set('mode', { level: 'ugly', notify_message: null });
+                const l = (e.target as HTMLSelectElement).value;
+                if (l === 'good') set('mode', { level: 'good' });
+                if (l === 'bad')  set('mode', { level: 'bad', expected_on_trend: 'ascending', expected_off_trend: 'descending', min_change_pct: 0.05, component: null });
+                if (l === 'ugly') set('mode', { level: 'ugly', notify_message: null });
               }}>
               <option value="good">Good — feedback MQTT</option>
               <option value="bad">Bad — tendencia</option>
@@ -137,7 +125,7 @@
             </select>
           </div>
         </div>
-        <div class="field-row">
+        <div class="row">
           <div class="field">
             <label>timeout (s)</label>
             <input class="inp mono" type="number" min="0" value={node.action_timeout_secs ?? 30}
@@ -152,7 +140,7 @@
 
         {#if node.mode?.level === 'bad'}
           <div class="subpanel">
-            <div class="field-row">
+            <div class="row">
               <div class="field">
                 <label>tendencia ON</label>
                 <select class="inp" value={node.mode.expected_on_trend ?? 'ascending'}
@@ -172,7 +160,7 @@
                 </select>
               </div>
             </div>
-            <div class="field-row">
+            <div class="row">
               <div class="field">
                 <label>cambio mín %</label>
                 <input class="inp mono" type="number" step="0.01" min="0.01" max="1"
@@ -201,17 +189,16 @@
           </div>
         {/if}
 
-        <div class="node-hint">
+        <div class="hint">
           {#if node.mode?.level === 'bad'}
-            Verifica que la señal cambie en la dirección esperada cuando el actuador recibe ON u OFF.
+            Verifica que la señal cambie en la dirección esperada al actuar.
           {:else if node.mode?.level === 'ugly'}
-            Pide confirmación manual antes de actuar. El actuador queda en Hold hasta que un operador confirme.
+            Pide confirmación manual antes de actuar.
           {:else}
-            Verifica que el actuador reportó el estado correcto vía MQTT Subscriber. Conectar mqtt_ret_in desde el MQTT Subscriber correspondiente.
+            Conectar mqtt_ret_in desde el MQTT Subscriber correspondiente.
           {/if}
         </div>
 
-        <!-- Resize handle -->
         {#if onresize}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div class="resize-handle" onmousedown={(e) => { e.stopPropagation(); onresize?.(e); }}>⌟</div>
@@ -220,47 +207,41 @@
     {/if}
   </div>
 
-  <!-- Right ports -->
-  <div class="ports-right">
+  <!-- ── Right ports ── -->
+  <div class="port-col port-col-right">
     {#each OUTPUTS as pname (pname)}
-      <div class="port-wd-wrap">
-        <span class="port-wd-label port-wd-label-out">{pname}</span>
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="port-wd port-wd-out"
-          style="--pc:{PORT_COLOR[pname]}"
-          title={pname}
-          bind:this={portEls[pname]}
-
-          onmousedown={(e) => onconnectstart?.(e, node.id, pname)}
-        ></div>
-      </div>
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="port-dot"
+        style="--pc:{PORT_COLOR[pname]}"
+        title={pname}
+        bind:this={portEls[pname]}
+        onmousedown={(e) => { e.stopPropagation(); onconnectstart?.(e, node.id, pname); }}
+      ></div>
     {/each}
   </div>
+
 </div>
 
 <style>
-  /* Outer wrapper — holds ports + block in a row */
   .wd-outer {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 0;
   }
 
-  /* Port columns — outside the border, like normal blocks */
-  .ports-left, .ports-right {
+  /* Port columns — outside the border */
+  .port-col {
     display: flex;
     flex-direction: column;
     justify-content: space-around;
     align-items: center;
-    padding: 8px 0;
-    gap: 8px;
+    padding: 10px 0;
+    gap: 10px;
     flex-shrink: 0;
-    z-index: 1;
   }
 
-  .port-wd {
+  .port-dot {
     width: 12px;
     height: 12px;
     border-radius: 50%;
@@ -269,27 +250,28 @@
     flex-shrink: 0;
     transition: background .1s;
   }
-  .port-wd-in  { cursor: crosshair; }
-  .port-wd-out { cursor: cell; }
-  .port-wd:hover { background: var(--pc); }
+  .port-col-left  .port-dot { cursor: crosshair; }
+  .port-col-right .port-dot { cursor: cell; }
+  .port-dot:hover { background: var(--pc); }
 
   /* Main block */
   .wd-block {
+    flex: 1;
     display: flex;
     flex-direction: column;
     border: 2px solid var(--nc);
     border-radius: 10px;
     background: var(--bg-surface);
-    min-width: 200px;
-    min-height: 80px;
+    min-width: 180px;
+    overflow: hidden;
+    cursor: grab;
     user-select: none;
     position: relative;
-    overflow: hidden;
-    flex: 1;
   }
-  .wd-block.expanded { min-width: 260px; min-height: 120px; }
+  .wd-block:active { cursor: grabbing; }
+  .wd-block.expanded { cursor: default; }
 
-  /* Header — matches PipelineBlock style */
+  /* Header — matches PipelineBlock exactly */
   .wd-header {
     display: flex;
     align-items: center;
@@ -317,8 +299,8 @@
     color: var(--text-primary);
     flex: 1;
   }
-  .wd-header-actions { display: flex; gap: 3px; flex-shrink: 0; }
-  .btn-expand, .btn-remove {
+  .wd-actions { display: flex; gap: 3px; flex-shrink: 0; }
+  .wd-actions button {
     width: 18px; height: 18px;
     border: none; background: none;
     cursor: pointer; font-size: 10px;
@@ -326,46 +308,42 @@
     border-radius: 3px; padding: 0;
     display: flex; align-items: center; justify-content: center;
   }
-  .btn-expand:hover { background: var(--interactive-hover); }
-  .btn-remove:hover { background: var(--error-bg); color: var(--error-color); }
+  .wd-actions button:first-child:hover { background: var(--interactive-hover); }
+  .wd-actions button:last-child:hover  { background: var(--error-bg); color: var(--error-color); }
 
-  /* Port name pills */
-  .port-names-row {
+  /* Port name pills — collapsed only */
+  .port-pills {
     display: flex;
     justify-content: space-between;
     padding: 4px 8px 6px;
-    gap: 4px;
     border-top: 0.5px solid color-mix(in srgb, var(--nc) 15%, transparent);
     background: color-mix(in srgb, var(--nc) 4%, var(--bg-surface));
   }
-  .port-names-in, .port-names-out { display: flex; flex-direction: column; gap: 2px; }
-  .port-names-out { align-items: flex-end; }
-  .pn {
+  .pills-left, .pills-right { display: flex; flex-direction: column; gap: 2px; }
+  .pills-right { align-items: flex-end; }
+  .pill {
     font-size: 7.5px;
     font-family: 'DM Mono', monospace;
     padding: 1px 4px;
     border-radius: 2px;
     line-height: 1.3;
   }
-  .pn--in  { background: #EFF6FF; color: #1D4ED8; }
-  .pn--out { background: #F0FDF4; color: #166534; }
+  .pill-in  { background: #EFF6FF; color: #1D4ED8; }
+  .pill-out { background: #F0FDF4; color: #166534; }
 
   /* Expanded body */
   .wd-body {
+    padding: 8px 10px;
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding-top: 6px;
-    border-top: 0.5px solid color-mix(in srgb, var(--nc) 20%, transparent);
+    border-top: 1px solid color-mix(in srgb, var(--nc) 20%, transparent);
     overflow-y: auto;
     position: relative;
   }
-
-  .field { display: flex; flex-direction: column; gap: 2px; }
-  .field-row { display: flex; gap: 6px; }
-  .field-row .field { flex: 1; min-width: 0; }
+  .row { display: flex; gap: 6px; }
+  .field { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
   label { font-size: 10px; color: var(--text-muted); }
-
   .inp {
     padding: 3px 6px;
     border: 0.5px solid var(--border-default);
@@ -379,7 +357,6 @@
   }
   .inp:focus { border-color: var(--nc); }
   .mono { font-family: 'DM Mono', monospace; }
-
   .subpanel {
     background: color-mix(in srgb, var(--nc) 5%, var(--bg-elevated));
     border: 0.5px solid color-mix(in srgb, var(--nc) 20%, transparent);
@@ -389,8 +366,7 @@
     flex-direction: column;
     gap: 6px;
   }
-
-  .node-hint {
+  .hint {
     font-size: 9px;
     color: var(--text-muted);
     line-height: 1.5;
@@ -399,7 +375,6 @@
     border-left: 2px solid color-mix(in srgb, var(--nc) 40%, transparent);
     border-radius: 0 4px 4px 0;
   }
-
   .resize-handle {
     position: absolute;
     bottom: 2px; right: 4px;
