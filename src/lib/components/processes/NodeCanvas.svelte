@@ -374,18 +374,26 @@
   function getPortCenter(nodeId: string, port: 'input' | 'output', portNameArg?: string): { x: number; y: number } | null {
     const node = (pipeline.nodes ?? []).find((n: any) => n.id === nodeId);
 
-    // Watchdog: use actual DOM element positions for each named port
-    if (node?.type === 'watchdog' && wdPortEls[nodeId]) {
-      const portName = port === 'input' ? portNameArg : 'act_out';
-      const el = wdPortEls[nodeId][portName ?? (port === 'input' ? 'act_in' : 'act_out')];
-      if (el && canvasEl) {
-        const rect = el.getBoundingClientRect();
-        const crect = canvasEl.getBoundingClientRect();
-        return {
-          x: rect.left + rect.width  / 2 - crect.left,
-          y: rect.top  + rect.height / 2 - crect.top,
-        };
+    // Watchdog: calculate port positions geometrically like normal nodes
+    // Inputs are spaced evenly on the left, output centered on the right
+    if (node?.type === 'watchdog') {
+      const pos  = positions[nodeId];
+      const size = blockSizes[nodeId];
+      if (!pos) return null;
+      const w = size?.w ?? 220;
+      const h = size?.h ?? 90;
+      const cx = pos.x + panX;
+      const cy = pos.y + panY;
+
+      if (port === 'output') {
+        return { x: cx + w + 6, y: cy + h / 2 };
       }
+      // Inputs: act_in, mqtt_ret_in, sig_in — evenly spaced
+      const INPUTS = ['act_in', 'mqtt_ret_in', 'sig_in'];
+      const idx = INPUTS.indexOf(portNameArg ?? 'act_in');
+      const n = INPUTS.length;
+      const spacing = h / (n + 1);
+      return { x: cx - 6, y: cy + spacing * (idx + 1) };
     }
 
     const pos  = positions[nodeId];
