@@ -75,10 +75,13 @@
 
     busy = true; error = '';
     clearDoneTimer(); clearSafety();
-    ackStage = 'idle'; ackErrMsg = '';
+    ackErrMsg = '';
 
     try {
       if (action !== 'clear') {
+        // Mostrar pipeline visual inmediatamente — no esperar el primer ACK del broker
+        ackStage = 'mqtt';
+
         // Registrar handler de ACKs antes de enviar el comando
         processStore.onMqttAck(actuatorId, onAckMsg);
 
@@ -90,6 +93,8 @@
             onError(ackErrMsg);
           }
         }, 18_000);
+      } else {
+        ackStage = 'idle';
       }
 
       const cmd = action === 'clear'
