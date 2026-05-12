@@ -64,11 +64,10 @@
     }, 6000);
   }
 
-  // Timeout de seguridad: si en 18s no llega respuesta, liberar el lock.
-  let safetyTimer: ReturnType<typeof setTimeout> | null = null;
-  function clearSafety() {
-    if (safetyTimer) { clearTimeout(safetyTimer); safetyTimer = null; }
-  }
+  // Sin timeout automático — el pipeline se queda en el último estado conocido
+  // hasta que llegue un ACK definitivo (CONCENTRADOR: o LORA_ERROR/CONCENTRADOR_ERROR).
+  // El usuario puede cancelar manualmente con el botón × si algo se cuelga.
+  function clearSafety() { /* no-op — sin timeout automático */ }
 
   async function send(action: 'on' | 'off' | 'clear') {
     if (busy) return;
@@ -85,14 +84,8 @@
         // Registrar handler de ACKs antes de enviar el comando
         processStore.onMqttAck(actuatorId, onAckMsg);
 
-        // Safety timeout: libera el lock si el concentrador no responde
-        safetyTimer = setTimeout(() => {
-          if (busy) {
-            ackStage  = 'error';
-            ackErrMsg = 'Timeout: sin respuesta del concentrador (18s)';
-            onError(ackErrMsg);
-          }
-        }, 18_000);
+        // Sin timeout — el pipeline muestra el último estado conocido indefinidamente.
+        // onError() se llama solo cuando llega LORA_ERROR o CONCENTRADOR_ERROR del gateway.
       } else {
         ackStage = 'idle';
       }
@@ -122,7 +115,6 @@
       ackStage = 'idle';
       busy = false;
       processStore.offMqttAck(actuatorId);
-      clearSafety();
     }
   }
 
@@ -133,7 +125,7 @@
   }
 
   onDestroy(() => {
-    clearDoneTimer(); clearSafety();
+    clearDoneTimer();
     processStore.offMqttAck(actuatorId);
   });
 
@@ -144,12 +136,24 @@
   type StageStatus = 'pending' | 'active' | 'done' | 'error';
   const ORDER = ['mqtt', 'lora', 'done'] as const;
 
+  // Qué etapa falló según el mensaje de error del gateway
+  // LORA_ERROR → falló en LoRa (mqtt OK, lora error, relay pending)
+  // CONCENTRADOR_ERROR → falló en el relay (mqtt OK, lora OK, relay error)
+  // cualquier otro error antes de LORA_ENVIANDO → falló en mqtt
+  const errorStage = $derived.by(() => {
+    if (ackStage !== 'error') return null;
+    if (ackErrMsg.startsWith('CONCENTRADOR_ERROR')) return 'done';   // error en relay
+    if (ackErrMsg.startsWith('LORA_ERROR'))         return 'lora';   // error en LoRa
+    return 'mqtt';                                                    // error en gateway
+  });
+
   function stageStatus(key: typeof ORDER[number]): StageStatus {
     if (ackStage === 'idle') return 'pending';
-    if (ackStage === 'error') {
+    if (ackStage === 'error' && errorStage !== null) {
       const ki = ORDER.indexOf(key);
-      if (ki === 0) return 'done';
-      if (ki === 1) return 'error';
+      const ei = ORDER.indexOf(errorStage as typeof ORDER[number]);
+      if (ki < ei)  return 'done';
+      if (ki === ei) return 'error';
       return 'pending';
     }
     const ci = ORDER.indexOf(ackStage as typeof ORDER[number]);
@@ -185,12 +189,23 @@
             {:else if ss === 'error'}✕
             {:else}·{/if}
           </div>
-          <span class="ack-lbl">{key === 'mqtt' ? 'MQTT' : key === 'lora' ? 'LoRa' : 'OK'}</span>
+          <span class="ack-lbl">
+            {key === 'mqtt' ? 'Gateway' : key === 'lora' ? 'LoRa' : 'Relay'}
+          </span>
         </div>
       {/each}
+
       {#if ackStage === 'error' && ackErrMsg}
         <span class="ack-errtxt">{ackErrMsg}</span>
       {/if}
+
+      <!-- Cancelar manualmente si algo se cuelga -->
+      <button class="ack-cancel" onclick={() => {
+        clearDoneTimer();
+        processStore.offMqttAck(actuatorId);
+        ackStage = 'idle';
+        busy = false;
+      }} title="Cancelar seguimiento">×</button>
     </div>
   {/if}
 
@@ -253,4 +268,13 @@
 
   .ack-spinner { display:inline-block; width:9px; height:9px; border:1.5px solid #4a90d933; border-top-color:#4a90d9; border-radius:50%; animation:spin .65s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
+
+  .ack-cancel {
+    margin-left: 4px; padding: 0 5px; height: 18px; line-height: 1;
+    border: 0.5px solid var(--border-subtle); border-radius: 4px;
+    background: none; cursor: pointer; color: var(--text-muted);
+    font-size: calc(11px * var(--font-scale)); font-family: 'DM Mono', monospace;
+    flex-shrink: 0; align-self: center; margin-bottom: 10px;
+  }
+  .ack-cancel:hover { background: var(--interactive-hover); color: var(--text-secondary); }
 </style>
