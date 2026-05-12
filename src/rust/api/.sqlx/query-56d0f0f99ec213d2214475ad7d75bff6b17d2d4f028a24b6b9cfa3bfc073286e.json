@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO pipeline_states (process_id, pipeline_id, override_action, updated_at)\n                                   VALUES ($1, $2, $3, now())\n                                   ON CONFLICT (process_id, pipeline_id)\n                                   DO UPDATE SET override_action = $3, updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "56d0f0f99ec213d2214475ad7d75bff6b17d2d4f028a24b6b9cfa3bfc073286e"
+}
