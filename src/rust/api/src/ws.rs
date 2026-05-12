@@ -131,16 +131,21 @@ impl WsBroadcast {
         ack_topic: String,
     ) {
         let already_running = self.relay_shutdown.read().await.contains_key(&process_id);
-        if already_running {
-            return;
-        }
+        if already_running { return; }
 
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.relay_shutdown.write().await.insert(process_id, tx);
 
         let ws_clone = self.clone();
         tokio::spawn(crate::tasks::mqtt_relay::run(
-            process_id, broker_url, client_id, username, password, ack_topic, ws_clone, rx,
+            process_id,
+            broker_url,
+            client_id,
+            username,
+            password,
+            ack_topic,
+            ws_clone,
+            rx,
         ));
     }
 
@@ -177,21 +182,20 @@ pub async fn ws_handler(
     // axum::extract::ws no permite errores HTTP post-upgrade.
     claims: crate::auth::Claims,
 ) -> impl IntoResponse {
-    // Verificar rol
-    let role_ok = sqlx::query_scalar!(
-        "SELECT role FROM process_collaborators WHERE process_id = $1 AND user_id = $2",
-        process_id,
-        claims.sub,
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .ok()
-    .flatten()
-    .map(|r| matches!(r.as_str(), "viewer" | "operator" | "admin"))
-    .unwrap_or(false);
+    // Verificar acceso al proceso — incluye owner y colaboradores.
+    // Usar get_process_role que hace LEFT JOIN con processes (owner_id)
+    // para no excluir al dueño del proceso que no tiene fila en process_collaborators.
+    let role = crate::routes::processes::get_process_role(&state.pool, process_id, claims.sub)
+        .await
+        .ok()
+        .flatten();
+
+    let role_ok = role
+        .as_deref()
+        .map(|r| matches!(r, "viewer" | "operator" | "admin"))
+        .unwrap_or(false);
 
     if !role_ok {
-        // No se puede devolver 403 tras upgrade — rechazar antes
         return axum::http::StatusCode::FORBIDDEN.into_response();
     }
 
@@ -211,47 +215,30 @@ async fn handle_socket(socket: WebSocket, state: AppState, process_id: Uuid, use
 
     // ── Lanzar relay MQTT si el proceso tiene broker configurado ──────────
     {
-        let cfg_row = sqlx::query!("SELECT config FROM processes WHERE id = $1", process_id)
-            .fetch_optional(&state.pool)
-            .await;
+        let cfg_row = sqlx::query!(
+            "SELECT config FROM processes WHERE id = $1",
+            process_id
+        )
+        .fetch_optional(&state.pool)
+        .await;
 
         if let Ok(Some(row)) = cfg_row {
-            // Extraer broker MQTT directamente del JSON para no depender de
-            // que ProcessConfig deserialice exactamente (campos extra → error silencioso).
-            let cfg = &row.config;
-            let broker_url = cfg
-                .pointer("/shared_connections/mqtt/broker_url")
-                .and_then(|v| v.as_str())
-                .map(str::to_string);
-
-            if let Some(broker_url) = broker_url {
-                let username = cfg
-                    .pointer("/shared_connections/mqtt/username")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string);
-                let password = cfg
-                    .pointer("/shared_connections/mqtt/password")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string);
-
-                let relay_client_id = format!("agrodash-ws-relay-{process_id}");
-                let ack_topic =
-                    std::env::var("MQTT_ACK_TOPIC").unwrap_or_else(|_| "ack/valvula".to_string());
-
-                info!("WS: lanzando relay MQTT → {broker_url} topic={ack_topic}");
-                state
-                    .ws
-                    .ensure_mqtt_relay(
-                        process_id,
-                        broker_url,
-                        relay_client_id,
-                        username,
-                        password,
+            if let Ok(proc_cfg) = serde_json::from_value::<agrodash_shared::ProcessConfig>(row.config) {
+                if let Some(shared) = proc_cfg.shared_connections {
+                    if let Some(mqtt) = shared.mqtt {
+                        let relay_client_id = format!("agrodash-ws-relay-{process_id}");
+                        let ack_topic = std::env::var("MQTT_ACK_TOPIC")
+                            .unwrap_or_else(|_| "ack/valvula".to_string());
+                        state.ws.ensure_mqtt_relay(
+                            process_id,
+                            mqtt.broker_url,
+                            relay_client_id,
+                            mqtt.username,
+                            mqtt.password,
                         ack_topic,
-                    )
-                    .await;
-            } else {
-                info!("WS: proceso sin shared_connections.mqtt — relay no lanzado");
+                        ).await;
+                    }
+                }
             }
         }
     }
@@ -379,25 +366,18 @@ async fn handle_client_msg(
 
     match msg.msg_type.as_str() {
         "ping" => {
-            sink.send(Message::Text(json!({ "type": "pong" }).to_string()))
-                .await
-                .ok();
+            sink.send(Message::Text(json!({ "type": "pong" }).to_string())).await.ok();
         }
 
         "command" => {
             // Verificar que el usuario tiene rol operator/admin para comandos
-            let role = sqlx::query_scalar!(
-                "SELECT role FROM process_collaborators WHERE process_id = $1 AND user_id = $2",
-                process_id,
-                user_id,
-            )
-            .fetch_optional(&state.pool)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_default();
+            let role = crate::routes::processes::get_process_role(&state.pool, process_id, user_id)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default();
 
-            if !matches!(role.as_str(), "operator" | "admin") {
+            if !matches!(role.as_deref().unwrap_or(""), "operator" | "admin") {
                 let err = json!({ "type": "error", "message": "Sin permiso para enviar comandos" });
                 sink.send(Message::Text(err.to_string())).await.ok();
                 return;
@@ -406,8 +386,7 @@ async fn handle_client_msg(
             // Reusar la lógica de send_command: construir el payload completo
             // y llamar al mismo traductor cmd→AgentCommand.
             // Re-usamos la función de traducción de processes.rs exponiéndola como pub(crate).
-            let pipeline_id = msg
-                .payload
+            let pipeline_id = msg.payload
                 .get("pipeline_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
@@ -427,11 +406,40 @@ async fn handle_client_msg(
             // Traducir payload → AgentCommand usando el mismo código que el endpoint REST
             match crate::routes::processes::parse_agent_command(&msg.payload) {
                 Ok(agent_cmd) => {
+                    // Escribir desired_state en DB igual que send_command HTTP.
+                    // Sin esto el agente pierde el override si se reinicia.
+                    let cmd_str = msg.payload.get("cmd").and_then(|v| v.as_str()).unwrap_or("");
+                    let act_id  = msg.payload.get("actuator_id").and_then(|v| v.as_str())
+                        .unwrap_or("__all__").to_string();
+                    let pid = key.pipeline_id.clone();
+                    match cmd_str {
+                        "Override" => {
+                            let action_str = msg.payload.get("action").and_then(|v| v.as_str()).unwrap_or("hold");
+                            sqlx::query!(
+                                r#"INSERT INTO pipeline_states (process_id, pipeline_id, override_action, updated_at)
+                                   VALUES ($1, $2, $3, now())
+                                   ON CONFLICT (process_id, pipeline_id)
+                                   DO UPDATE SET override_action = $3, updated_at = now()"#,
+                                process_id, pid,
+                                serde_json::json!({ &act_id: action_str }),
+                            ).execute(&state.pool).await.ok();
+                        }
+                        "ClearOverride" | "ClearWatchdog" => {
+                            sqlx::query!(
+                                r#"INSERT INTO pipeline_states (process_id, pipeline_id, override_action, updated_at)
+                                   VALUES ($1, $2, NULL, now())
+                                   ON CONFLICT (process_id, pipeline_id)
+                                   DO UPDATE SET override_action = NULL, updated_at = now()"#,
+                                process_id, pid,
+                            ).execute(&state.pool).await.ok();
+                        }
+                        _ => {}
+                    }
+
                     if let Err(e) = state.manager.notify(&key, agent_cmd).await {
                         let err = json!({ "type": "error", "message": format!("Error enviando comando: {e}") });
                         sink.send(Message::Text(err.to_string())).await.ok();
                     }
-                    // El ACK llegará por el broadcast cuando el agente postee su estado
                 }
                 Err(e) => {
                     let err = json!({ "type": "error", "message": e });
