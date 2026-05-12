@@ -147,7 +147,7 @@ impl WsBroadcast {
     /// Detener el relay MQTT de un proceso (cuando todos los clientes WS se desconectan).
     pub async fn stop_mqtt_relay(&self, process_id: Uuid) {
         if let Some(tx) = self.relay_shutdown.write().await.remove(&process_id) {
-            drop(tx.send(()));
+            tx.send(()).ok();
         }
     }
 }
