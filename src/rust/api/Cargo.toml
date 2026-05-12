@@ -12,7 +12,7 @@ workspace = true
 agrodash-shared = { path = "../shared" }
 
 # Web framework
-axum       = { version = "0.7", features = ["macros", "multipart"] }
+axum       = { version = "0.7", features = ["macros", "multipart", "ws"] }
 axum-extra = { version = "0.9", features = ["cookie", "cookie-private"] }
 time       = "0.3"
 tokio      = { version = "1",   features = ["full"] }

@@ -104,6 +104,17 @@ export interface SelfTestResult {
 // Usamos un objeto con propiedades $state — funciona como módulo singleton.
 // Los componentes importan `processStore` y leen sus propiedades directamente.
 
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+
+export type WsStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+export interface MqttAckEvent {
+  pipeline_id: string;
+  actuator_id: string;
+  msg: string;
+}
+
 function createStore() {
   let process        = $state<Process | null>(null);
   let pipelineStates = $state<Record<string, PipelineAgentState>>({});
@@ -113,6 +124,14 @@ function createStore() {
   let testResult     = $state<SelfTestResult | null>(null);
   let testLoading    = $state(false);
   let lastCycle      = $state(0);
+
+  // ── WebSocket ────────────────────────────────────────────────────────────
+  let wsStatus       = $state<WsStatus>('disconnected');
+  let wsSocket: WebSocket | null = null;
+  let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let wsProcessId: string | null = null;
+  // Callbacks registrados por actuadores para recibir ACKs MQTT
+  let mqttAckHandlers = new Map<string, (msg: string) => void>();
 
   return {
     // Exponer estado como getters reactivos
@@ -124,6 +143,7 @@ function createStore() {
     get testResult()     { return testResult; },
     get testLoading()    { return testLoading; },
     get lastCycle()      { return lastCycle; },
+    get wsStatus()       { return wsStatus; },
 
     // Derived
     get canOperate() {
@@ -174,11 +194,144 @@ function createStore() {
       testResult     = null;
       testLoading    = false;
       lastCycle      = 0;
+      this.wsDisconnect();
     },
 
     // ── SSE (legacy, mantenido para compatibilidad) ────────────────────────
     stopSSE() {},
     startSSE(_id: string, _secs = 10) {},
+
+    // ── WebSocket ──────────────────────────────────────────────────────────
+
+    /**
+     * Conectar al WebSocket del proceso.
+     * Llamar desde el componente que monta la vista del proceso.
+     * Reconecta automáticamente con backoff exponencial.
+     */
+    wsConnect(processId: string) {
+      if (wsProcessId === processId && wsStatus === 'connected') return;
+      wsProcessId = processId;
+      this._wsOpen(processId, 1000);
+    },
+
+    wsDisconnect() {
+      if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+      if (wsSocket) {
+        wsSocket.onclose = null; // no reconectar al cerrar intencionalmente
+        wsSocket.close();
+        wsSocket = null;
+      }
+      wsStatus = 'disconnected';
+      wsProcessId = null;
+      mqttAckHandlers.clear();
+    },
+
+    /**
+     * Registrar un handler para ACKs MQTT de un actuador específico.
+     * El ActuatorRow llama esto al enviar un comando.
+     * Se desregistra automáticamente cuando el actuador termina el tracking.
+     */
+    onMqttAck(actuatorId: string, handler: (msg: string) => void) {
+      mqttAckHandlers.set(actuatorId, handler);
+    },
+
+    offMqttAck(actuatorId: string) {
+      mqttAckHandlers.delete(actuatorId);
+    },
+
+    /**
+     * Enviar un comando por WebSocket (no usa fetch).
+     * Equivalente a processStore.command() pero sin HTTP round-trip.
+     */
+    wsSend(msg: Record<string, unknown>) {
+      if (wsSocket && wsSocket.readyState === WebSocket.OPEN) {
+        wsSocket.send(JSON.stringify(msg));
+        return true;
+      }
+      return false;
+    },
+
+    _wsOpen(processId: string, delay: number) {
+      if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+      wsStatus = 'connecting';
+
+      wsReconnectTimer = setTimeout(() => {
+        wsReconnectTimer = null;
+        const API = (import.meta as any).env?.VITE_API_BASE ?? '';
+        const wsUrl = API.replace(/^http/, 'ws') + `/api/v1/processes/${processId}/ws`;
+
+        const socket = new WebSocket(wsUrl);
+        wsSocket = socket;
+
+        socket.onopen = () => {
+          wsStatus = 'connected';
+          // keepalive ping cada 25s
+          const ping = setInterval(() => {
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: 'ping' }));
+            } else {
+              clearInterval(ping);
+            }
+          }, 25_000);
+          (socket as any)._pingInterval = ping;
+        };
+
+        socket.onmessage = (e: MessageEvent) => {
+          try {
+            const msg = JSON.parse(e.data);
+            switch (msg.type) {
+              case 'pipeline_state': {
+                const prevCycle = pipelineStates[msg.pipeline_id]?.cycle ?? 0;
+                const newCycle  = msg.state?.cycle ?? 0;
+                pipelineStates = { ...pipelineStates, [msg.pipeline_id]: msg.state };
+                if (newCycle > prevCycle) lastCycle += 1;
+                break;
+              }
+              case 'process_status': {
+                if (process) {
+                  process = { ...process, status: msg.status, last_seen_at: msg.last_seen_at ?? null };
+                }
+                break;
+              }
+              case 'mqtt_ack': {
+                const handler = mqttAckHandlers.get(msg.actuator_id);
+                if (handler) handler(msg.msg as string);
+                break;
+              }
+              case 'log': {
+                logs = [...logs.slice(-199), {
+                  ts: new Date().toISOString(),
+                  level: msg.level,
+                  source: msg.source,
+                  message: msg.message,
+                }];
+                break;
+              }
+              case 'pong':
+                break; // keepalive OK
+              case 'error':
+                console.warn('[WS] server error:', msg.message);
+                break;
+            }
+          } catch {}
+        };
+
+        socket.onerror = () => { wsStatus = 'error'; };
+
+        socket.onclose = () => {
+          const interval = (socket as any)._pingInterval;
+          if (interval) clearInterval(interval);
+          wsSocket = null;
+
+          // Solo reconectar si es el mismo proceso y la desconexión no fue intencional
+          if (wsProcessId === processId) {
+            wsStatus = 'error';
+            const nextDelay = Math.min(delay * 1.5, 30_000);
+            this._wsOpen(processId, nextDelay);
+          }
+        };
+      }, delay);
+    },
 
     // ── Proceso ────────────────────────────────────────────────────────────
     async start(id: string) {

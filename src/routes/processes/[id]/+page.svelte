@@ -71,7 +71,8 @@
       // Transición stopped→running: recargar estado completo de pipelines
       if (statusBefore !== statusAfter && statusAfter === 'running') {
         await processStore.load(id);
-      } else {
+      } else if (processStore.wsStatus !== 'connected') {
+        // Solo pollear pipeline states si el WS no está conectado (fallback)
         await pollPipelineStates();
       }
       prevStatus = statusAfter;
@@ -99,11 +100,15 @@
   onMount(async () => {
     await auth.init();
     await processStore.load(id);
+    // Conectar WebSocket para actualizaciones en tiempo real.
+    // El WS reemplaza el polling de pipeline_states; solo mantenemos el
+    // poll de status como backup por si el WS cae temporalmente.
+    processStore.wsConnect(id);
     pollTimer = setTimeout(tick, LIVE_INTERVAL) as any;
   });
 
   onDestroy(() => {
-    processStore.stopSSE();
+    processStore.wsDisconnect();
     processStore.reset();
     if (pollTimer) clearTimeout(pollTimer as any);
   });

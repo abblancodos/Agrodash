@@ -478,6 +478,22 @@ pub struct AgentCmdResult {
     pub ts: String,
 }
 
+
+// ── Eventos agente → API (via PG NOTIFY) ──────────────────────────────────────
+// El agente publica en canal "ws_event_{process_id}" para que la API
+// los forwarda por WebSocket a los clientes conectados.
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum AgentEvent {
+    /// ACK recibido del gateway MQTT (ack/valvula)
+    MqttAck {
+        pipeline_id: String,
+        actuator_id: String,
+        msg: String,
+    },
+}
+
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;

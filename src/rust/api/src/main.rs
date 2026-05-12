@@ -8,6 +8,7 @@ mod models;
 mod routes;
 mod script_engine;
 mod tasks;
+mod ws;
 
 use agent_manager::{AgentManager, AgentManagerConfig};
 use axum::http::{
@@ -31,6 +32,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 pub struct AppState {
     pub pool: sqlx::PgPool,
     pub manager: Arc<AgentManager>,
+    pub ws: ws::WsBroadcast,
 }
 
 /// Permite que los handlers con `State(pool): State<PgPool>` sigan funcionando
@@ -82,6 +84,7 @@ async fn main() {
     let state = AppState {
         pool: pool.clone(),
         manager,
+        ws: ws::WsBroadcast::default(),
     };
 
     // CORS
@@ -356,6 +359,10 @@ async fn main() {
         .route(
             "/api/v1/processes/:id/test",
             post(routes::processes::self_test),
+        )
+        .route(
+            "/api/v1/processes/:id/ws",
+            get(ws::ws_handler),
         )
         .layer(cors)
         .layer(TraceLayer::new_for_http())
