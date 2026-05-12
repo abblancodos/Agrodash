@@ -893,23 +893,27 @@ pub(crate) fn parse_agent_command(body: &Value) -> Result<agrodash_shared::Agent
 
     match cmd_str {
         "Override" => {
-            let action_str = body.get("action").and_then(|v| v.as_str()).unwrap_or("hold");
+            let action_str = body
+                .get("action")
+                .and_then(|v| v.as_str())
+                .unwrap_or("hold");
             let action = match action_str {
-                "on"  => agrodash_shared::NodeAction::On,
+                "on" => agrodash_shared::NodeAction::On,
                 "off" => agrodash_shared::NodeAction::Off,
-                _     => agrodash_shared::NodeAction::Hold,
+                _ => agrodash_shared::NodeAction::Hold,
             };
-            Ok(agrodash_shared::AgentCommand::Override { action, actuator_id })
+            Ok(agrodash_shared::AgentCommand::Override {
+                action,
+                actuator_id,
+            })
         }
         "ClearWatchdog" | "ClearOverride" => {
             Ok(agrodash_shared::AgentCommand::ClearWatchdog { actuator_id })
         }
-        "ConfirmWatchdog" => {
-            Ok(agrodash_shared::AgentCommand::ConfirmWatchdog { actuator_id })
-        }
+        "ConfirmWatchdog" => Ok(agrodash_shared::AgentCommand::ConfirmWatchdog { actuator_id }),
         "Checkpoint" => Ok(agrodash_shared::AgentCommand::Checkpoint),
-        "Reload"     => Ok(agrodash_shared::AgentCommand::Reload),
-        "SelfTest"   => Ok(agrodash_shared::AgentCommand::SelfTest),
+        "Reload" => Ok(agrodash_shared::AgentCommand::Reload),
+        "SelfTest" => Ok(agrodash_shared::AgentCommand::SelfTest),
         other => Err(format!("Comando desconocido: {other}")),
     }
 }
@@ -1342,13 +1346,16 @@ pub async fn post_agent_state(
 
     // Publicar al WebSocket hub — todos los clientes conectados a este proceso
     // reciben el nuevo estado del pipeline en tiempo real sin polling.
-    state.ws.publish(
-        process_id,
-        crate::ws::WsEvent::PipelineState {
-            pipeline_id: pipeline_id.clone(),
-            state: body,
-        },
-    ).await;
+    state
+        .ws
+        .publish(
+            process_id,
+            crate::ws::WsEvent::PipelineState {
+                pipeline_id: pipeline_id.clone(),
+                state: body,
+            },
+        )
+        .await;
 
     Ok(StatusCode::NO_CONTENT)
 }

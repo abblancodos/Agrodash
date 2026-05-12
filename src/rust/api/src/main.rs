@@ -360,10 +360,7 @@ async fn main() {
             "/api/v1/processes/:id/test",
             post(routes::processes::self_test),
         )
-        .route(
-            "/api/v1/processes/:id/ws",
-            get(ws::ws_handler),
-        )
+        .route("/api/v1/processes/:id/ws", get(ws::ws_handler))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);

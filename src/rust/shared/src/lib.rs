@@ -478,7 +478,6 @@ pub struct AgentCmdResult {
     pub ts: String,
 }
 
-
 // ── Eventos agente → API (via PG NOTIFY) ──────────────────────────────────────
 // El agente publica en canal "ws_event_{process_id}" para que la API
 // los forwarda por WebSocket a los clientes conectados.
