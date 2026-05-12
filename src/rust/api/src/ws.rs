@@ -108,7 +108,7 @@ impl WsBroadcast {
         let map = self.inner.read().await;
         if let Some(tx) = map.get(&process_id) {
             // send() falla si no hay receivers — ignorar
-            let _ = tx.send(event);
+            drop(tx.send(event));
         }
     }
 
@@ -147,7 +147,7 @@ impl WsBroadcast {
     /// Detener el relay MQTT de un proceso (cuando todos los clientes WS se desconectan).
     pub async fn stop_mqtt_relay(&self, process_id: Uuid) {
         if let Some(tx) = self.relay_shutdown.write().await.remove(&process_id) {
-            let _ = tx.send(());
+            drop(tx.send(()));
         }
     }
 }
@@ -258,7 +258,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, process_id: Uuid, use
                     state: row.state,
                 };
                 if let Ok(json) = serde_json::to_string(&evt) {
-                    let _ = sink.send(Message::Text(json)).await;
+                    sink.send(Message::Text(json)).await.ok();
                 }
             }
         }
@@ -277,7 +277,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, process_id: Uuid, use
                 last_seen_at: row.last_seen_at.map(|t| t.to_rfc3339()),
             };
             if let Ok(json) = serde_json::to_string(&evt) {
-                let _ = sink.send(Message::Text(json)).await;
+                sink.send(Message::Text(json)).await.ok();
             }
         }
     }
@@ -303,7 +303,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, process_id: Uuid, use
                         warn!("WS cliente lagged {n} mensajes: proceso={process_id}");
                         // Enviar notificación de que se perdieron mensajes
                         let msg = json!({ "type": "error", "message": format!("Se perdieron {n} mensajes por conexión lenta") });
-                        let _ = sink.send(Message::Text(msg.to_string())).await;
+                        sink.send(Message::Text(msg.to_string())).await.ok();
                         // Continuar — no desconectar por lag
                     }
                     Err(broadcast::error::RecvError::Closed) => {
@@ -320,7 +320,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, process_id: Uuid, use
                         handle_client_msg(&state, process_id, user_id, &text, &mut sink).await;
                     }
                     Some(Ok(Message::Ping(data))) => {
-                        let _ = sink.send(Message::Pong(data)).await;
+                        sink.send(Message::Pong(data)).await.ok();
                     }
                     Some(Ok(Message::Close(_))) | None => {
                         debug!("WS cliente cerró: proceso={process_id}");
@@ -357,16 +357,16 @@ async fn handle_client_msg(
         Ok(m) => m,
         Err(_) => {
             let err = json!({ "type": "error", "message": "JSON inválido" });
-            let _ = sink.send(Message::Text(err.to_string())).await;
+            sink.send(Message::Text(err.to_string())).await.ok();
             return;
         }
     };
 
     match msg.msg_type.as_str() {
         "ping" => {
-            let _ = sink
-                .send(Message::Text(json!({ "type": "pong" }).to_string()))
-                .await;
+            sink.send(Message::Text(json!({ "type": "pong" }).to_string()))
+                .await
+                .ok();
         }
 
         "command" => {
@@ -384,7 +384,7 @@ async fn handle_client_msg(
 
             if !matches!(role.as_str(), "operator" | "admin") {
                 let err = json!({ "type": "error", "message": "Sin permiso para enviar comandos" });
-                let _ = sink.send(Message::Text(err.to_string())).await;
+                sink.send(Message::Text(err.to_string())).await.ok();
                 return;
             }
 
@@ -400,7 +400,7 @@ async fn handle_client_msg(
 
             if pipeline_id.is_empty() {
                 let err = json!({ "type": "error", "message": "Falta pipeline_id" });
-                let _ = sink.send(Message::Text(err.to_string())).await;
+                sink.send(Message::Text(err.to_string())).await.ok();
                 return;
             }
 
@@ -414,20 +414,20 @@ async fn handle_client_msg(
                 Ok(agent_cmd) => {
                     if let Err(e) = state.manager.notify(&key, agent_cmd).await {
                         let err = json!({ "type": "error", "message": format!("Error enviando comando: {e}") });
-                        let _ = sink.send(Message::Text(err.to_string())).await;
+                        sink.send(Message::Text(err.to_string())).await.ok();
                     }
                     // El ACK llegará por el broadcast cuando el agente postee su estado
                 }
                 Err(e) => {
                     let err = json!({ "type": "error", "message": e });
-                    let _ = sink.send(Message::Text(err.to_string())).await;
+                    sink.send(Message::Text(err.to_string())).await.ok();
                 }
             }
         }
 
         _ => {
             let err = json!({ "type": "error", "message": format!("Tipo de mensaje desconocido: {}", msg.msg_type) });
-            let _ = sink.send(Message::Text(err.to_string())).await;
+            sink.send(Message::Text(err.to_string())).await.ok();
         }
     }
 }
