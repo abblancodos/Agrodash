@@ -7,12 +7,22 @@
     processId, pipelineId, actuatorId, actuatorType,
     lastAction, totalOn, overrideActive, canOperate = false,
     label = '',
+    payloadOn = '',
   }: {
     processId: string; pipelineId: string; actuatorId: string;
     actuatorType: string; lastAction: string | null;
     totalOn: number | null; overrideActive: boolean; canOperate?: boolean;
     label?: string;
+    payloadOn?: string;
   } = $props();
+
+  // El relay MQTT extrae el número de válvula del mensaje de ACK (ej. "ON,5" → "5").
+  // Registrar el handler bajo ese número para que el dispatch funcione.
+  // payloadOn es el payload que el agente manda al broker (ej. "on,5") —
+  // la parte después de la coma es el identificador que llega en los ACKs.
+  const valveKey = $derived(
+    payloadOn.includes(',') ? payloadOn.split(',')[1]?.trim() : actuatorId
+  );
 
   // ── MQTT ACK progress ──────────────────────────────────────────────────────
   // Los ACKs llegan por WebSocket via processStore.onMqttAck().
@@ -48,7 +58,7 @@
   function onSuccess() {
     clearDoneTimer();
     busy = false;
-    processStore.offMqttAck(actuatorId);
+    processStore.offMqttAck(actuatorId); processStore.offMqttAck(valveKey);
     doneTimer = setTimeout(() => {
       ackStage = 'idle';
     }, 3000);
@@ -58,36 +68,41 @@
     clearDoneTimer();
     busy  = false;
     error = msg;
-    processStore.offMqttAck(actuatorId);
+    processStore.offMqttAck(actuatorId); processStore.offMqttAck(valveKey);
     doneTimer = setTimeout(() => {
       ackStage = 'idle';
     }, 6000);
   }
 
-  // Sin timeout automático — el pipeline se queda en el último estado conocido
-  // hasta que llegue un ACK definitivo (CONCENTRADOR: o LORA_ERROR/CONCENTRADOR_ERROR).
-  // El usuario puede cancelar manualmente con el botón × si algo se cuelga.
-  function clearSafety() { /* no-op — sin timeout automático */ }
+  // Timeout de seguridad: si en 18s no llega respuesta, liberar el lock.
+  let safetyTimer: ReturnType<typeof setTimeout> | null = null;
+  function clearSafety() {
+    if (safetyTimer) { clearTimeout(safetyTimer); safetyTimer = null; }
+  }
 
   async function send(action: 'on' | 'off' | 'clear') {
     if (busy) return;
 
     busy = true; error = '';
     clearDoneTimer(); clearSafety();
-    ackErrMsg = '';
+    ackStage = 'idle'; ackErrMsg = '';
 
     try {
       if (action !== 'clear') {
-        // Mostrar pipeline visual inmediatamente — no esperar el primer ACK del broker
-        ackStage = 'mqtt';
-
         // Registrar handler de ACKs antes de enviar el comando
-        processStore.onMqttAck(actuatorId, onAckMsg);
+        // Registrar bajo el número de válvula (valveKey) que usa el relay MQTT,
+        // Y bajo el actuatorId completo como fallback.
+        processStore.onMqttAck(valveKey, onAckMsg);
+        if (valveKey !== actuatorId) processStore.onMqttAck(actuatorId, onAckMsg);
 
-        // Sin timeout — el pipeline muestra el último estado conocido indefinidamente.
-        // onError() se llama solo cuando llega LORA_ERROR o CONCENTRADOR_ERROR del gateway.
-      } else {
-        ackStage = 'idle';
+        // Safety timeout: libera el lock si el concentrador no responde
+        safetyTimer = setTimeout(() => {
+          if (busy) {
+            ackStage  = 'error';
+            ackErrMsg = 'Timeout: sin respuesta del concentrador (18s)';
+            onError(ackErrMsg);
+          }
+        }, 18_000);
       }
 
       const cmd = action === 'clear'
@@ -114,7 +129,8 @@
       error = e.message;
       ackStage = 'idle';
       busy = false;
-      processStore.offMqttAck(actuatorId);
+      processStore.offMqttAck(actuatorId); processStore.offMqttAck(valveKey);
+      clearSafety();
     }
   }
 
@@ -125,8 +141,8 @@
   }
 
   onDestroy(() => {
-    clearDoneTimer();
-    processStore.offMqttAck(actuatorId);
+    clearDoneTimer(); clearSafety();
+    processStore.offMqttAck(actuatorId); processStore.offMqttAck(valveKey);
   });
 
   const isOn  = $derived(lastAction === 'on');
@@ -136,24 +152,12 @@
   type StageStatus = 'pending' | 'active' | 'done' | 'error';
   const ORDER = ['mqtt', 'lora', 'done'] as const;
 
-  // Qué etapa falló según el mensaje de error del gateway
-  // LORA_ERROR → falló en LoRa (mqtt OK, lora error, relay pending)
-  // CONCENTRADOR_ERROR → falló en el relay (mqtt OK, lora OK, relay error)
-  // cualquier otro error antes de LORA_ENVIANDO → falló en mqtt
-  const errorStage = $derived.by(() => {
-    if (ackStage !== 'error') return null;
-    if (ackErrMsg.startsWith('CONCENTRADOR_ERROR')) return 'done';   // error en relay
-    if (ackErrMsg.startsWith('LORA_ERROR'))         return 'lora';   // error en LoRa
-    return 'mqtt';                                                    // error en gateway
-  });
-
   function stageStatus(key: typeof ORDER[number]): StageStatus {
     if (ackStage === 'idle') return 'pending';
-    if (ackStage === 'error' && errorStage !== null) {
+    if (ackStage === 'error') {
       const ki = ORDER.indexOf(key);
-      const ei = ORDER.indexOf(errorStage as typeof ORDER[number]);
-      if (ki < ei)  return 'done';
-      if (ki === ei) return 'error';
+      if (ki === 0) return 'done';
+      if (ki === 1) return 'error';
       return 'pending';
     }
     const ci = ORDER.indexOf(ackStage as typeof ORDER[number]);
@@ -189,23 +193,12 @@
             {:else if ss === 'error'}✕
             {:else}·{/if}
           </div>
-          <span class="ack-lbl">
-            {key === 'mqtt' ? 'Gateway' : key === 'lora' ? 'LoRa' : 'Relay'}
-          </span>
+          <span class="ack-lbl">{key === 'mqtt' ? 'MQTT' : key === 'lora' ? 'LoRa' : 'OK'}</span>
         </div>
       {/each}
-
       {#if ackStage === 'error' && ackErrMsg}
         <span class="ack-errtxt">{ackErrMsg}</span>
       {/if}
-
-      <!-- Cancelar manualmente si algo se cuelga -->
-      <button class="ack-cancel" onclick={() => {
-        clearDoneTimer();
-        processStore.offMqttAck(actuatorId);
-        ackStage = 'idle';
-        busy = false;
-      }} title="Cancelar seguimiento">×</button>
     </div>
   {/if}
 
@@ -268,13 +261,4 @@
 
   .ack-spinner { display:inline-block; width:9px; height:9px; border:1.5px solid #4a90d933; border-top-color:#4a90d9; border-radius:50%; animation:spin .65s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
-
-  .ack-cancel {
-    margin-left: 4px; padding: 0 5px; height: 18px; line-height: 1;
-    border: 0.5px solid var(--border-subtle); border-radius: 4px;
-    background: none; cursor: pointer; color: var(--text-muted);
-    font-size: calc(11px * var(--font-scale)); font-family: 'DM Mono', monospace;
-    flex-shrink: 0; align-self: center; margin-bottom: 10px;
-  }
-  .ack-cancel:hover { background: var(--interactive-hover); color: var(--text-secondary); }
 </style>

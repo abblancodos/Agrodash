@@ -54,9 +54,15 @@
       return configuredNodes.map((n: any) => {
         // Buscar el estado del agente por node_id (puede ser n.id o n.node_id)
         const agentState = pipelineState?.node_states?.[n.id] ?? null;
+        // Label descriptivo: campo libre que el operador puede poner en la config del nodo
+        // Fallback: topic MQTT, o el id del nodo
+        const label    = n.label ?? n.topic ?? '';
+        const payloadOn = n.payload_on ?? '';
         return {
           id:             n.id,
           type:           n.type,
+          label,
+          payloadOn,
           lastAction:     agentState?.data?.last_action ?? null,
           totalOn:        agentState?.data?.total_on ?? null,
           overrideActive: !!(pipelineState?.override_active),
@@ -70,6 +76,7 @@
       .map((n: any) => ({
         id:             n.node_id,
         type:           n.node_type,
+        label:          '',
         lastAction:     n.data?.last_action ?? null,
         totalOn:        n.data?.total_on ?? null,
         overrideActive: !!(pipelineState?.override_active),
@@ -178,6 +185,8 @@
       pipelineId={pipeline.id}
       actuatorId={act.id}
       actuatorType={act.type}
+      label={act.label}
+      payloadOn={act.payloadOn ?? ''}
       lastAction={act.lastAction}
       totalOn={act.totalOn}
       overrideActive={act.overrideActive}
