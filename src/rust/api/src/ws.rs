@@ -131,21 +131,16 @@ impl WsBroadcast {
         ack_topic: String,
     ) {
         let already_running = self.relay_shutdown.read().await.contains_key(&process_id);
-        if already_running { return; }
+        if already_running {
+            return;
+        }
 
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.relay_shutdown.write().await.insert(process_id, tx);
 
         let ws_clone = self.clone();
         tokio::spawn(crate::tasks::mqtt_relay::run(
-            process_id,
-            broker_url,
-            client_id,
-            username,
-            password,
-            ack_topic,
-            ws_clone,
-            rx,
+            process_id, broker_url, client_id, username, password, ack_topic, ws_clone, rx,
         ));
     }
 
@@ -232,12 +227,9 @@ async fn handle_socket(socket: WebSocket, state: AppState, process_id: Uuid, use
 
     // ── Lanzar relay MQTT si el proceso tiene broker configurado ──────────
     {
-        let cfg_row = sqlx::query!(
-            "SELECT config FROM processes WHERE id = $1",
-            process_id
-        )
-        .fetch_optional(&state.pool)
-        .await;
+        let cfg_row = sqlx::query!("SELECT config FROM processes WHERE id = $1", process_id)
+            .fetch_optional(&state.pool)
+            .await;
 
         if let Ok(Some(row)) = cfg_row {
             let cfg = &row.config;
@@ -257,18 +249,21 @@ async fn handle_socket(socket: WebSocket, state: AppState, process_id: Uuid, use
                     .map(str::to_string);
 
                 let relay_client_id = format!("agrodash-ws-relay-{process_id}");
-                let ack_topic = std::env::var("MQTT_ACK_TOPIC")
-                    .unwrap_or_else(|_| "ack/valvula".to_string());
+                let ack_topic =
+                    std::env::var("MQTT_ACK_TOPIC").unwrap_or_else(|_| "ack/valvula".to_string());
 
                 info!("WS: lanzando relay MQTT → {broker_url} topic={ack_topic}");
-                state.ws.ensure_mqtt_relay(
-                    process_id,
-                    broker_url,
-                    relay_client_id,
-                    username,
-                    password,
-                    ack_topic,
-                ).await;
+                state
+                    .ws
+                    .ensure_mqtt_relay(
+                        process_id,
+                        broker_url,
+                        relay_client_id,
+                        username,
+                        password,
+                        ack_topic,
+                    )
+                    .await;
             } else {
                 debug!("WS: proceso sin shared_connections.mqtt — relay no lanzado");
             }
@@ -400,7 +395,9 @@ async fn handle_client_msg(
 
     match msg.msg_type.as_str() {
         "ping" => {
-            sink.send(Message::Text(json!({ "type": "pong" }).to_string())).await.ok();
+            sink.send(Message::Text(json!({ "type": "pong" }).to_string()))
+                .await
+                .ok();
         }
 
         "command" => {
@@ -437,7 +434,8 @@ async fn handle_client_msg(
             // Reusar la lógica de send_command: construir el payload completo
             // y llamar al mismo traductor cmd→AgentCommand.
             // Re-usamos la función de traducción de processes.rs exponiéndola como pub(crate).
-            let pipeline_id = msg.payload
+            let pipeline_id = msg
+                .payload
                 .get("pipeline_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
@@ -459,13 +457,25 @@ async fn handle_client_msg(
                 Ok(agent_cmd) => {
                     // Escribir desired_state en DB igual que send_command HTTP.
                     // Sin esto el agente pierde el override si se reinicia.
-                    let cmd_str = msg.payload.get("cmd").and_then(|v| v.as_str()).unwrap_or("");
-                    let act_id  = msg.payload.get("actuator_id").and_then(|v| v.as_str())
-                        .unwrap_or("__all__").to_string();
+                    let cmd_str = msg
+                        .payload
+                        .get("cmd")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let act_id = msg
+                        .payload
+                        .get("actuator_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("__all__")
+                        .to_string();
                     let pid = key.pipeline_id.clone();
                     match cmd_str {
                         "Override" => {
-                            let action_str = msg.payload.get("action").and_then(|v| v.as_str()).unwrap_or("hold");
+                            let action_str = msg
+                                .payload
+                                .get("action")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("hold");
                             sqlx::query!(
                                 r#"INSERT INTO pipeline_states (process_id, pipeline_id, override_action, updated_at)
                                    VALUES ($1, $2, $3, now())
