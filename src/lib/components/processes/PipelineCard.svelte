@@ -115,18 +115,21 @@
   // ── Sparkline data ────────────────────────────────────────────────────────
   function sparkData(l: any): number[] {
     const t = l.nodeType;
-    return readings.map((r: ProcessReading) => {
+    return readings.flatMap((r: ProcessReading): number[] => {
+      let v: number;
       if (['hysteresis','sprt','mqtt_actuator','http_actuator'].includes(t)) {
-        const v = r.scope_values?.[l.tag];
-        if (v === 'on')  return 1;
-        if (v === 'off') return 0;
-        return r.actuator === 'on' ? 1 : 0;
+        const sv = r.scope_values?.[l.tag];
+        if (sv === 'on')  v = 1;
+        else if (sv === 'off') v = 0;
+        else v = r.actuator === 'on' ? 1 : 0;
+      } else if (t === 'mahalanobis') {
+        const d = r.scope_values?.[l.tag + ':d'];
+        v = typeof d === 'number' ? d : (r.filtered?.[0] ?? NaN);
+      } else {
+        v = r.filtered?.[0] ?? r.raw?.[0] ?? NaN;
       }
-      if (t === 'mahalanobis') {
-        return r.scope_values?.[l.tag + ':d'] ?? r.filtered?.[0] ?? NaN;
-      }
-      return r.filtered?.[0] ?? r.raw?.[0] ?? NaN;
-    }).filter((v: number) => isFinite(v));
+      return isFinite(v) ? [v] : [];
+    });
   }
 
   const sensorLabels = $derived.by(() =>
@@ -173,7 +176,7 @@
 
     <!-- Gráfico expandido -->
     {#if expandedId !== null}
-      {@const lg = loggers.find(l => l.id === expandedId)}
+      {@const lg = loggers.find((l: any) => l.id === expandedId)}
       {#if lg}
         <div class="chart-panel">
           <PipelineChart
