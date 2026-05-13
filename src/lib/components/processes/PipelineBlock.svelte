@@ -121,7 +121,7 @@
                   const val = (e.target as HTMLSelectElement).value;
                   const found = availableSensors.find(x => x.id === val);
                   const sensors = [...(node.sensors ?? [])];
-                  sensors[i] = { id: val, label: found?.label.split('·')[2]?.trim() ?? '' };
+                  sensors[i] = { id: val, label: found?.label?.split('·')[2]?.trim() ?? '' };
                   set('sensors', sensors);
                 }}>
                 <option value="">— elegir —</option>
@@ -358,6 +358,12 @@
 
       <!-- ── mqtt_actuator ── -->
       {:else if node.type === 'mqtt_actuator'}
+        <div class="field">
+          <label>nombre descriptivo <span class="hint">se muestra en el monitor</span></label>
+          <input class="inp" value={node.label ?? ''}
+            oninput={(e) => set('label', (e.target as HTMLInputElement).value)}
+            placeholder="ej: Válvula zona norte" />
+        </div>
         <div class="field">
           <label>topic</label>
           <input class="inp mono" value={node.topic ?? ''}
