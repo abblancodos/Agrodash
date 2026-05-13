@@ -23,20 +23,22 @@
   let error     = $state('');
   let doneTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Valve key y displayName — defensivos ante payloadOn undefined/null
+  // Valve key: número extraído de payload_on (ej. "on,5" → "5")
   const valveKey = $derived.by(() => {
     const p = payloadOn ?? '';
     return p.includes(',') ? (p.split(',')[1]?.trim() ?? actuatorId) : actuatorId;
   });
+  // Snapshot para onDestroy — por si los props se limpian antes del teardown
+  let _valveKey = actuatorId;
+  $effect(() => { _valveKey = valveKey; });
+
+  // Nombre a mostrar
   const displayName = $derived.by(() => {
     if (label?.trim()) return label.trim();
     const p = payloadOn ?? '';
     if (p.includes(',')) return `Válvula ${p.split(',')[1]?.trim() ?? ''}`;
     return actuatorType ?? '';
   });
-  // Snapshot para onDestroy — por si los props se limpian antes que el efecto
-  let _valveKey = actuatorId;
-  $effect(() => { _valveKey = valveKey; });
 
   function clearDoneTimer() {
     if (doneTimer) { clearTimeout(doneTimer); doneTimer = null; }
