@@ -18,6 +18,17 @@ pub mod watchdog;
 
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
+/// Contexto del pipeline que se pasa a cada nodo en cada ciclo.
+/// Permite que los nodos (especialmente actuadores) sepan en qué proceso
+/// están corriendo para publicar eventos via pg_notify.
+#[derive(Clone, Debug)]
+pub struct NodeContext {
+    pub process_id:  String,
+    pub pipeline_id: String,
+    pub node_id:     String,
+    pub node_label:  Option<String>,
+}
+
 #[async_trait]
 pub trait NodeInstance: Send + Sync {
     async fn execute(
@@ -25,6 +36,7 @@ pub trait NodeInstance: Send + Sync {
         inputs: Vec<Signal>,
         dt: f64,
         pool: &PgPool,
+        ctx: &NodeContext,
     ) -> Result<Option<Signal>>;
 
     async fn execute_override(&mut self, action: NodeAction) -> Result<Option<Signal>> {

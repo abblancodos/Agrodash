@@ -275,12 +275,13 @@ impl NodeInstance for MqttActuatorNode {
         inputs: Vec<Signal>,
         _dt: f64,
         pool: &PgPool,
+        ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
         let action = match inputs.first() {
             Some(Signal::Action(a)) => a.clone(),
             _ => return Ok(None),
         };
-        self.execute_override_with_pool(action, pool).await
+        self.execute_with_ctx(action, pool, ctx).await
     }
 
     async fn execute_override(&mut self, action: NodeAction) -> Result<Option<Signal>> {
@@ -337,11 +338,12 @@ impl NodeInstance for MqttActuatorNode {
 }
 
 impl MqttActuatorNode {
-    /// Variante de execute_override con acceso al pool para lanzar el watcher de stages.
-    async fn execute_override_with_pool(
+    /// Variante de execute con acceso al pool y contexto para lanzar el watcher de stages.
+    async fn execute_with_ctx(
         &mut self,
         action: NodeAction,
         pool:   &PgPool,
+        ctx:    &super::NodeContext,
     ) -> Result<Option<Signal>> {
         let changed = match &action {
             NodeAction::On  => self.last_action != Some(NodeAction::On),
@@ -390,8 +392,8 @@ impl MqttActuatorNode {
                     match &action { NodeAction::On => "on", _ => "off" }.into(),
                     payload,
                     pool.clone(),
-                    "unknown_process".into(),   // ← se resuelve en el siguiente paso
-                    "unknown_pipeline".into(),  // ← se resuelve en el siguiente paso
+                    ctx.process_id.clone(),
+                    ctx.pipeline_id.clone(),
                 );
             }
         }
@@ -453,7 +455,7 @@ impl HttpActuatorNode {
 
 #[async_trait]
 impl NodeInstance for HttpActuatorNode {
-    async fn execute(&mut self, inputs: Vec<Signal>, _dt: f64, _pool: &PgPool) -> Result<Option<Signal>> {
+    async fn execute(&mut self, inputs: Vec<Signal>, _dt: f64, _pool: &PgPool, _ctx: &super::NodeContext) -> Result<Option<Signal>> {
         let action = match inputs.first() { Some(Signal::Action(a)) => a.clone(), _ => return Ok(None) };
         self.execute_override(action).await
     }

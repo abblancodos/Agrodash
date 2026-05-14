@@ -173,7 +173,10 @@ impl PipelineGraph {
         pool: &PgPool,
         dt: f64,
         overrides: &HashMap<String, NodeAction>,
+        process_id: &str,
+        pipeline_id: &str,
     ) -> Result<HashMap<String, Signal>> {
+        use super::NodeContext;
         let mut signals: HashMap<String, Signal> = HashMap::new();
 
         for node_id in &self.topo.clone() {
@@ -184,14 +187,26 @@ impl PipelineGraph {
                 .get_mut(node_id)
                 .context(format!("Nodo '{node_id}' no encontrado"))?;
 
+            let ns = node.save_state();
+            let node_label = ns.data.get("label")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+
+            let ctx = NodeContext {
+                process_id:  process_id.to_string(),
+                pipeline_id: pipeline_id.to_string(),
+                node_id:     node_id.clone(),
+                node_label,
+            };
+
             let output = if node.is_actuator() {
                 if let Some(action) = overrides.get(node_id) {
                     node.execute_override(action.clone()).await?
                 } else {
-                    node.execute(inputs, dt, pool).await?
+                    node.execute(inputs, dt, pool, &ctx).await?
                 }
             } else {
-                node.execute(inputs, dt, pool).await?
+                node.execute(inputs, dt, pool, &ctx).await?
             };
 
             if let Some(sig) = output {
