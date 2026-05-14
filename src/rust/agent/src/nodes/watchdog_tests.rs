@@ -16,6 +16,7 @@
 //   cargo test -p agrodash-agent watchdog -- --nocapture
 
 use super::*;
+use crate::nodes::NodeContext;
 use agrodash_shared::{NodeAction, NodeState, Signal, Trend, WatchdogConfig, WatchdogMode};
 
 fn test_ctx() -> NodeContext {
