@@ -24,6 +24,7 @@ impl NodeInstance for ConcatNode {
         inputs: Vec<Signal>,
         _dt: f64,
         _pool: &PgPool,
+        _ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
         let mut out = vec![];
         for sig in &inputs {
@@ -61,6 +62,7 @@ impl NodeInstance for WeightedMeanNode {
         inputs: Vec<Signal>,
         _dt: f64,
         _pool: &PgPool,
+        _ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
         if inputs.is_empty() {
             return Ok(None);
@@ -112,6 +114,7 @@ impl NodeInstance for LoggerNode {
         inputs: Vec<Signal>,
         _dt: f64,
         _pool: &PgPool,
+        _ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
         if let Some(sig) = inputs.first() {
             tracing::debug!("[Logger:{}] {:?}", self.tag, sig);
@@ -149,6 +152,7 @@ impl NodeInstance for SelectNode {
         inputs: Vec<Signal>,
         _dt: f64,
         _pool: &PgPool,
+        _ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
         let v = expect_vector(
             inputs
@@ -194,6 +198,7 @@ impl NodeInstance for LinearScaleNode {
         inputs: Vec<Signal>,
         _dt: f64,
         _pool: &PgPool,
+        _ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
         let x = expect_vector(
             inputs

@@ -146,6 +146,7 @@ impl NodeInstance for MahalanobisNode {
         inputs: Vec<Signal>,
         _dt: f64,
         _pool: &PgPool,
+        _ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
         let x = expect_vector(
             inputs
@@ -302,6 +303,7 @@ impl NodeInstance for HysteresisNode {
         inputs: Vec<Signal>,
         _dt: f64,
         _pool: &PgPool,
+        _ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
         let x = expect_vector(
             inputs
@@ -429,6 +431,7 @@ impl NodeInstance for SprtNode {
         inputs: Vec<Signal>,
         _dt: f64,
         _pool: &PgPool,
+        _ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
         let x = expect_vector(
             inputs

@@ -24,6 +24,7 @@ impl NodeInstance for PostgresSensorNode {
         _inputs: Vec<Signal>,
         _dt: f64,
         pool: &PgPool,
+        _ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
         let ids: Vec<uuid::Uuid> = self
             .config

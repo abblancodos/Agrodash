@@ -293,7 +293,13 @@ async fn run_loop(
         let result = {
             let mut graph = shared.graph.write().await;
             graph
-                .run_cycle(pool, interval.as_secs_f64(), &ov_snapshot)
+                .run_cycle(
+                        pool,
+                        interval.as_secs_f64(),
+                        &ov_snapshot,
+                        &shared.process_id.to_string(),
+                        &shared.pipeline_id,
+                    )
                 .await
         };
 

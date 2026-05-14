@@ -437,6 +437,7 @@ impl NodeInstance for WatchdogNode {
         inputs: Vec<Signal>,
         _dt: f64,
         _pool: &PgPool,
+        _ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
         // Clasificamos los inputs por puerto.
         // El agente los entrega en el orden en que están los edges en el grafo,

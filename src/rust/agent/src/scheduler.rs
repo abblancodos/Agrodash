@@ -176,7 +176,7 @@ impl PipelineGraph {
         process_id: &str,
         pipeline_id: &str,
     ) -> Result<HashMap<String, Signal>> {
-        use super::NodeContext;
+        use crate::nodes::NodeContext;
         let mut signals: HashMap<String, Signal> = HashMap::new();
 
         for node_id in &self.topo.clone() {
@@ -239,7 +239,11 @@ impl PipelineGraph {
                 continue;
             }
 
-            let output = node.execute(inputs, dt, pool).await?;
+            let ctx = crate::nodes::NodeContext {
+                process_id: String::new(), pipeline_id: String::new(),
+                node_id: node_id.clone(), node_label: None,
+            };
+            let output = node.execute(inputs, dt, pool, &ctx).await?;
             if let Some(sig) = output {
                 signals.insert(node_id.clone(), sig);
             }

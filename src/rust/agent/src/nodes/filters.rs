@@ -59,6 +59,7 @@ impl NodeInstance for KalmanNode {
         inputs: Vec<Signal>,
         dt: f64,
         _pool: &PgPool,
+        _ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
         let z = expect_vector(
             inputs
@@ -149,6 +150,7 @@ impl NodeInstance for MovingAvgNode {
         inputs: Vec<Signal>,
         _dt: f64,
         _pool: &PgPool,
+        _ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
         let z = expect_vector(
             inputs
@@ -226,6 +228,7 @@ impl NodeInstance for EwmaNode {
         inputs: Vec<Signal>,
         _dt: f64,
         _pool: &PgPool,
+        _ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
         let z = expect_vector(
             inputs
@@ -295,6 +298,7 @@ impl NodeInstance for LowpassNode {
         inputs: Vec<Signal>,
         dt: f64,
         _pool: &PgPool,
+        _ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
         let z = expect_vector(
             inputs
@@ -354,6 +358,7 @@ impl NodeInstance for PassthroughNode {
         inputs: Vec<Signal>,
         _dt: f64,
         _pool: &PgPool,
+        _ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
         Ok(inputs.into_iter().next())
     }

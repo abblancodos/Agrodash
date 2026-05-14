@@ -162,6 +162,7 @@ impl NodeInstance for MqttSubscriberNode {
         _inputs: Vec<Signal>,
         _dt: f64,
         _pool: &PgPool,
+        _ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
         let (action, stale) = self.read_action();
         if stale {
