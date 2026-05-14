@@ -188,14 +188,16 @@ impl PipelineGraph {
                 .context(format!("Nodo '{node_id}' no encontrado"))?;
 
             let ns = node.save_state();
-            let node_label = ns.data.get("label")
+            let node_label = ns
+                .data
+                .get("label")
                 .and_then(|v| v.as_str())
                 .map(String::from);
 
             let ctx = NodeContext {
-                process_id:  process_id.to_string(),
+                process_id: process_id.to_string(),
                 pipeline_id: pipeline_id.to_string(),
-                node_id:     node_id.clone(),
+                node_id: node_id.clone(),
                 node_label,
             };
 

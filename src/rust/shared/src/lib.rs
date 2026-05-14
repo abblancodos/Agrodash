@@ -258,13 +258,15 @@ impl AckStage {
     }
 
     pub fn matches(&self, msg: &str, action: &str, payload: &str) -> bool {
-        self.match_prefix.as_deref()
+        self.match_prefix
+            .as_deref()
             .map(|p| msg.starts_with(&Self::interpolate(p, action, payload)))
             .unwrap_or(false)
     }
 
     pub fn is_error(&self, msg: &str, action: &str, payload: &str) -> bool {
-        self.error_prefix.as_deref()
+        self.error_prefix
+            .as_deref()
             .map(|p| msg.starts_with(&Self::interpolate(p, action, payload)))
             .unwrap_or(false)
     }
@@ -272,22 +274,22 @@ impl AckStage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MqttActuatorConfig {
-    pub connection:  ConnectionRef,
-    pub topic:       String,
-    pub payload_on:  String,
+    pub connection: ConnectionRef,
+    pub topic: String,
+    pub payload_on: String,
     pub payload_off: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub retain:      Option<bool>,
+    pub retain: Option<bool>,
     /// Nombre corto del actuador — redundante con NodeConfig.label pero
     /// accesible desde el config del nodo sin buscar en NodeConfig.
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub label:       Option<String>,
+    pub label: Option<String>,
     /// Topic MQTT donde llegan las confirmaciones de etapas.
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub ack_topic:   Option<String>,
+    pub ack_topic: Option<String>,
     /// Etapas de confirmación en orden. Requiere ack_topic.
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub stages:      Option<Vec<AckStage>>,
+    pub stages: Option<Vec<AckStage>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
