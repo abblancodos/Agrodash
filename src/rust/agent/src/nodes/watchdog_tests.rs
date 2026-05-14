@@ -18,6 +18,15 @@
 use super::*;
 use agrodash_shared::{NodeAction, NodeState, Signal, Trend, WatchdogConfig, WatchdogMode};
 
+fn test_ctx() -> NodeContext {
+    NodeContext {
+        process_id:  "test".into(),
+        pipeline_id: "test".into(),
+        node_id:     "test".into(),
+        node_label:  None,
+    }
+}
+
 // ── Helpers de configuración ──────────────────────────────────────────────────
 
 fn cfg_good(max_retries: u32, timeout_secs: u64) -> WatchdogConfig {
@@ -81,7 +90,7 @@ async fn run(
         inputs.push(Signal::Vector(sig));
     }
     match wd
-        .execute(inputs, 1.0, pool)
+        .execute(inputs, 1.0, pool, &test_ctx())
         .await
         .expect("execute no debe fallar en helper de test")
     {
@@ -336,7 +345,7 @@ async fn ejecuta_con_entrada_valida() {
     let pool = pool().await;
     let mut wd = WatchdogNode::new("wd".into(), cfg_good(2, 30));
     let res = wd
-        .execute(vec![Signal::Action(NodeAction::On)], 1.0, &pool)
+        .execute(vec![Signal::Action(NodeAction::On)], 1.0, &pool, &test_ctx())
         .await;
     assert!(res.is_ok(), "execute falló con entrada válida: {:?}", res);
 }
@@ -346,7 +355,7 @@ async fn ejecuta_con_entrada_valida() {
 async fn entrada_vacia_retorna_hold() {
     let pool = pool().await;
     let mut wd = WatchdogNode::new("wd".into(), cfg_good(2, 30));
-    let res = wd.execute(vec![], 1.0, &pool).await;
+    let res = wd.execute(vec![], 1.0, &pool, &test_ctx()).await;
     match res {
         Ok(Some(Signal::Action(NodeAction::Hold))) | Ok(None) | Err(_) => {}
         Ok(Some(sig)) => panic!("con entrada vacía se esperaba Hold, got {:?}", sig),
