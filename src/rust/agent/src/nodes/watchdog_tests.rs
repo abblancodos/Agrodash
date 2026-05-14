@@ -20,10 +20,10 @@ use agrodash_shared::{NodeAction, NodeState, Signal, Trend, WatchdogConfig, Watc
 
 fn test_ctx() -> NodeContext {
     NodeContext {
-        process_id:  "test".into(),
+        process_id: "test".into(),
         pipeline_id: "test".into(),
-        node_id:     "test".into(),
-        node_label:  None,
+        node_id: "test".into(),
+        node_label: None,
     }
 }
 
@@ -345,7 +345,12 @@ async fn ejecuta_con_entrada_valida() {
     let pool = pool().await;
     let mut wd = WatchdogNode::new("wd".into(), cfg_good(2, 30));
     let res = wd
-        .execute(vec![Signal::Action(NodeAction::On)], 1.0, &pool, &test_ctx())
+        .execute(
+            vec![Signal::Action(NodeAction::On)],
+            1.0,
+            &pool,
+            &test_ctx(),
+        )
         .await;
     assert!(res.is_ok(), "execute falló con entrada válida: {:?}", res);
 }
