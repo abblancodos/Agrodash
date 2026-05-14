@@ -42,6 +42,10 @@ pub struct NodePosition {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeConfig {
     pub id: String,
+    /// Nombre descriptivo libre — mostrado en el monitor y en el NodeCanvas.
+    /// Opcional, no afecta la lógica del agente.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     #[serde(flatten)]
     pub kind: NodeKind,
 }
@@ -221,13 +225,100 @@ pub struct SprtConfig {
 
 // ── Actuadores ────────────────────────────────────────────────────────────────
 
+/// Una etapa de confirmación en el pipeline de comunicación de un actuador.
+///
+/// Cuando el actuador manda un comando, el agente suscribe `ack_topic` y avanza
+/// por las etapas en orden. Cada etapa espera un mensaje que matchee su patrón.
+///
+/// # Interpolación en los patrones
+/// Los siguientes placeholders se reemplazan con el contexto del comando:
+///   `{action}` → "ON" o "OFF"
+///   `{payload}` → el payload completo enviado (ej. "on,5")
+///   `{valve}`   → la parte después de la coma en payload_on (ej. "5")
+///
+/// # Ejemplo para el sistema BioCarbón
+/// ```json
+/// { "name": "Gateway",      "match_prefix": "MQTT_RECIBIDO:{action},{valve}", "timeout_secs": 3  }
+/// { "name": "LoRa",         "match_prefix": "LORA_ENVIANDO:{action},{valve}", "timeout_secs": 8  }
+/// { "name": "Concentrador", "match_prefix": "CONCENTRADOR:Relay{valve}",      "timeout_secs": 15, "terminal": true }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AckStage {
+    /// Nombre visible en el monitor (ej. "Gateway", "LoRa", "Concentrador")
+    pub name: String,
+
+    /// Prefijo que debe tener el mensaje MQTT para que esta etapa avance.
+    /// Soporta placeholders: {action}, {payload}, {valve}
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub match_prefix: Option<String>,
+
+    /// Prefijo que indica fallo explícito — termina el flujo con error en esta etapa.
+    /// Si es None, solo falla por timeout.
+    /// Ej: "LORA_ERROR", "CONCENTRADOR_ERROR"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_prefix: Option<String>,
+
+    /// Segundos máximos esperando esta etapa antes de considerarla timeout.
+    pub timeout_secs: f64,
+
+    /// Si true, esta etapa marca el éxito definitivo del comando.
+    /// Sin esta flag, todas las etapas son intermedias y el éxito
+    /// se marca al completar la última.
+    #[serde(default)]
+    pub terminal: bool,
+}
+
+impl AckStage {
+    /// Interpola placeholders en un patrón usando el contexto del comando.
+    pub fn interpolate(pattern: &str, action: &str, payload: &str) -> String {
+        let valve = payload.split_once(',').map(|(_, v)| v).unwrap_or(payload);
+        pattern
+            .replace("{action}", &action.to_uppercase())
+            .replace("{payload}", payload)
+            .replace("{valve}", valve)
+    }
+
+    /// Verifica si `msg` matchea el `match_prefix` interpolado.
+    pub fn matches(&self, msg: &str, action: &str, payload: &str) -> bool {
+        if let Some(pat) = &self.match_prefix {
+            let expanded = Self::interpolate(pat, action, payload);
+            msg.starts_with(&expanded)
+        } else {
+            false
+        }
+    }
+
+    /// Verifica si `msg` indica un error explícito para esta etapa.
+    pub fn is_error(&self, msg: &str, action: &str, payload: &str) -> bool {
+        if let Some(pat) = &self.error_prefix {
+            let expanded = Self::interpolate(pat, action, payload);
+            msg.starts_with(&expanded)
+        } else {
+            false
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MqttActuatorConfig {
-    pub connection: ConnectionRef,
-    pub topic: String,
-    pub payload_on: String,
+    pub connection:  ConnectionRef,
+    pub topic:       String,
+    pub payload_on:  String,
     pub payload_off: String,
-    pub retain: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retain:      Option<bool>,
+
+    // ── Confirmación por etapas ──────────────────────────────────────────────
+    /// Topic MQTT a suscribir para recibir confirmaciones.
+    /// Si None, el actuador es fire-and-forget (comportamiento anterior).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ack_topic: Option<String>,
+
+    /// Etapas de confirmación en orden. Requiere `ack_topic`.
+    /// Si está vacío o ausente con `ack_topic` presente, se reporta el mensaje
+    /// raw sin interpretación de etapas.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stages: Option<Vec<AckStage>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -476,21 +567,6 @@ pub struct AgentCmdResult {
     pub message: String,
     pub data: Option<serde_json::Value>,
     pub ts: String,
-}
-
-// ── Eventos agente → API (via PG NOTIFY) ──────────────────────────────────────
-// El agente publica en canal "ws_event_{process_id}" para que la API
-// los forwarda por WebSocket a los clientes conectados.
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "event", rename_all = "snake_case")]
-pub enum AgentEvent {
-    /// ACK recibido del gateway MQTT (ack/valvula)
-    MqttAck {
-        pipeline_id: String,
-        actuator_id: String,
-        msg: String,
-    },
 }
 
 #[cfg(test)]

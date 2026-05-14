@@ -23,22 +23,20 @@
   let error     = $state('');
   let doneTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Valve key: número extraído de payload_on (ej. "on,5" → "5")
+  // Valve key y displayName — defensivos ante payloadOn undefined/null
   const valveKey = $derived.by(() => {
     const p = payloadOn ?? '';
     return p.includes(',') ? (p.split(',')[1]?.trim() ?? actuatorId) : actuatorId;
   });
-  // Snapshot para onDestroy — por si los props se limpian antes del teardown
-  let _valveKey = actuatorId;
-  $effect(() => { _valveKey = valveKey; });
-
-  // Nombre a mostrar
   const displayName = $derived.by(() => {
     if (label?.trim()) return label.trim();
     const p = payloadOn ?? '';
     if (p.includes(',')) return `Válvula ${p.split(',')[1]?.trim() ?? ''}`;
     return actuatorType ?? '';
   });
+  // Snapshot para onDestroy — por si los props se limpian antes que el efecto
+  let _valveKey = actuatorId;
+  $effect(() => { _valveKey = valveKey; });
 
   function clearDoneTimer() {
     if (doneTimer) { clearTimeout(doneTimer); doneTimer = null; }
@@ -49,8 +47,51 @@
     processStore.offMqttAck(actuatorId);
   }
 
+  // Nombres de etapas dinámicos — se llenan desde los eventos estructurados
+  let dynStageNames = $state<string[]>([]);
+  let dynStageIndex = $state(0);  // índice de la última etapa activa
+
   function onAckMsg(raw: string) {
     ackRawMsg = raw;
+
+    // ── Protocolo nuevo: evento JSON estructurado ──────────────────────────
+    // El agente publica { stage_index, stage_name, status, message, ... }
+    try {
+      const evt = JSON.parse(raw) as {
+        stage_index: number; stage_name: string; status: string; message: string;
+      };
+      if (typeof evt.stage_name === 'string' && typeof evt.status === 'string') {
+        // Registrar nombre de etapa dinámicamente
+        const names = [...dynStageNames];
+        while (names.length <= evt.stage_index) names.push(`Etapa ${names.length + 1}`);
+        names[evt.stage_index] = evt.stage_name;
+        dynStageNames = names;
+        dynStageIndex = evt.stage_index;
+        ackRawMsg     = evt.message || evt.stage_name;
+
+        if (evt.status === 'waiting') {
+          ackStage = 'lora'; // "en progreso"
+        } else if (evt.status === 'ok') {
+          // Si no hay más etapas conocidas → done
+          const isTerminal = evt.stage_index >= dynStageNames.length - 1;
+          if (isTerminal) {
+            ackStage = 'done';
+            clearDoneTimer(); busy = false; unregister();
+            doneTimer = setTimeout(() => {
+              ackStage = 'idle'; ackRawMsg = '';
+              dynStageNames = []; dynStageIndex = 0;
+            }, 3000);
+          }
+          // Si no es terminal, seguir esperando — la siguiente etapa mandará 'waiting'
+        } else if (evt.status === 'error') {
+          ackStage = 'error'; ackErrMsg = evt.message;
+          clearDoneTimer(); busy = false; error = evt.message; unregister();
+        }
+        return;
+      }
+    } catch { /* no es JSON → protocolo legacy */ }
+
+    // ── Protocolo legacy: strings raw (BioCarbón actual) ──────────────────
     if (raw.startsWith('MQTT_RECIBIDO') || raw.startsWith('MQTT_OVERRIDE')) {
       ackStage = 'mqtt';
     } else if (raw.startsWith('LORA_ENVIANDO')) {
@@ -119,6 +160,13 @@
   const ORDER: StageKey[] = ['mqtt','lora','done'];
   const LABELS: Record<StageKey,string> = { mqtt:'Gateway', lora:'LoRa', done:'Relay' };
 
+  // Nombres de etapas: usa los dinámicos del nuevo protocolo si existen,
+  // si no los hardcodeados del protocolo legacy
+  const stageLabel = $derived.by(() => (key: StageKey, i: number): string => {
+    if (dynStageNames.length > 0 && i < dynStageNames.length) return dynStageNames[i];
+    return LABELS[key];
+  });
+
   const errorStage = $derived.by((): StageKey | null => {
     if (ackStage !== 'error') return null;
     if (ackErrMsg.startsWith('CONCENTRADOR_ERROR')) return 'done';
@@ -177,7 +225,7 @@
               {:else if ss==='error'}✕
               {:else}·{/if}
             </div>
-            <span class="albl">{LABELS[key]}</span>
+            <span class="albl">{stageLabel(key, i)}</span>
           </div>
         {/each}
       </div>
