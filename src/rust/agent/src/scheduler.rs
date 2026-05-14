@@ -240,8 +240,10 @@ impl PipelineGraph {
             }
 
             let ctx = crate::nodes::NodeContext {
-                process_id: String::new(), pipeline_id: String::new(),
-                node_id: node_id.clone(), node_label: None,
+                process_id: String::new(),
+                pipeline_id: String::new(),
+                node_id: node_id.clone(),
+                node_label: None,
             };
             let output = node.execute(inputs, dt, pool, &ctx).await?;
             if let Some(sig) = output {
