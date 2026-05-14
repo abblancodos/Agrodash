@@ -22,6 +22,7 @@ pub mod watchdog;
 /// Permite que los nodos (especialmente actuadores) sepan en qué proceso
 /// están corriendo para publicar eventos via pg_notify.
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct NodeContext {
     pub process_id: String,
     pub pipeline_id: String,

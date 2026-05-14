@@ -114,7 +114,7 @@ impl MqttActuatorNode {
                             (std::str::from_utf8(&msg.payload), &inbox_tx)
                         {
                             // fire-and-forget; si el receiver se cerró, ignorar
-                            let _ = tx.send(payload.to_string());
+                            tx.send(payload.to_string()).ok();
                         }
                     }
                     Ok(_) => {
@@ -316,11 +316,12 @@ async fn notify_stage(
         "payload":     payload,
     });
     if let Ok(json) = serde_json::to_string(&data) {
-        let _ = sqlx::query("SELECT pg_notify($1, $2)")
+        sqlx::query("SELECT pg_notify($1, $2)")
             .bind(&channel)
             .bind(&json)
             .execute(pool)
-            .await;
+            .await
+            .ok();
     }
 }
 
