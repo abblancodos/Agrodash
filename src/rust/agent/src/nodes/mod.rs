@@ -166,19 +166,24 @@ pub fn resolve_mqtt_connection(
             .mqtt
             .clone()
             .ok_or_else(|| anyhow::anyhow!("Conexión inline sin campo mqtt")),
-        ConnectionRef::Named(other) if other.starts_with("mqtt://") || other.starts_with("mqtts://") => {
+        ConnectionRef::Named(other)
+            if other.starts_with("mqtt://") || other.starts_with("mqtts://") =>
+        {
             // URL inline como string — construir MqttConnection directamente
-            let url = other.trim_start_matches("mqtt://").trim_start_matches("mqtts://");
-            let (host, port) = url.split_once(':')
+            let url = other
+                .trim_start_matches("mqtt://")
+                .trim_start_matches("mqtts://");
+            let (host, port) = url
+                .split_once(':')
                 .map(|(h, p)| (h.to_string(), p.parse::<u16>().unwrap_or(1883)))
                 .unwrap_or((url.to_string(), 1883));
             Ok(MqttConnection {
-                broker_url:     other.clone(),
-                client_id:      format!("agrodash-act-{}", uuid::Uuid::new_v4()),
-                username:       None,
-                password:       None,
+                broker_url: other.clone(),
+                client_id: format!("agrodash-act-{}", uuid::Uuid::new_v4()),
+                username: None,
+                password: None,
                 keepalive_secs: Some(30),
-                qos:            Some(1),
+                qos: Some(1),
             })
         }
         ConnectionRef::Named(other) => {
