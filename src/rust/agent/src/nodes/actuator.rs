@@ -43,6 +43,7 @@ pub struct ActuatorNode {
     sprt_llr: f64,
 
     // Mahalanobis — covarianza adaptativa del Kalman (si use_kalman_p)
+    #[allow(dead_code)]
     kalman_p: Option<Vec<f64>>,
 
     // Override manual (API → nodo)
