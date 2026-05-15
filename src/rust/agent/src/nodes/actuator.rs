@@ -123,7 +123,7 @@ impl ActuatorNode {
 
         let (conn_ref, ack_topic) = match &self.cfg.output {
             OutputMethod::Mqtt {
-                connection: _,
+                connection,
                 ack_topic,
                 ..
             } => (connection.clone(), ack_topic.clone()),
@@ -322,7 +322,7 @@ impl ActuatorNode {
             }
 
             OutputMethod::Http {
-                connection: _,
+                connection,
                 path_on,
                 path_off,
                 body_on,
