@@ -623,7 +623,7 @@
                   const stages = [...(node.stages ?? [])];
                   stages[si] = { ...stage, match_prefix: (e.target as HTMLInputElement).value || null };
                   set('stages', stages);
-                }} placeholder="MQTT_RECIBIDO:{action},{valve}" />
+                }} placeholder={"MQTT_RECIBIDO:{action},{valve}"} />
             </div>
             <div class="field-row">
               <div class="field">

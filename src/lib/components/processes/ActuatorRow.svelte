@@ -35,7 +35,7 @@
     return actuatorType ?? '';
   });
   // Snapshot para onDestroy — por si los props se limpian antes que el efecto
-  let _valveKey = actuatorId;
+  let _valveKey = $state(actuatorId);
   $effect(() => { _valveKey = valveKey; });
 
   function clearDoneTimer() {
