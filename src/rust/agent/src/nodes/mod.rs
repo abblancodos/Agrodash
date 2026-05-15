@@ -1,7 +1,6 @@
 // agent/src/nodes/mod.rs
 
 use actuator::ActuatorNode;
-use actuator::ActuatorNode;
 use agrodash_shared::{
     ConnectionRef, HttpConnection, MqttConnection, NodeAction, NodeConfig, NodeKind, NodeState,
     SharedConnections, Signal,
@@ -19,6 +18,16 @@ pub mod subscriber;
 pub mod utils;
 pub mod watchdog;
 
+/// Contexto del pipeline pasado a cada nodo en cada ciclo.
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct NodeContext {
+    pub process_id:  String,
+    pub pipeline_id: String,
+    pub node_id:     String,
+    pub node_label:  Option<String>,
+}
+
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
 #[async_trait]
@@ -28,6 +37,7 @@ pub trait NodeInstance: Send + Sync {
         inputs: Vec<Signal>,
         dt: f64,
         pool: &PgPool,
+        ctx: &NodeContext,
     ) -> Result<Option<Signal>>;
 
     async fn execute_override(&mut self, action: NodeAction) -> Result<Option<Signal>> {

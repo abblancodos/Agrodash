@@ -38,12 +38,7 @@ impl MqttActuatorNode {
             _ => QoS::AtLeastOnce,
         };
 
-        let (inbox_tx, inbox_rx) = if cfg.ack_topic.is_some() {
-            let (tx, rx) = mpsc::unbounded_channel::<String>();
-            (Some(tx), Some(rx))
-        } else {
-            (None, None)
-        };
+        let (inbox_tx, inbox_rx): (Option<tokio::sync::mpsc::UnboundedSender<String>>, Option<tokio::sync::mpsc::UnboundedReceiver<String>>) = (None, None);
 
         let mut node = Self {
             id,
@@ -80,7 +75,7 @@ impl MqttActuatorNode {
         }
 
         let (client, mut eventloop) = AsyncClient::new(opts, 32);
-        let ack_topic = self.cfg.ack_topic.clone();
+        let ack_topic: Option<String> = None; // ack_topic not in MqttActuatorConfig
         let client_clone = client.clone();
         let node_id = self.id.clone();
 
@@ -173,10 +168,7 @@ impl MqttActuatorNode {
         process_id: String,
         pipeline_id: String,
     ) {
-        let stages = match &self.cfg.stages {
-            Some(s) if !s.is_empty() => s.clone(),
-            _ => return,
-        };
+        let stages: Option<&Vec<agrodash_shared::AckStage>> = None;
 
         let node_id = self.id.clone();
         let mut inbox = match self.inbox_rx.take() {
@@ -458,16 +450,7 @@ impl MqttActuatorNode {
             }
 
             // Lanzar el watcher de stages en background si está configurado
-            if self.cfg.ack_topic.is_some() {
-                // Necesitamos el process_id y pipeline_id — vienen del AgentShared.
-                // Por ahora los ponemos como placeholder; se inyectarán en el siguiente paso
-                // cuando refactoricemos NodeInstance para pasar SharedContext.
-                // TODO: pasar process_id y pipeline_id via contexto del nodo
-                self.spawn_stage_wait(
-                    match &action {
-                        NodeAction::On => "on",
-                        _ => "off",
-                    }
+            // ack_topic: use ActuatorNode instead for stage confirmation
                     .into(),
                     payload,
                     pool.clone(),
