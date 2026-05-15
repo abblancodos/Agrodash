@@ -45,7 +45,7 @@
   );
 
   // ── Actuadores ────────────────────────────────────────────────────────────
-  const ACTUATOR_TYPES = ['mqtt_actuator', 'http_actuator'];
+  const ACTUATOR_TYPES = ['actuator', 'mqtt_actuator', 'http_actuator'];
 
   const actuators = $derived.by(() => {
     const configured = (pipeline.nodes ?? [])
@@ -57,7 +57,7 @@
           id:             n.id,
           type:           n.type,
           label:          n.label?.trim() || '',
-          payloadOn:      n.payload_on ?? '',
+          payloadOn:      n.type === 'actuator' ? (n.output?.payload_on ?? '') : (n.payload_on ?? ''),
           lastAction:     st?.data?.last_action ?? null,
           totalOn:        st?.data?.total_on ?? null,
           overrideActive: !!(pipelineState?.override_active),
@@ -94,7 +94,7 @@
       case 'mahalanobis': return d.last_d != null ? `d=${d.last_d.toFixed(2)}` : '—';
       case 'hysteresis':  return d.state  ? String(d.state).toUpperCase()  : '—';
       case 'sprt':        return d.last   ? String(d.last).toUpperCase()   : '—';
-      case 'mqtt_actuator': case 'http_actuator':
+      case 'actuator': case 'mqtt_actuator': case 'http_actuator':
         return d.last_action?.toUpperCase() ?? '—';
       default: return d.x?.[0]?.toFixed(3) ?? '—';
     }
@@ -102,7 +102,7 @@
 
   function sensorColor(l: any): string {
     const d = l.nodeData; const t = l.nodeType;
-    if (['hysteresis','sprt','mqtt_actuator','http_actuator'].includes(t)) {
+    if (['hysteresis','sprt','actuator','mqtt_actuator','http_actuator'].includes(t)) {
       const st = d?.state ?? d?.last ?? d?.last_action;
       if (st === 'on' || st === 'On')   return '#3da85a';
       if (st === 'off' || st === 'Off') return '#e05454';
@@ -120,7 +120,7 @@
     const t = l.nodeType;
     return readings.flatMap((r: ProcessReading): number[] => {
       let v: number;
-      if (['hysteresis','sprt','mqtt_actuator','http_actuator'].includes(t)) {
+      if (['hysteresis','sprt','actuator','mqtt_actuator','http_actuator'].includes(t)) {
         const sv = r.scope_values?.[l.tag];
         if (sv === 'on')  v = 1;
         else if (sv === 'off') v = 0;
