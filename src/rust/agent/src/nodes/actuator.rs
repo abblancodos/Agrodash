@@ -18,8 +18,7 @@
 
 use super::{NodeContext, NodeInstance};
 use agrodash_shared::{
-    ActuatorConfig, DecisionMethod, NodeAction,
-    NodeState, OutputMethod, Reduction, Signal, Trend,
+    ActuatorConfig, DecisionMethod, NodeAction, NodeState, OutputMethod, Reduction, Signal, Trend,
 };
 use anyhow::Result;
 use async_trait::async_trait;
@@ -31,50 +30,56 @@ use tokio::sync::mpsc;
 // ── Estado interno ────────────────────────────────────────────────────────────
 
 pub struct ActuatorNode {
-    id:           String,
-    cfg:          ActuatorConfig,
+    id: String,
+    cfg: ActuatorConfig,
 
     // Decisión
-    last_action:  Option<NodeAction>,
-    last_at:      Option<String>,
-    total_on:     f64,
-    on_since:     Option<Instant>,
+    last_action: Option<NodeAction>,
+    last_at: Option<String>,
+    total_on: f64,
+    on_since: Option<Instant>,
 
     // SPRT interno
-    sprt_llr:     f64,
+    sprt_llr: f64,
 
     // Mahalanobis — covarianza adaptativa del Kalman (si use_kalman_p)
-    kalman_p:     Option<Vec<f64>>,
+    kalman_p: Option<Vec<f64>>,
 
     // Override manual (API → nodo)
     override_action: Option<NodeAction>,
 
     // Bloqueo durante ACK — true mientras el watcher de stages está corriendo
-    ack_locked:   bool,
+    ack_locked: bool,
 
     // Canal para recibir mensajes del ack_topic MQTT
-    inbox_rx:     Option<mpsc::UnboundedReceiver<String>>,
-    inbox_tx:     Option<mpsc::UnboundedSender<String>>,
+    inbox_rx: Option<mpsc::UnboundedReceiver<String>>,
+    inbox_tx: Option<mpsc::UnboundedSender<String>>,
 
     // Cliente MQTT activo (para publicar y para el eventloop de ACK)
-    mqtt_client:  Option<rumqttc::AsyncClient>,
+    mqtt_client: Option<rumqttc::AsyncClient>,
 
     // Coherence check — valor de señal al momento de la actuación
-    coherence_baseline:    Option<Vec<f64>>,
-    coherence_started_at:  Option<Instant>,
-    coherence_alert:       Option<String>,  // None = OK, Some(msg) = alerta
+    coherence_baseline: Option<Vec<f64>>,
+    coherence_started_at: Option<Instant>,
+    coherence_alert: Option<String>, // None = OK, Some(msg) = alerta
 
     // Retry
-    retry_count:  u32,
+    retry_count: u32,
 }
 
 impl ActuatorNode {
     pub async fn new(
-        id:                String,
-        cfg:               ActuatorConfig,
+        id: String,
+        cfg: ActuatorConfig,
         shared_connections: &Option<agrodash_shared::SharedConnections>,
     ) -> Result<Self> {
-        let has_ack = matches!(&cfg.output, OutputMethod::Mqtt { ack_topic: Some(_), .. });
+        let has_ack = matches!(
+            &cfg.output,
+            OutputMethod::Mqtt {
+                ack_topic: Some(_),
+                ..
+            }
+        );
         let (inbox_tx, inbox_rx) = if has_ack {
             let (tx, rx) = mpsc::unbounded_channel::<String>();
             (Some(tx), Some(rx))
@@ -83,14 +88,21 @@ impl ActuatorNode {
         };
 
         let mut node = Self {
-            id, cfg,
-            last_action: None, last_at: None,
-            total_on: 0.0, on_since: None,
-            sprt_llr: 0.0, kalman_p: None,
-            override_action: None, ack_locked: false,
-            inbox_rx, inbox_tx,
+            id,
+            cfg,
+            last_action: None,
+            last_at: None,
+            total_on: 0.0,
+            on_since: None,
+            sprt_llr: 0.0,
+            kalman_p: None,
+            override_action: None,
+            ack_locked: false,
+            inbox_rx,
+            inbox_tx,
             mqtt_client: None,
-            coherence_baseline: None, coherence_started_at: None,
+            coherence_baseline: None,
+            coherence_started_at: None,
             coherence_alert: None,
             retry_count: 0,
         };
@@ -105,22 +117,29 @@ impl ActuatorNode {
     // ── MQTT connect ──────────────────────────────────────────────────────────
 
     async fn connect_mqtt(&mut self, shared: &Option<agrodash_shared::SharedConnections>) {
-        use super::{resolve_mqtt_connection};
+        use super::resolve_mqtt_connection;
         use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS};
 
         let (conn_ref, ack_topic) = match &self.cfg.output {
-            OutputMethod::Mqtt { connection, ack_topic, .. } =>
-                (connection.clone(), ack_topic.clone()),
+            OutputMethod::Mqtt {
+                connection,
+                ack_topic,
+                ..
+            } => (connection.clone(), ack_topic.clone()),
             _ => return,
         };
 
         let mqtt_conn = match resolve_mqtt_connection(&conn_ref, shared) {
             Ok(c) => c,
-            Err(e) => { tracing::error!("[Actuator {}] conexión MQTT: {e}", self.id); return; }
+            Err(e) => {
+                tracing::error!("[Actuator {}] conexión MQTT: {e}", self.id);
+                return;
+            }
         };
 
         let url = mqtt_conn.broker_url.trim_start_matches("mqtt://");
-        let (host, port) = url.split_once(':')
+        let (host, port) = url
+            .split_once(':')
             .map(|(h, p)| (h.to_string(), p.parse::<u16>().unwrap_or(1883)))
             .unwrap_or((url.to_string(), 1883));
 
@@ -132,8 +151,8 @@ impl ActuatorNode {
 
         let (client, mut eventloop) = AsyncClient::new(opts, 32);
         let client_sub = client.clone();
-        let inbox_tx  = self.inbox_tx.clone();
-        let node_id   = self.id.clone();
+        let inbox_tx = self.inbox_tx.clone();
+        let node_id = self.id.clone();
 
         tokio::spawn(async move {
             let mut subscribed = false;
@@ -158,10 +177,15 @@ impl ActuatorNode {
                             tx.send(payload.to_string()).ok();
                         }
                     }
-                    Ok(_) => { backoff = Duration::from_secs(2); }
+                    Ok(_) => {
+                        backoff = Duration::from_secs(2);
+                    }
                     Err(e) => {
                         subscribed = false;
-                        tracing::warn!("[Actuator {node_id}] MQTT: {e} — retry en {}s", backoff.as_secs());
+                        tracing::warn!(
+                            "[Actuator {node_id}] MQTT: {e} — retry en {}s",
+                            backoff.as_secs()
+                        );
                         tokio::time::sleep(backoff).await;
                         backoff = (backoff * 2).min(Duration::from_secs(60));
                     }
@@ -177,37 +201,63 @@ impl ActuatorNode {
 
     fn decide(&mut self, signal: &[f64]) -> NodeAction {
         match &self.cfg.decision.clone() {
-            DecisionMethod::Hysteresis { reduction, low, high, action_below, action_above } => {
+            DecisionMethod::Hysteresis {
+                reduction,
+                low,
+                high,
+                action_below,
+                action_above,
+            } => {
                 let val = apply_reduction(signal, reduction);
                 let current = self.last_action.clone().unwrap_or(NodeAction::Hold);
                 // Histéresis: solo cambia si cruza el umbral opuesto
                 match &current {
-                    NodeAction::On  if val <= *low  => action_below.clone(),
+                    NodeAction::On if val <= *low => action_below.clone(),
                     NodeAction::Off if val >= *high => action_above.clone(),
                     NodeAction::Hold => {
-                        if val >= *high { action_above.clone() }
-                        else if val <= *low { action_below.clone() }
-                        else { NodeAction::Hold }
+                        if val >= *high {
+                            action_above.clone()
+                        } else if val <= *low {
+                            action_below.clone()
+                        } else {
+                            NodeAction::Hold
+                        }
                     }
                     other => other.clone(),
                 }
             }
 
-            DecisionMethod::Mahalanobis { target, threshold_act, threshold_deact, .. } => {
+            DecisionMethod::Mahalanobis {
+                target,
+                threshold_act,
+                threshold_deact,
+                ..
+            } => {
                 let d = mahalanobis_distance(signal, target);
                 let current = self.last_action.clone().unwrap_or(NodeAction::Hold);
                 match &current {
-                    NodeAction::On  if d <= *threshold_deact => NodeAction::Off,
-                    NodeAction::Off if d >= *threshold_act   => NodeAction::On,
+                    NodeAction::On if d <= *threshold_deact => NodeAction::Off,
+                    NodeAction::Off if d >= *threshold_act => NodeAction::On,
                     NodeAction::Hold => {
-                        if d >= *threshold_act { NodeAction::On }
-                        else { NodeAction::Off }
+                        if d >= *threshold_act {
+                            NodeAction::On
+                        } else {
+                            NodeAction::Off
+                        }
                     }
                     other => other.clone(),
                 }
             }
 
-            DecisionMethod::Sprt { mu_h0, mu_h1, sigma, alpha, beta, reduction, reset_on_action } => {
+            DecisionMethod::Sprt {
+                mu_h0,
+                mu_h1,
+                sigma,
+                alpha,
+                beta,
+                reduction,
+                reset_on_action,
+            } => {
                 let val = apply_reduction(signal, reduction);
                 let log_ratio = sprt_step(val, *mu_h0, *mu_h1, *sigma);
                 self.sprt_llr += log_ratio;
@@ -236,30 +286,60 @@ impl ActuatorNode {
 
     async fn send_action(&mut self, action: &NodeAction) -> Result<()> {
         match &self.cfg.output.clone() {
-            OutputMethod::Mqtt { topic, payload_on, payload_off, .. } => {
+            OutputMethod::Mqtt {
+                topic,
+                payload_on,
+                payload_off,
+                ..
+            } => {
                 let payload = match action {
-                    NodeAction::On  => payload_on.as_str(),
+                    NodeAction::On => payload_on.as_str(),
                     NodeAction::Off => payload_off.as_str(),
                     NodeAction::Hold => return Ok(()),
                 };
                 use rumqttc::QoS;
-                let retain = matches!(&self.cfg.output, OutputMethod::Mqtt { retain: Some(true), .. });
+                let retain = matches!(
+                    &self.cfg.output,
+                    OutputMethod::Mqtt {
+                        retain: Some(true),
+                        ..
+                    }
+                );
                 if let Some(ref client) = self.mqtt_client {
-                    client.publish(topic, QoS::AtLeastOnce, retain, payload.as_bytes().to_vec()).await?;
-                    tracing::info!("[Actuator {}] {} → {topic} = {payload}", self.id,
-                        if matches!(action, NodeAction::On) { "▶ ON" } else { "■ OFF" });
+                    client
+                        .publish(topic, QoS::AtLeastOnce, retain, payload.as_bytes().to_vec())
+                        .await?;
+                    tracing::info!(
+                        "[Actuator {}] {} → {topic} = {payload}",
+                        self.id,
+                        if matches!(action, NodeAction::On) {
+                            "▶ ON"
+                        } else {
+                            "■ OFF"
+                        }
+                    );
                 }
             }
 
-            OutputMethod::Http { connection: _, path_on, path_off, body_on, body_off, method } => {
+            OutputMethod::Http {
+                connection: _,
+                path_on,
+                path_off,
+                body_on,
+                body_off,
+                method,
+            } => {
                 // HTTP send — reutilizamos la lógica del HttpActuatorNode
                 let (path, body) = match action {
-                    NodeAction::On  => (path_on.as_str(), body_on.as_ref()),
+                    NodeAction::On => (path_on.as_str(), body_on.as_ref()),
                     NodeAction::Off => (path_off.as_str(), body_off.as_ref()),
                     NodeAction::Hold => return Ok(()),
                 };
-                tracing::info!("[Actuator {}] HTTP {} {path}", self.id,
-                    method.as_deref().unwrap_or("POST"));
+                tracing::info!(
+                    "[Actuator {}] HTTP {} {path}",
+                    self.id,
+                    method.as_deref().unwrap_or("POST")
+                );
                 // La conexión HTTP se resuelve al construir — aquí simplemente
                 // notamos que está pendiente de implementar igual que HttpActuatorNode
                 let _ = (path, body);
@@ -272,10 +352,10 @@ impl ActuatorNode {
 
     fn spawn_stage_watcher(
         &mut self,
-        action:      String,
-        payload:     String,
-        pool:        PgPool,
-        process_id:  String,
+        action: String,
+        payload: String,
+        pool: PgPool,
+        process_id: String,
         pipeline_id: String,
     ) {
         let stages = match &self.cfg.stages {
@@ -284,15 +364,26 @@ impl ActuatorNode {
         };
 
         let node_id = self.id.clone();
-        let mut rx  = match self.inbox_rx.take() {
+        let mut rx = match self.inbox_rx.take() {
             Some(r) => r,
-            None    => return,
+            None => return,
         };
 
         tokio::spawn(async move {
             for (i, stage) in stages.iter().enumerate() {
-                notify_stage(&pool, &process_id, &pipeline_id, &node_id,
-                    &stage.name, "waiting", "", &action, &payload, i).await;
+                notify_stage(
+                    &pool,
+                    &process_id,
+                    &pipeline_id,
+                    &node_id,
+                    &stage.name,
+                    "waiting",
+                    "",
+                    &action,
+                    &payload,
+                    i,
+                )
+                .await;
 
                 let timeout = Duration::from_secs_f64(stage.timeout_secs);
                 let deadline = tokio::time::Instant::now() + timeout;
@@ -300,31 +391,68 @@ impl ActuatorNode {
                 let result: Result<String, String> = loop {
                     let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
                     if remaining.is_zero() {
-                        break Err(format!("Timeout en '{}' ({:.0}s)", stage.name, stage.timeout_secs));
+                        break Err(format!(
+                            "Timeout en '{}' ({:.0}s)",
+                            stage.name, stage.timeout_secs
+                        ));
                     }
                     match tokio::time::timeout(remaining, rx.recv()).await {
                         Ok(Some(msg)) => {
-                            if stage.matches(&msg, &action, &payload)  { break Ok(msg); }
+                            if stage.matches(&msg, &action, &payload) {
+                                break Ok(msg);
+                            }
                             if stage.is_error(&msg, &action, &payload) {
                                 break Err(format!("Error en '{}': {msg}", stage.name));
                             }
                         }
-                        Ok(None)  => break Err("Canal cerrado".into()),
-                        Err(_)    => break Err(format!("Timeout en '{}' ({:.0}s)", stage.name, stage.timeout_secs)),
+                        Ok(None) => break Err("Canal cerrado".into()),
+                        Err(_) => {
+                            break Err(format!(
+                                "Timeout en '{}' ({:.0}s)",
+                                stage.name, stage.timeout_secs
+                            ))
+                        }
                     }
                 };
 
                 match result {
                     Ok(msg) => {
                         tracing::info!("[Actuator {node_id}] etapa {i} '{}' ✓", stage.name);
-                        notify_stage(&pool, &process_id, &pipeline_id, &node_id,
-                            &stage.name, "ok", &msg, &action, &payload, i).await;
-                        if stage.terminal { break; }
+                        notify_stage(
+                            &pool,
+                            &process_id,
+                            &pipeline_id,
+                            &node_id,
+                            &stage.name,
+                            "ok",
+                            &msg,
+                            &action,
+                            &payload,
+                            i,
+                        )
+                        .await;
+                        if stage.terminal {
+                            break;
+                        }
                     }
                     Err(reason) => {
-                        tracing::warn!("[Actuator {node_id}] etapa {i} '{}' ✗ {reason}", stage.name);
-                        notify_stage(&pool, &process_id, &pipeline_id, &node_id,
-                            &stage.name, "error", &reason, &action, &payload, i).await;
+                        tracing::warn!(
+                            "[Actuator {node_id}] etapa {i} '{}' ✗ {reason}",
+                            stage.name
+                        );
+                        notify_stage(
+                            &pool,
+                            &process_id,
+                            &pipeline_id,
+                            &node_id,
+                            &stage.name,
+                            "error",
+                            &reason,
+                            &action,
+                            &payload,
+                            i,
+                        )
+                        .await;
                         break;
                     }
                 }
@@ -342,9 +470,9 @@ impl ActuatorNode {
 
         // Al cambiar la acción, registrar la baseline
         if Some(action) != self.last_action.as_ref() {
-            self.coherence_baseline   = Some(signal.to_vec());
+            self.coherence_baseline = Some(signal.to_vec());
             self.coherence_started_at = Some(Instant::now());
-            self.coherence_alert      = None;
+            self.coherence_alert = None;
             return;
         }
 
@@ -353,17 +481,21 @@ impl ActuatorNode {
             Some(t) => t.elapsed().as_secs_f64(),
             None => return,
         };
-        if elapsed < cfg.window_secs { return; }
+        if elapsed < cfg.window_secs {
+            return;
+        }
 
         let baseline = match &self.coherence_baseline {
             Some(b) => b.clone(),
             None => return,
         };
 
-        let current_val  = extract_component(signal,   cfg.component);
+        let current_val = extract_component(signal, cfg.component);
         let baseline_val = extract_component(&baseline, cfg.component);
 
-        if baseline_val.abs() < 1e-12 && cfg.relative { return; }
+        if baseline_val.abs() < 1e-12 && cfg.relative {
+            return;
+        }
 
         let delta = current_val - baseline_val;
         let delta_norm = if cfg.relative && baseline_val.abs() > 1e-12 {
@@ -373,28 +505,30 @@ impl ActuatorNode {
         };
 
         let expected = match action {
-            NodeAction::On  => &cfg.expected_on,
+            NodeAction::On => &cfg.expected_on,
             NodeAction::Off => &cfg.expected_off,
             NodeAction::Hold => return,
         };
 
         let ok = match expected {
-            Trend::Ascending  => delta_norm >=  cfg.min_delta,
+            Trend::Ascending => delta_norm >= cfg.min_delta,
             Trend::Descending => delta_norm <= -cfg.min_delta,
-            Trend::Stable     => delta_norm.abs() < cfg.min_delta,
+            Trend::Stable => delta_norm.abs() < cfg.min_delta,
         };
 
         if !ok {
-            let alert = cfg.alert_label.clone().unwrap_or_else(|| format!(
-                "Incoherencia: acción={:?} pero Δseñal={:+.3} (esperado {:?} ≥{:.3})",
-                action, delta_norm, expected, cfg.min_delta
-            ));
+            let alert = cfg.alert_label.clone().unwrap_or_else(|| {
+                format!(
+                    "Incoherencia: acción={:?} pero Δseñal={:+.3} (esperado {:?} ≥{:.3})",
+                    action, delta_norm, expected, cfg.min_delta
+                )
+            });
             if self.coherence_alert.as_deref() != Some(&alert) {
                 tracing::warn!("[Actuator {}] ⚠ {alert}", self.id);
                 self.coherence_alert = Some(alert);
             }
             // Resetear la ventana para la próxima evaluación
-            self.coherence_baseline   = Some(signal.to_vec());
+            self.coherence_baseline = Some(signal.to_vec());
             self.coherence_started_at = Some(Instant::now());
         } else {
             self.coherence_alert = None;
@@ -437,7 +571,7 @@ impl NodeInstance for ActuatorNode {
             // Actualizar contadores de tiempo encendido
             match &action {
                 NodeAction::On => {
-                    self.on_since    = Some(Instant::now());
+                    self.on_since = Some(Instant::now());
                 }
                 NodeAction::Off => {
                     if let Some(t) = self.on_since.take() {
@@ -447,32 +581,48 @@ impl NodeInstance for ActuatorNode {
                 _ => {}
             }
 
-            self.last_at     = Some(Utc::now().to_rfc3339());
+            self.last_at = Some(Utc::now().to_rfc3339());
 
             // Lanzar watcher de stages si está configurado
-            if self.cfg.stages.as_ref().map(|s| !s.is_empty()).unwrap_or(false) {
+            if self
+                .cfg
+                .stages
+                .as_ref()
+                .map(|s| !s.is_empty())
+                .unwrap_or(false)
+            {
                 let payload = match &self.cfg.output {
-                    OutputMethod::Mqtt { payload_on, payload_off, .. } => match &action {
-                        NodeAction::On  => payload_on.clone(),
+                    OutputMethod::Mqtt {
+                        payload_on,
+                        payload_off,
+                        ..
+                    } => match &action {
+                        NodeAction::On => payload_on.clone(),
                         NodeAction::Off => payload_off.clone(),
                         _ => String::new(),
                     },
-                    OutputMethod::Http { path_on, path_off, .. } => match &action {
-                        NodeAction::On  => path_on.clone(),
+                    OutputMethod::Http {
+                        path_on, path_off, ..
+                    } => match &action {
+                        NodeAction::On => path_on.clone(),
                         NodeAction::Off => path_off.clone(),
                         _ => String::new(),
                     },
                 };
                 let action_str = match &action {
-                    NodeAction::On  => "on",
+                    NodeAction::On => "on",
                     NodeAction::Off => "off",
-                    _               => "hold",
-                }.to_string();
+                    _ => "hold",
+                }
+                .to_string();
 
                 self.ack_locked = true;
                 self.spawn_stage_watcher(
-                    action_str, payload, pool.clone(),
-                    ctx.process_id.clone(), ctx.pipeline_id.clone(),
+                    action_str,
+                    payload,
+                    pool.clone(),
+                    ctx.process_id.clone(),
+                    ctx.pipeline_id.clone(),
                 );
             }
         }
@@ -486,12 +636,14 @@ impl NodeInstance for ActuatorNode {
         Ok(Some(Signal::Action(action)))
     }
 
-    fn is_actuator(&self) -> bool { true }
+    fn is_actuator(&self) -> bool {
+        true
+    }
 
     fn save_state(&self) -> NodeState {
         let stages_status = self.cfg.stages.as_ref().map(|s| s.len()).unwrap_or(0);
         NodeState {
-            node_id:   self.id.clone(),
+            node_id: self.id.clone(),
             node_type: "actuator".into(),
             data: serde_json::json!({
                 "label":           self.cfg.label,
@@ -512,12 +664,20 @@ impl NodeInstance for ActuatorNode {
 
     fn load_state(&mut self, state: &NodeState) {
         self.last_action = None; // fuerza sync en primer ciclo
-        self.last_at = state.data.get("last_at")
+        self.last_at = state
+            .data
+            .get("last_at")
             .and_then(|v| v.as_str().map(String::from));
-        self.total_on = state.data.get("total_on")
-            .and_then(|v| v.as_f64()).unwrap_or(0.0);
-        self.retry_count = state.data.get("retry_count")
-            .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        self.total_on = state
+            .data
+            .get("total_on")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        self.retry_count = state
+            .data
+            .get("retry_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
     }
 
     fn watchdog_set_override(&mut self, action: NodeAction) {
@@ -529,18 +689,25 @@ impl NodeInstance for ActuatorNode {
     }
 
     fn watchdog_reset(&mut self) {
-        self.override_action  = None;
-        self.ack_locked       = false;
-        self.coherence_alert  = None;
-        self.retry_count      = 0;
+        self.override_action = None;
+        self.ack_locked = false;
+        self.coherence_alert = None;
+        self.retry_count = 0;
     }
 
     fn metrics(&self) -> Vec<(String, f64)> {
         vec![
-            ("total_on".into(),    self.total_on),
-            ("ack_locked".into(),  if self.ack_locked { 1.0 } else { 0.0 }),
+            ("total_on".into(), self.total_on),
+            ("ack_locked".into(), if self.ack_locked { 1.0 } else { 0.0 }),
             ("retry_count".into(), self.retry_count as f64),
-            ("coherence_ok".into(), if self.coherence_alert.is_none() { 1.0 } else { 0.0 }),
+            (
+                "coherence_ok".into(),
+                if self.coherence_alert.is_none() {
+                    1.0
+                } else {
+                    0.0
+                },
+            ),
         ]
     }
 }
@@ -548,11 +715,13 @@ impl NodeInstance for ActuatorNode {
 // ── Helpers matemáticos ───────────────────────────────────────────────────────
 
 fn apply_reduction(signal: &[f64], reduction: &Reduction) -> f64 {
-    if signal.is_empty() { return 0.0; }
+    if signal.is_empty() {
+        return 0.0;
+    }
     match reduction {
         Reduction::Mean => signal.iter().sum::<f64>() / signal.len() as f64,
-        Reduction::Min  => signal.iter().cloned().fold(f64::INFINITY, f64::min),
-        Reduction::Max  => signal.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+        Reduction::Min => signal.iter().cloned().fold(f64::INFINITY, f64::min),
+        Reduction::Max => signal.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
         Reduction::Component { index } => signal.get(*index).copied().unwrap_or(0.0),
         Reduction::WeightedByP => signal.iter().sum::<f64>() / signal.len() as f64,
         _ => signal.iter().sum::<f64>() / signal.len() as f64,
@@ -562,19 +731,23 @@ fn apply_reduction(signal: &[f64], reduction: &Reduction) -> f64 {
 fn extract_component(signal: &[f64], component: Option<usize>) -> f64 {
     match component {
         Some(i) => signal.get(i).copied().unwrap_or(0.0),
-        None    => signal.iter().map(|x| x * x).sum::<f64>().sqrt(),
+        None => signal.iter().map(|x| x * x).sum::<f64>().sqrt(),
     }
 }
 
 fn mahalanobis_distance(signal: &[f64], target: &[f64]) -> f64 {
     let n = signal.len().min(target.len());
-    if n == 0 { return 0.0; }
+    if n == 0 {
+        return 0.0;
+    }
     let sum_sq: f64 = (0..n).map(|i| (signal[i] - target[i]).powi(2)).sum();
     sum_sq.sqrt() / (n as f64).sqrt()
 }
 
 fn sprt_step(val: f64, mu_h0: f64, mu_h1: f64, sigma: f64) -> f64 {
-    if sigma < 1e-12 { return 0.0; }
+    if sigma < 1e-12 {
+        return 0.0;
+    }
     let s2 = sigma * sigma;
     ((mu_h1 - mu_h0) / s2) * val - (mu_h1.powi(2) - mu_h0.powi(2)) / (2.0 * s2)
 }
@@ -582,9 +755,16 @@ fn sprt_step(val: f64, mu_h0: f64, mu_h1: f64, sigma: f64) -> f64 {
 // ── pg_notify helper ──────────────────────────────────────────────────────────
 
 async fn notify_stage(
-    pool: &PgPool, process_id: &str, pipeline_id: &str, node_id: &str,
-    stage_name: &str, status: &str, message: &str,
-    action: &str, payload: &str, stage_index: usize,
+    pool: &PgPool,
+    process_id: &str,
+    pipeline_id: &str,
+    node_id: &str,
+    stage_name: &str,
+    status: &str,
+    message: &str,
+    action: &str,
+    payload: &str,
+    stage_index: usize,
 ) {
     let channel = format!("ws_ack_{}", process_id.replace('-', "_"));
     let data = serde_json::json!({
@@ -600,7 +780,10 @@ async fn notify_stage(
     });
     if let Ok(json) = serde_json::to_string(&data) {
         sqlx::query("SELECT pg_notify($1, $2)")
-            .bind(&channel).bind(&json)
-            .execute(pool).await.ok();
+            .bind(&channel)
+            .bind(&json)
+            .execute(pool)
+            .await
+            .ok();
     }
 }
