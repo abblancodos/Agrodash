@@ -149,12 +149,38 @@
     <span class="pl-name">{pipeline.label}</span>
     {#if !isReady}
       <span class="badge b-warm">warmup</span>
-    {:else}
-      <span class="badge b-ok">ciclo {cycle}</span>
     {/if}
+    <span class="badge b-ok">ciclo {cycle}</span>
     {#if hasOn}<span class="badge b-on">● riego</span>{/if}
     <span class="expand-icon">{expanded ? '↑' : '↓'}</span>
   </button>
+
+  <!-- Barra de progreso de warmup — visible mientras no está listo, no bloquea -->
+  {#if !isReady}
+    {@const warmupProgress = (() => {
+      // Buscar el nodo con warmup_samples más alto y su n actual
+      const nodes = Object.values(pipelineState?.node_states ?? {}) as any[];
+      let maxSamples = 0; let currentN = 0;
+      for (const n of nodes) {
+        const samples = n.data?.warmup_samples ?? 0;
+        const nVal    = n.data?.n ?? 0;
+        if (samples > maxSamples) { maxSamples = samples; currentN = nVal; }
+      }
+      // Fallback: usar el ciclo actual vs warmup_samples de la config
+      if (maxSamples === 0) {
+        const cfgSamples = (pipeline.nodes ?? [])
+          .map((n: any) => n.warmup_samples ?? 0)
+          .reduce((a: number, b: number) => Math.max(a, b), 0);
+        maxSamples = cfgSamples || 10;
+        currentN   = cycle;
+      }
+      return maxSamples > 0 ? Math.min(currentN / maxSamples, 1) : 0;
+    })()}
+    <div class="warmup-bar">
+      <div class="warmup-fill" style="width:{(warmupProgress * 100).toFixed(0)}%"></div>
+      <span class="warmup-label">calentando… {(warmupProgress * 100).toFixed(0)}%</span>
+    </div>
+  {/if}
 
   <!-- Gráfico expandido — full width cuando está expandida -->
   {#if expanded && loggers.length > 0}
@@ -281,6 +307,11 @@
 
   /* Actuadores */
   .act-section { border-top:0.5px solid var(--border-subtle); }
+
+  /* Warmup progress */
+  .warmup-bar  { position:relative; height:calc(3px * var(--font-scale)); background:var(--bg-inset); overflow:hidden; border-top:0.5px solid var(--border-subtle); }
+  .warmup-fill { height:100%; background:#e8a83888; transition:width .5s ease; }
+  .warmup-label { position:absolute; right:6px; top:-1px; font-size:calc(8px * var(--font-scale)); font-family:'DM Mono',monospace; color:var(--text-muted); line-height:calc(3px * var(--font-scale)); }
 
   /* Gráfico full cuando está expandida */
   .chart-full { border-top:0.5px solid var(--border-subtle); padding:calc(12px * var(--font-scale)) calc(11px * var(--font-scale)); background:var(--bg-elevated); display:flex; flex-direction:column; gap:12px; }
