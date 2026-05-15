@@ -349,6 +349,48 @@ pub enum Trend {
 //   "trend":             Option<Vec<f64>>,                 ← Bad: derivada actual
 // }
 
+/// Una etapa de confirmación en el pipeline de comunicación de un actuador.
+///
+/// Placeholders en match_prefix y error_prefix:
+///   {action}  → "ON" o "OFF"
+///   {payload} → payload completo enviado (ej. "on,5")
+///   {valve}   → parte después de la coma en payload_on (ej. "5")
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AckStage {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub match_prefix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub error_prefix: Option<String>,
+    pub timeout_secs: f64,
+    #[serde(default)]
+    pub terminal: bool,
+}
+
+impl AckStage {
+    fn interpolate(pattern: &str, action: &str, payload: &str) -> String {
+        let valve = payload.split_once(',').map(|(_, v)| v).unwrap_or(payload);
+        pattern
+            .replace("{action}", &action.to_uppercase())
+            .replace("{payload}", payload)
+            .replace("{valve}", valve)
+    }
+
+    pub fn matches(&self, msg: &str, action: &str, payload: &str) -> bool {
+        self.match_prefix
+            .as_deref()
+            .map(|p| msg.starts_with(&Self::interpolate(p, action, payload)))
+            .unwrap_or(false)
+    }
+
+    pub fn is_error(&self, msg: &str, action: &str, payload: &str) -> bool {
+        self.error_prefix
+            .as_deref()
+            .map(|p| msg.starts_with(&Self::interpolate(p, action, payload)))
+            .unwrap_or(false)
+    }
+}
+
 // ── Nodo Actuator unificado ────────────────────────────────────────────────────
 //
 // Reemplaza la cadena Hysteresis/SPRT/Mahalanobis + Watchdog + MqttActuator/HttpActuator.
