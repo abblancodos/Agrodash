@@ -22,10 +22,10 @@ pub mod watchdog;
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub struct NodeContext {
-    pub process_id:  String,
+    pub process_id: String,
     pub pipeline_id: String,
-    pub node_id:     String,
-    pub node_label:  Option<String>,
+    pub node_id: String,
+    pub node_label: Option<String>,
 }
 
 // ── Trait ─────────────────────────────────────────────────────────────────────
