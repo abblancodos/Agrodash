@@ -124,6 +124,13 @@
       category: 'Actuador', color: '#3da85a',
       items: [
         {
+          type: 'actuator', label: 'Actuator',
+          desc: 'Nodo unificado: decisor + actuador. Recibe señal filtrada, decide ON/OFF y publica por MQTT o HTTP. Soporta etapas de confirmación y coherence check.',
+          inputs:  [{ name: 'sig_in', desc: 'Signal::Vector del filtro upstream' }],
+          outputs: [{ name: 'act_out', desc: 'Signal::Action — la acción decidida' }],
+          params:  ['decision — hysteresis / mahalanobis / sprt', 'output — mqtt / http con conexión propia', 'stages — etapas de confirmación (opcional)', 'coherence — check sensor↔actuación (opcional)'],
+        },
+        {
           type: 'mqtt_actuator', label: 'MQTT Actuator',
           desc: 'Publica payload ON/OFF en un topic MQTT. Conectar después del Watchdog si usás verificación.',
           inputs:  [{ name: 'act_in', desc: 'ON → publica payload_on · OFF → publica payload_off · Hold → no publica' }],
