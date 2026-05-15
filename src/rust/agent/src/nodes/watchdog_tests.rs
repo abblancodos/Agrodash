@@ -17,7 +17,6 @@
 
 use super::*;
 use crate::nodes::NodeContext;
-use agrodash_shared::{NodeAction, NodeState, Signal, Trend, WatchdogConfig, WatchdogMode};
 
 fn test_ctx() -> NodeContext {
     NodeContext {
@@ -27,6 +26,7 @@ fn test_ctx() -> NodeContext {
         node_label: None,
     }
 }
+use agrodash_shared::{NodeAction, NodeState, Signal, Trend, WatchdogConfig, WatchdogMode};
 
 // ── Helpers de configuración ──────────────────────────────────────────────────
 

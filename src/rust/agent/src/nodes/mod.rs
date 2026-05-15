@@ -1,13 +1,14 @@
 // agent/src/nodes/mod.rs
 
 use agrodash_shared::{
-    ConnectionRef, HttpConnection, MqttConnection, NodeAction, NodeConfig, NodeKind, NodeState,
-    SharedConnections, Signal,
+    ActuatorConfig, ConnectionRef, HttpConnection, MqttConnection, NodeAction, NodeConfig,
+    NodeKind, NodeState, SharedConnections, Signal,
 };
 use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::PgPool;
 
+pub mod actuator;
 pub mod actuators;
 pub mod decisions;
 pub mod filters;
@@ -15,6 +16,22 @@ pub mod source;
 pub mod subscriber;
 pub mod utils;
 pub mod watchdog;
+
+use actuator::ActuatorNode;
+
+// ── NodeContext ───────────────────────────────────────────────────────────────
+
+/// Contexto del pipeline pasado a cada nodo en cada ciclo.
+/// Permite que actuadores y otros nodos sepan en qué proceso están para
+/// publicar eventos via pg_notify.
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct NodeContext {
+    pub process_id: String,
+    pub pipeline_id: String,
+    pub node_id: String,
+    pub node_label: Option<String>,
+}
 
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
@@ -25,10 +42,11 @@ pub trait NodeInstance: Send + Sync {
         inputs: Vec<Signal>,
         dt: f64,
         pool: &PgPool,
+        ctx: &NodeContext,
     ) -> Result<Option<Signal>>;
 
     async fn execute_override(&mut self, action: NodeAction) -> Result<Option<Signal>> {
-        let _action = action; // default: nodo no es actuador, ignora la acción
+        let _action = action;
         Ok(None)
     }
 
@@ -39,13 +57,10 @@ pub trait NodeInstance: Send + Sync {
         true
     }
 
-    /// Métricas internas para series temporales (scope_values).
     fn metrics(&self) -> Vec<(String, f64)> {
         vec![]
     }
 
-    // Watchdog control — implementación vacía por defecto.
-    // WatchdogNode overridea estos métodos.
     fn watchdog_reset(&mut self) {}
     fn watchdog_confirm(&mut self) {}
     fn watchdog_set_override(&mut self, _action: NodeAction) {}
@@ -91,7 +106,6 @@ pub async fn build(
             cfg.id.clone(),
             weights.clone(),
         ))),
-
         NodeKind::Logger { tag } => Ok(Box::new(utils::LoggerNode::new(
             cfg.id.clone(),
             tag.clone(),
@@ -125,7 +139,6 @@ pub async fn build(
                 actuators::MqttActuatorNode::new(cfg.id.clone(), c.clone(), conn).await?,
             ))
         }
-
         NodeKind::HttpActuator(c) => {
             let conn = resolve_http_connection(&c.connection, shared_connections)?;
             Ok(Box::new(actuators::HttpActuatorNode::new(
@@ -134,18 +147,20 @@ pub async fn build(
                 conn,
             )))
         }
-
         NodeKind::MqttSubscriber(c) => {
             let conn = resolve_mqtt_connection(&c.connection, shared_connections)?;
             Ok(Box::new(
                 subscriber::MqttSubscriberNode::new(cfg.id.clone(), c.clone(), conn).await?,
             ))
         }
-
         NodeKind::Watchdog(c) => Ok(Box::new(watchdog::WatchdogNode::new(
             cfg.id.clone(),
             c.clone(),
         ))),
+
+        NodeKind::Actuator(c) => Ok(Box::new(
+            ActuatorNode::new(cfg.id.clone(), c.clone(), shared_connections).await?,
+        )),
     }
 }
 
@@ -162,30 +177,24 @@ pub fn resolve_mqtt_connection(
             .ok_or_else(|| {
                 anyhow::anyhow!("Referencia 'shared' sin shared_connections.mqtt definido")
             }),
+
         ConnectionRef::Inline(inline) => inline
             .mqtt
             .clone()
             .ok_or_else(|| anyhow::anyhow!("Conexión inline sin campo mqtt")),
-        ConnectionRef::Named(other)
-            if other.starts_with("mqtt://") || other.starts_with("mqtts://") =>
-        {
-            // URL inline como string — construir MqttConnection directamente
-            let url = other
-                .trim_start_matches("mqtt://")
-                .trim_start_matches("mqtts://");
-            let (host, port) = url
-                .split_once(':')
-                .map(|(h, p)| (h.to_string(), p.parse::<u16>().unwrap_or(1883)))
-                .unwrap_or((url.to_string(), 1883));
+
+        // URL directa como string: "mqtt://host:port"
+        ConnectionRef::Named(url) if url.starts_with("mqtt://") || url.starts_with("mqtts://") => {
             Ok(MqttConnection {
-                broker_url: other.clone(),
-                client_id: format!("agrodash-act-{}", uuid::Uuid::new_v4()),
+                broker_url: url.clone(),
+                client_id: format!("agrodash-{}", uuid::Uuid::new_v4()),
                 username: None,
                 password: None,
                 keepalive_secs: Some(30),
                 qos: Some(1),
             })
         }
+
         ConnectionRef::Named(other) => {
             anyhow::bail!("Referencia de conexión MQTT desconocida: '{}'", other)
         }
@@ -203,10 +212,12 @@ pub fn resolve_http_connection(
             .ok_or_else(|| {
                 anyhow::anyhow!("Referencia 'shared' sin shared_connections.http definido")
             }),
+
         ConnectionRef::Inline(inline) => inline
             .http
             .clone()
             .ok_or_else(|| anyhow::anyhow!("Conexión inline sin campo http")),
+
         ConnectionRef::Named(other) => {
             anyhow::bail!("Referencia de conexión HTTP desconocida: '{}'", other)
         }
