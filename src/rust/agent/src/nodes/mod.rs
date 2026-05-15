@@ -1,8 +1,8 @@
 // agent/src/nodes/mod.rs
 
 use agrodash_shared::{
-    ActuatorConfig, ConnectionRef, HttpConnection, MqttConnection, NodeAction, NodeConfig,
-    NodeKind, NodeState, SharedConnections, Signal,
+    ConnectionRef, HttpConnection, MqttConnection, NodeAction, NodeConfig, NodeKind, NodeState,
+    SharedConnections, Signal,
 };
 use anyhow::Result;
 use async_trait::async_trait;
