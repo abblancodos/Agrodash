@@ -15,6 +15,12 @@
 
   // Preset de tiempo global — todos los pipelines lo comparten
   let timePreset = $state('6h');
+
+  // Pipeline expandido — ocupa full width con gráfico grande
+  let expandedPl = $state<string | null>(null);
+  function toggleExpand(plId: string) {
+    expandedPl = expandedPl === plId ? null : plId;
+  }
   const hoursMap: Record<string, number> = { '1h':1, '6h':6, '24h':24, '7d':168 };
 
   // Readings por pipeline
@@ -134,15 +140,19 @@
   {:else}
     <div class="pl-grid">
       {#each pipelines as pl (pl.id)}
-        <PipelineCard
-          {processId}
-          pipeline={pl}
-          state={states[pl.id]}
-          readings={readings[pl.id] ?? []}
-          rdLoading={rdLoading[pl.id] ?? false}
-          {timePreset}
-          {canOperate}
-        />
+        <div class="pl-cell" class:pl-expanded={expandedPl === pl.id}>
+          <PipelineCard
+            {processId}
+            pipeline={pl}
+            state={states[pl.id]}
+            readings={readings[pl.id] ?? []}
+            rdLoading={rdLoading[pl.id] ?? false}
+            {timePreset}
+            {canOperate}
+            expanded={expandedPl === pl.id}
+            onexpand={() => toggleExpand(pl.id)}
+          />
+        </div>
       {/each}
     </div>
   {/if}
@@ -185,6 +195,10 @@
   /* ── Grid 2 columnas ── */
   .pl-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:calc(8px * var(--font-scale)); }
   @media (max-width: 640px) { .pl-grid { grid-template-columns:1fr; } }
+
+  /* Card expandida ocupa ambas columnas */
+  .pl-cell { display:contents; }
+  .pl-cell.pl-expanded { display:block; grid-column: 1 / -1; }
 
   .empty { color:var(--text-muted); font-size:calc(13px * var(--font-scale)); padding:40px 0; text-align:center; }
 </style>

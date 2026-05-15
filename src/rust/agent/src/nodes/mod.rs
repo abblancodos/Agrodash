@@ -1,5 +1,7 @@
 // agent/src/nodes/mod.rs
 
+use actuator::ActuatorNode;
+use actuator::ActuatorNode;
 use agrodash_shared::{
     ConnectionRef, HttpConnection, MqttConnection, NodeAction, NodeConfig, NodeKind, NodeState,
     SharedConnections, Signal,
@@ -8,6 +10,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::PgPool;
 
+pub mod actuator;
 pub mod actuators;
 pub mod decisions;
 pub mod filters;
@@ -18,18 +21,6 @@ pub mod watchdog;
 
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
-/// Contexto del pipeline que se pasa a cada nodo en cada ciclo.
-/// Permite que los nodos (especialmente actuadores) sepan en qué proceso
-/// están corriendo para publicar eventos via pg_notify.
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
-pub struct NodeContext {
-    pub process_id: String,
-    pub pipeline_id: String,
-    pub node_id: String,
-    pub node_label: Option<String>,
-}
-
 #[async_trait]
 pub trait NodeInstance: Send + Sync {
     async fn execute(
@@ -37,7 +28,6 @@ pub trait NodeInstance: Send + Sync {
         inputs: Vec<Signal>,
         dt: f64,
         pool: &PgPool,
-        ctx: &NodeContext,
     ) -> Result<Option<Signal>>;
 
     async fn execute_override(&mut self, action: NodeAction) -> Result<Option<Signal>> {
@@ -147,6 +137,10 @@ pub async fn build(
                 conn,
             )))
         }
+
+        NodeKind::Actuator(c) => Ok(Box::new(
+            ActuatorNode::new(cfg.id.clone(), c.clone(), shared_connections).await?,
+        )),
 
         NodeKind::MqttSubscriber(c) => {
             let conn = resolve_mqtt_connection(&c.connection, shared_connections)?;

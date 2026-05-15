@@ -42,10 +42,6 @@ pub struct NodePosition {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeConfig {
     pub id: String,
-    /// Nombre descriptivo libre — solo para display en frontend y logs.
-    /// No afecta la lógica del agente. Opcional, retrocompatible.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub label: Option<String>,
     #[serde(flatten)]
     pub kind: NodeKind,
 }
@@ -71,6 +67,7 @@ pub enum NodeKind {
     // Actuadores
     MqttActuator(MqttActuatorConfig),
     HttpActuator(HttpActuatorConfig),
+    Actuator(ActuatorConfig),
     // Sanity / Watchdog
     MqttSubscriber(MqttSubscriberConfig),
     Watchdog(WatchdogConfig),
@@ -119,6 +116,15 @@ pub enum NodeAction {
     On,
     Off,
     Hold,
+}
+
+impl NodeAction {
+    pub fn default_on() -> Self {
+        NodeAction::On
+    }
+    pub fn default_off() -> Self {
+        NodeAction::Off
+    }
 }
 
 // ── Fuentes ───────────────────────────────────────────────────────────────────
@@ -225,71 +231,13 @@ pub struct SprtConfig {
 
 // ── Actuadores ────────────────────────────────────────────────────────────────
 
-/// Una etapa de confirmación en el pipeline de comunicación de un actuador.
-///
-/// Placeholders en match_prefix y error_prefix:
-///   {action}  → "ON" o "OFF"
-///   {payload} → payload completo enviado (ej. "on,5")
-///   {valve}   → parte después de la coma en payload_on (ej. "5")
-///
-/// Ejemplo para BioCarbón:
-///   { "name": "Gateway",      "match_prefix": "MQTT_RECIBIDO:{action},{valve}", "timeout_secs": 3  }
-///   { "name": "LoRa",         "match_prefix": "LORA_ENVIANDO:{action},{valve}", "timeout_secs": 8  }
-///   { "name": "Concentrador", "match_prefix": "CONCENTRADOR:Relay{valve}",      "timeout_secs": 15, "terminal": true }
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AckStage {
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub match_prefix: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub error_prefix: Option<String>,
-    pub timeout_secs: f64,
-    #[serde(default)]
-    pub terminal: bool,
-}
-
-impl AckStage {
-    fn interpolate(pattern: &str, action: &str, payload: &str) -> String {
-        let valve = payload.split_once(',').map(|(_, v)| v).unwrap_or(payload);
-        pattern
-            .replace("{action}", &action.to_uppercase())
-            .replace("{payload}", payload)
-            .replace("{valve}", valve)
-    }
-
-    pub fn matches(&self, msg: &str, action: &str, payload: &str) -> bool {
-        self.match_prefix
-            .as_deref()
-            .map(|p| msg.starts_with(&Self::interpolate(p, action, payload)))
-            .unwrap_or(false)
-    }
-
-    pub fn is_error(&self, msg: &str, action: &str, payload: &str) -> bool {
-        self.error_prefix
-            .as_deref()
-            .map(|p| msg.starts_with(&Self::interpolate(p, action, payload)))
-            .unwrap_or(false)
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MqttActuatorConfig {
     pub connection: ConnectionRef,
     pub topic: String,
     pub payload_on: String,
     pub payload_off: String,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub retain: Option<bool>,
-    /// Nombre corto del actuador — redundante con NodeConfig.label pero
-    /// accesible desde el config del nodo sin buscar en NodeConfig.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub label: Option<String>,
-    /// Topic MQTT donde llegan las confirmaciones de etapas.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub ack_topic: Option<String>,
-    /// Etapas de confirmación en orden. Requiere ack_topic.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub stages: Option<Vec<AckStage>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -400,6 +348,132 @@ pub enum Trend {
 //   "window_start_at":   Option<String ISO>,               ← Bad
 //   "trend":             Option<Vec<f64>>,                 ← Bad: derivada actual
 // }
+
+// ── Nodo Actuator unificado ────────────────────────────────────────────────────
+//
+// Reemplaza la cadena Hysteresis/SPRT/Mahalanobis + Watchdog + MqttActuator/HttpActuator.
+// Un solo nodo que agrupa decisión, comunicación y verificación.
+//
+// Topología resultante:
+//   PostgresSensor → Filtro → Actuator
+//
+// Varios Actuator pueden estar en el mismo pipeline con brokers MQTT distintos.
+// La conexión se especifica inline o como referencia a shared_connections.
+
+/// Método de decisión del Actuator — determina cuándo mandar ON/OFF.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "method", rename_all = "snake_case")]
+pub enum DecisionMethod {
+    /// Umbral con histéresis. El más común.
+    Hysteresis {
+        reduction: Reduction,
+        low: f64,
+        high: f64,
+        #[serde(default = "NodeAction::default_off")]
+        action_below: NodeAction,
+        #[serde(default = "NodeAction::default_on")]
+        action_above: NodeAction,
+    },
+    /// Distancia de Mahalanobis al target.
+    Mahalanobis {
+        target: Vec<f64>,
+        threshold_act: f64,
+        threshold_deact: f64,
+        #[serde(default)]
+        use_kalman_p: bool,
+        #[serde(default)]
+        sigma: Option<f64>,
+    },
+    /// Sequential Probability Ratio Test.
+    Sprt {
+        mu_h0: f64,
+        mu_h1: f64,
+        sigma: f64,
+        alpha: f64,
+        beta: f64,
+        reduction: Reduction,
+        #[serde(default)]
+        reset_on_action: bool,
+    },
+}
+
+/// Método de comunicación del Actuator — cómo mandar la acción.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "protocol", rename_all = "snake_case")]
+pub enum OutputMethod {
+    Mqtt {
+        /// Conexión: "shared" | inline { broker_url, ... }
+        connection: ConnectionRef,
+        topic: String,
+        payload_on: String,
+        payload_off: String,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        retain: Option<bool>,
+        /// Topic donde llegan las confirmaciones de etapas.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        ack_topic: Option<String>,
+    },
+    Http {
+        connection: ConnectionRef,
+        path_on: String,
+        path_off: String,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        body_on: Option<serde_json::Value>,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        body_off: Option<serde_json::Value>,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        method: Option<String>,
+    },
+}
+
+/// Verificación de coherencia entre actuación y respuesta del sensor.
+/// Después de `window_secs` de haber emitido la acción, verifica que la señal
+/// haya cambiado en la dirección esperada. Si no → alerta (no bloqueo).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoherenceCheck {
+    /// Componente del vector a evaluar. None = norma L2.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub component: Option<usize>,
+    /// Dirección esperada del cambio después de ON/OFF.
+    pub expected_on: Trend,
+    pub expected_off: Trend,
+    /// Delta mínimo absoluto o porcentual (según `relative`).
+    pub min_delta: f64,
+    /// Si true, min_delta es porcentual (0.05 = 5%). Si false, absoluto.
+    #[serde(default)]
+    pub relative: bool,
+    /// Ventana de tiempo en segundos para evaluar el cambio.
+    pub window_secs: f64,
+    /// Texto de la alerta mostrada en el frontend.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub alert_label: Option<String>,
+}
+
+/// Nodo Actuator unificado.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActuatorConfig {
+    /// Nombre descriptivo para el monitor.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub label: Option<String>,
+
+    /// Cómo decidir ON/OFF a partir de la señal filtrada.
+    pub decision: DecisionMethod,
+
+    /// Cómo enviar la acción al sistema externo.
+    pub output: OutputMethod,
+
+    /// Etapas de confirmación. Requiere ack_topic en OutputMethod::Mqtt.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub stages: Option<Vec<AckStage>>,
+
+    /// Verificación de coherencia sensor↔actuación. Opcional.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub coherence: Option<CoherenceCheck>,
+
+    /// Máximo de reintentos de envío si el ack no llega. 0 = sin límite.
+    #[serde(default)]
+    pub max_retries: u32,
+}
 
 // ── Conexiones ────────────────────────────────────────────────────────────────
 

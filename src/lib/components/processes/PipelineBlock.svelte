@@ -53,6 +53,7 @@
     mahalanobis:      'La distancia de Mahalanobis mide qué tan lejos está la señal del vector objetivo en unidades de desviación estándar. threshold_act > threshold_deact genera histéresis.',
     hysteresis:       'Enciende cuando la señal baja de "low" y apaga cuando sube de "high". La banda muerta (high-low) evita que el actuador oscile con señales ruidosas.',
     sprt:             'Acumula evidencia estadística antes de decidir. Más robusto que histéresis para señales con ruido gaussiano. alpha y beta controlan la tasa de error.',
+    actuator:         'Nodo unificado: decisor + actuador. Seleccioná el método de decisión (Hysteresis/Mahalanobis/SPRT), el protocolo (MQTT/HTTP) y las etapas de confirmación opcionales.',
     mqtt_actuator:    'Publica el payload en el topic cuando la señal decide ON u OFF. El broker se configura en la sección de conexión compartida abajo.',
     http_actuator:    'Hace POST a path_on cuando la señal es ON y a path_off cuando es OFF. El base_url se configura en la conexión compartida.',
     mqtt_subscriber:  'Lee el estado del actuador desde un topic MQTT para dárselo al Watchdog como feedback. Conectar al puerto "feedback" del Watchdog con un edge de tipo Feedback.',
@@ -404,6 +405,311 @@
           </div>
         </div>
 
+      <!-- ── actuator (nodo unificado) ── -->
+      {:else if node.type === 'actuator'}
+
+        <div class="field">
+          <label>nombre <span class="hint">se muestra en el monitor</span></label>
+          <input class="inp" value={node.label ?? ''}
+            oninput={(e) => set('label', (e.target as HTMLInputElement).value)}
+            placeholder="Válvula zona norte" />
+        </div>
+
+        <!-- Método de decisión -->
+        <div class="subpanel-title">Decisión</div>
+        <div class="field">
+          <label>método</label>
+          <select class="inp" value={node.decision?.method ?? 'hysteresis'}
+            onchange={(e) => {
+              const m = (e.target as HTMLSelectElement).value;
+              if (m === 'hysteresis')   set('decision', { method:'hysteresis', reduction:{type:'mean'}, low:0.08, high:0.085, action_below:'on', action_above:'off' });
+              if (m === 'mahalanobis')  set('decision', { method:'mahalanobis', target:[], threshold_act:2.5, threshold_deact:1.0 });
+              if (m === 'sprt')         set('decision', { method:'sprt', mu_h0:0.0, mu_h1:1.0, sigma:0.1, alpha:0.05, beta:0.05, reduction:{type:'mean'}, reset_on_action:true });
+            }}>
+            <option value="hysteresis">Hysteresis</option>
+            <option value="mahalanobis">Mahalanobis</option>
+            <option value="sprt">SPRT</option>
+          </select>
+        </div>
+
+        {#if node.decision?.method === 'hysteresis'}
+          <div class="subpanel">
+            <div class="field-row">
+              <div class="field">
+                <label>low</label>
+                <input class="inp mono" type="number" step="0.001"
+                  value={node.decision.low ?? 0.08}
+                  oninput={(e) => set('decision', { ...node.decision, low: parseFloat((e.target as HTMLInputElement).value) })} />
+              </div>
+              <div class="field">
+                <label>high</label>
+                <input class="inp mono" type="number" step="0.001"
+                  value={node.decision.high ?? 0.085}
+                  oninput={(e) => set('decision', { ...node.decision, high: parseFloat((e.target as HTMLInputElement).value) })} />
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label>acción &lt; low</label>
+                <select class="inp" value={node.decision.action_below ?? 'on'}
+                  onchange={(e) => set('decision', { ...node.decision, action_below: (e.target as HTMLSelectElement).value })}>
+                  <option value="on">ON</option><option value="off">OFF</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>acción &gt; high</label>
+                <select class="inp" value={node.decision.action_above ?? 'off'}
+                  onchange={(e) => set('decision', { ...node.decision, action_above: (e.target as HTMLSelectElement).value })}>
+                  <option value="on">ON</option><option value="off">OFF</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        {/if}
+
+        {#if node.decision?.method === 'mahalanobis'}
+          <div class="subpanel">
+            <div class="field">
+              <label>target <span class="hint">vector separado por comas</span></label>
+              <input class="inp mono" value={(node.decision.target ?? []).join(',')}
+                oninput={(e) => set('decision', { ...node.decision, target: (e.target as HTMLInputElement).value.split(',').map(Number).filter(isFinite) })}
+                placeholder="0.5,0.5" />
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label>umbral activar</label>
+                <input class="inp mono" type="number" step="0.1" value={node.decision.threshold_act ?? 2.5}
+                  oninput={(e) => set('decision', { ...node.decision, threshold_act: parseFloat((e.target as HTMLInputElement).value) })} />
+              </div>
+              <div class="field">
+                <label>umbral desactivar</label>
+                <input class="inp mono" type="number" step="0.1" value={node.decision.threshold_deact ?? 1.0}
+                  oninput={(e) => set('decision', { ...node.decision, threshold_deact: parseFloat((e.target as HTMLInputElement).value) })} />
+              </div>
+            </div>
+          </div>
+        {/if}
+
+        {#if node.decision?.method === 'sprt'}
+          <div class="subpanel">
+            <div class="field-row">
+              <div class="field"><label>μ H0</label>
+                <input class="inp mono" type="number" step="0.01" value={node.decision.mu_h0 ?? 0}
+                  oninput={(e) => set('decision', { ...node.decision, mu_h0: parseFloat((e.target as HTMLInputElement).value) })} /></div>
+              <div class="field"><label>μ H1</label>
+                <input class="inp mono" type="number" step="0.01" value={node.decision.mu_h1 ?? 1}
+                  oninput={(e) => set('decision', { ...node.decision, mu_h1: parseFloat((e.target as HTMLInputElement).value) })} /></div>
+              <div class="field"><label>σ</label>
+                <input class="inp mono" type="number" step="0.01" value={node.decision.sigma ?? 0.1}
+                  oninput={(e) => set('decision', { ...node.decision, sigma: parseFloat((e.target as HTMLInputElement).value) })} /></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>α (FP)</label>
+                <input class="inp mono" type="number" step="0.01" value={node.decision.alpha ?? 0.05}
+                  oninput={(e) => set('decision', { ...node.decision, alpha: parseFloat((e.target as HTMLInputElement).value) })} /></div>
+              <div class="field"><label>β (FN)</label>
+                <input class="inp mono" type="number" step="0.01" value={node.decision.beta ?? 0.05}
+                  oninput={(e) => set('decision', { ...node.decision, beta: parseFloat((e.target as HTMLInputElement).value) })} /></div>
+            </div>
+          </div>
+        {/if}
+
+        <!-- Protocolo de salida -->
+        <div class="subpanel-title">Salida</div>
+        <div class="field">
+          <label>protocolo</label>
+          <select class="inp" value={node.output?.protocol ?? 'mqtt'}
+            onchange={(e) => {
+              const p = (e.target as HTMLSelectElement).value;
+              if (p === 'mqtt') set('output', { protocol:'mqtt', connection:'shared', topic:'', payload_on:'on,1', payload_off:'off,1' });
+              if (p === 'http') set('output', { protocol:'http', connection:'shared', path_on:'/on', path_off:'/off' });
+            }}>
+            <option value="mqtt">MQTT</option>
+            <option value="http">HTTP</option>
+          </select>
+        </div>
+
+        {#if node.output?.protocol === 'mqtt'}
+          <div class="subpanel">
+            <div class="field">
+              <label>broker <span class="hint">"shared" o URL inline mqtt://host:port</span></label>
+              <input class="inp mono" value={typeof node.output.connection === 'string' ? node.output.connection : JSON.stringify(node.output.connection)}
+                oninput={(e) => {
+                  const v = (e.target as HTMLInputElement).value.trim();
+                  set('output', { ...node.output, connection: v.startsWith('{') ? JSON.parse(v) : v });
+                }}
+                placeholder="shared" />
+            </div>
+            <div class="field">
+              <label>topic</label>
+              <input class="inp mono" value={node.output.topic ?? ''}
+                oninput={(e) => set('output', { ...node.output, topic: (e.target as HTMLInputElement).value })}
+                placeholder="control/valvula" />
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label>payload ON</label>
+                <input class="inp mono" value={node.output.payload_on ?? 'on,1'}
+                  oninput={(e) => set('output', { ...node.output, payload_on: (e.target as HTMLInputElement).value })} />
+              </div>
+              <div class="field">
+                <label>payload OFF</label>
+                <input class="inp mono" value={node.output.payload_off ?? 'off,1'}
+                  oninput={(e) => set('output', { ...node.output, payload_off: (e.target as HTMLInputElement).value })} />
+              </div>
+            </div>
+            <div class="field">
+              <label>ack topic <span class="hint">topic donde llegan las confirmaciones. Vacío = sin ACK</span></label>
+              <input class="inp mono" value={node.output.ack_topic ?? ''}
+                oninput={(e) => {
+                  const v = (e.target as HTMLInputElement).value.trim();
+                  set('output', { ...node.output, ack_topic: v || null });
+                }}
+                placeholder="ack/valvula" />
+            </div>
+          </div>
+        {/if}
+
+        {#if node.output?.protocol === 'http'}
+          <div class="subpanel">
+            <div class="field-row">
+              <div class="field">
+                <label>path ON</label>
+                <input class="inp mono" value={node.output.path_on ?? '/on'}
+                  oninput={(e) => set('output', { ...node.output, path_on: (e.target as HTMLInputElement).value })} />
+              </div>
+              <div class="field">
+                <label>path OFF</label>
+                <input class="inp mono" value={node.output.path_off ?? '/off'}
+                  oninput={(e) => set('output', { ...node.output, path_off: (e.target as HTMLInputElement).value })} />
+              </div>
+            </div>
+          </div>
+        {/if}
+
+        <!-- Etapas de confirmación -->
+        <div class="subpanel-title">
+          Etapas de confirmación
+          <span class="hint">opcional — requiere ack topic en MQTT</span>
+        </div>
+        {#each (node.stages ?? []) as stage, si (si)}
+          <div class="subpanel stage-row">
+            <div class="field-row">
+              <div class="field">
+                <label>nombre</label>
+                <input class="inp" value={stage.name ?? ''}
+                  oninput={(e) => {
+                    const stages = [...(node.stages ?? [])];
+                    stages[si] = { ...stage, name: (e.target as HTMLInputElement).value };
+                    set('stages', stages);
+                  }} placeholder="Gateway" />
+              </div>
+              <div class="field">
+                <label>timeout (s)</label>
+                <input class="inp mono" type="number" min="1" value={stage.timeout_secs ?? 5}
+                  oninput={(e) => {
+                    const stages = [...(node.stages ?? [])];
+                    stages[si] = { ...stage, timeout_secs: parseFloat((e.target as HTMLInputElement).value) };
+                    set('stages', stages);
+                  }} />
+              </div>
+              <button class="btn-remove-field"
+                onclick={() => set('stages', (node.stages ?? []).filter((_: any, j: number) => j !== si))}>✕</button>
+            </div>
+            <div class="field">
+              <label>match prefix <span class="hint">{'{action}'} {'{valve}'} {'{payload}'}</span></label>
+              <input class="inp mono" value={stage.match_prefix ?? ''}
+                oninput={(e) => {
+                  const stages = [...(node.stages ?? [])];
+                  stages[si] = { ...stage, match_prefix: (e.target as HTMLInputElement).value || null };
+                  set('stages', stages);
+                }} placeholder="MQTT_RECIBIDO:{action},{valve}" />
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label>error prefix</label>
+                <input class="inp mono" value={stage.error_prefix ?? ''}
+                  oninput={(e) => {
+                    const stages = [...(node.stages ?? [])];
+                    stages[si] = { ...stage, error_prefix: (e.target as HTMLInputElement).value || null };
+                    set('stages', stages);
+                  }} placeholder="LORA_ERROR" />
+              </div>
+              <div class="field" style="flex:0;min-width:80px">
+                <label>terminal</label>
+                <input type="checkbox" checked={stage.terminal ?? false}
+                  onchange={(e) => {
+                    const stages = [...(node.stages ?? [])];
+                    stages[si] = { ...stage, terminal: (e.target as HTMLInputElement).checked };
+                    set('stages', stages);
+                  }} />
+              </div>
+            </div>
+          </div>
+        {/each}
+        <button class="btn-add-field"
+          onclick={() => set('stages', [...(node.stages ?? []), { name:'', match_prefix:null, error_prefix:null, timeout_secs:5, terminal:false }])}>
+          + etapa
+        </button>
+
+        <!-- Coherence check -->
+        <div class="subpanel-title">
+          Coherencia sensor↔actuación
+          <span class="hint">opcional — alerta si el sensor no responde</span>
+        </div>
+        {#if node.coherence}
+          <div class="subpanel">
+            <div class="field-row">
+              <div class="field">
+                <label>tendencia ON</label>
+                <select class="inp" value={node.coherence.expected_on ?? 'ascending'}
+                  onchange={(e) => set('coherence', { ...node.coherence, expected_on: (e.target as HTMLSelectElement).value })}>
+                  <option value="ascending">↑ sube</option>
+                  <option value="descending">↓ baja</option>
+                  <option value="stable">— estable</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>tendencia OFF</label>
+                <select class="inp" value={node.coherence.expected_off ?? 'descending'}
+                  onchange={(e) => set('coherence', { ...node.coherence, expected_off: (e.target as HTMLSelectElement).value })}>
+                  <option value="ascending">↑ sube</option>
+                  <option value="descending">↓ baja</option>
+                  <option value="stable">— estable</option>
+                </select>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label>delta mínimo</label>
+                <input class="inp mono" type="number" step="0.001" value={node.coherence.min_delta ?? 0.02}
+                  oninput={(e) => set('coherence', { ...node.coherence, min_delta: parseFloat((e.target as HTMLInputElement).value) })} />
+              </div>
+              <div class="field">
+                <label>ventana (s)</label>
+                <input class="inp mono" type="number" step="10" value={node.coherence.window_secs ?? 300}
+                  oninput={(e) => set('coherence', { ...node.coherence, window_secs: parseFloat((e.target as HTMLInputElement).value) })} />
+              </div>
+              <div class="field" style="flex:0;min-width:70px">
+                <label>relativo %</label>
+                <input type="checkbox" checked={node.coherence.relative ?? false}
+                  onchange={(e) => set('coherence', { ...node.coherence, relative: (e.target as HTMLInputElement).checked })} />
+              </div>
+            </div>
+            <div class="field">
+              <label>texto de alerta</label>
+              <input class="inp" value={node.coherence.alert_label ?? ''}
+                oninput={(e) => set('coherence', { ...node.coherence, alert_label: (e.target as HTMLInputElement).value || null })}
+                placeholder="Sensor no respondió al riego" />
+            </div>
+            <button class="btn-remove-field" onclick={() => set('coherence', null)}>quitar coherencia</button>
+          </div>
+        {:else}
+          <button class="btn-add-field" onclick={() => set('coherence', { expected_on:'ascending', expected_off:'descending', min_delta:0.02, window_secs:300, relative:false })}>
+            + configurar coherencia
+          </button>
+        {/if}
+
       <!-- ── mqtt_subscriber ── -->
       {:else if node.type === 'mqtt_subscriber'}
         <div class="field">
@@ -709,6 +1015,8 @@
     gap: 6px;
   }
 
+  .subpanel-title { font-size:calc(9px * var(--font-scale)); font-family:'DM Mono',monospace; font-weight:500; letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); padding:calc(8px * var(--font-scale)) 0 calc(4px * var(--font-scale)); }
+  .stage-row { display:flex; flex-direction:column; gap:4px; }
   .actuator-switch {
     display: flex; align-items: center; gap: 4px;
     padding-top: 4px;

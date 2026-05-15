@@ -8,6 +8,7 @@
   let {
     processId, pipeline, state: pipelineState,
     readings, rdLoading, timePreset, canOperate = false,
+    expanded = false, onexpand = () => {},
   }: {
     processId:  string;
     pipeline:   any;
@@ -16,6 +17,8 @@
     rdLoading:  boolean;
     timePreset: string;
     canOperate: boolean;
+    expanded?:  boolean;
+    onexpand?:  () => void;
   } = $props();
 
   const COLORS   = ['#4a90d9','#3da85a','#e07b54','#7c6fcd','#e8a838','#d47cb0','#78c4b8','#8a9bb0'];
@@ -141,8 +144,8 @@
 
 <div class="card" class:card-on={hasOn}>
 
-  <!-- Header -->
-  <div class="card-head">
+  <!-- Header — click expande la card -->
+  <button class="card-head" class:head-expanded={expanded} onclick={onexpand}>
     <span class="pl-name">{pipeline.label}</span>
     {#if !isReady}
       <span class="badge b-warm">warmup</span>
@@ -150,7 +153,30 @@
       <span class="badge b-ok">ciclo {cycle}</span>
     {/if}
     {#if hasOn}<span class="badge b-on">● riego</span>{/if}
-  </div>
+    <span class="expand-icon">{expanded ? '↑' : '↓'}</span>
+  </button>
+
+  <!-- Gráfico expandido — full width cuando está expandida -->
+  {#if expanded && loggers.length > 0}
+    <div class="chart-full">
+      {#each loggers as l (l.id)}
+        <div class="chart-full-row">
+          <div class="chart-full-label">
+            <span class="sc-tag">{l.tag}</span>
+            <span class="sc-val" style="color:{sensorColor(l)}">{sensorValue(l)}</span>
+          </div>
+          <PipelineChart
+            {processId}
+            pipelineId={pipeline.id}
+            labels={sensorLabels}
+            hours={hoursMap[timePreset] ?? 6}
+            loggerTag={l.tag}
+            upstreamType={l.nodeType}
+          />
+        </div>
+      {/each}
+    </div>
+  {/if}
 
   <!-- Sensores en columnas -->
   {#if loggers.length > 0}
@@ -219,7 +245,10 @@
   .card-on { border-color:#3da85a55; }
 
   /* Header */
-  .card-head { display:flex; align-items:center; gap:6px; padding:calc(7px * var(--font-scale)) calc(11px * var(--font-scale)); flex-wrap:wrap; }
+  .card-head { display:flex; align-items:center; gap:6px; padding:calc(7px * var(--font-scale)) calc(11px * var(--font-scale)); flex-wrap:wrap; width:100%; background:none; border:none; cursor:pointer; text-align:left; }
+  .card-head:hover { background:var(--interactive-hover); }
+  .head-expanded { background:var(--bg-elevated); }
+  .expand-icon { margin-left:auto; font-size:calc(11px * var(--font-scale)); color:var(--text-muted); flex-shrink:0; }
   .pl-name   { font-size:calc(12px * var(--font-scale)); font-weight:500; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; min-width:0; }
   .badge     { font-size:calc(9px * var(--font-scale)); padding:1px 6px; border-radius:8px; font-family:'DM Mono',monospace; flex-shrink:0; }
   .b-ok      { background:var(--bg-inset); color:var(--text-muted); }
@@ -252,4 +281,9 @@
 
   /* Actuadores */
   .act-section { border-top:0.5px solid var(--border-subtle); }
+
+  /* Gráfico full cuando está expandida */
+  .chart-full { border-top:0.5px solid var(--border-subtle); padding:calc(12px * var(--font-scale)) calc(11px * var(--font-scale)); background:var(--bg-elevated); display:flex; flex-direction:column; gap:12px; }
+  .chart-full-row { display:flex; flex-direction:column; gap:4px; }
+  .chart-full-label { display:flex; align-items:baseline; gap:8px; }
 </style>
