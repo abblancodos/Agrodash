@@ -9,6 +9,8 @@
     processId, pipeline, state: pipelineState,
     readings, rdLoading, timePreset, canOperate = false,
     expanded = false, onexpand = () => {},
+    status = 'unknown', ctrlBusy = false, ctrlError = '',
+    ontoggle = () => {},
   }: {
     processId:  string;
     pipeline:   any;
@@ -19,6 +21,10 @@
     canOperate: boolean;
     expanded?:  boolean;
     onexpand?:  () => void;
+    status?:    string;
+    ctrlBusy?:  boolean;
+    ctrlError?: string;
+    ontoggle?:  () => void;
   } = $props();
 
   const COLORS   = ['#4a90d9','#3da85a','#e07b54','#7c6fcd','#e8a838','#d47cb0','#78c4b8','#8a9bb0'];
@@ -153,6 +159,16 @@
     <span class="badge b-ok">ciclo {cycle}</span>
     {#if hasOn}<span class="badge b-on">● riego</span>{/if}
     <span class="expand-icon">{expanded ? '↑' : '↓'}</span>
+    {#if canOperate}
+      <button
+        class="ctrl-btn"
+        class:ctrl-stop={status === 'running'}
+        disabled={ctrlBusy || status === 'error'}
+        onclick={(e) => { e.stopPropagation(); ontoggle(); }}
+      >
+        {#if ctrlBusy}…{:else if status === 'running'}■{:else}▶{/if}
+      </button>
+    {/if}
   </button>
 
   <!-- Barra de progreso de warmup — visible mientras no está listo, no bloquea -->
@@ -274,7 +290,12 @@
   .card-head { display:flex; align-items:center; gap:6px; padding:calc(7px * var(--font-scale)) calc(11px * var(--font-scale)); flex-wrap:wrap; width:100%; background:none; border:none; cursor:pointer; text-align:left; }
   .card-head:hover { background:var(--interactive-hover); }
   .head-expanded { background:var(--bg-elevated); }
-  .expand-icon { margin-left:auto; font-size:calc(11px * var(--font-scale)); color:var(--text-muted); flex-shrink:0; }
+  .expand-icon { font-size:calc(11px * var(--font-scale)); color:var(--text-muted); flex-shrink:0; }
+  .ctrl-btn { padding:calc(2px * var(--font-scale)) calc(7px * var(--font-scale)); border:0.5px solid var(--border-default); border-radius:5px; background:none; cursor:pointer; font-size:calc(10px * var(--font-scale)); font-family:'DM Mono',monospace; color:var(--text-muted); flex-shrink:0; margin-left:auto; }
+  .ctrl-btn:hover:not(:disabled) { background:var(--interactive-hover); }
+  .ctrl-btn:disabled { opacity:.4; cursor:default; }
+  .ctrl-btn.ctrl-stop { color:#e05454; border-color:#e0545444; }
+  .ctrl-btn.ctrl-stop:hover:not(:disabled) { background:#FCEBEB; }
   .pl-name   { font-size:calc(12px * var(--font-scale)); font-weight:500; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; min-width:0; }
   .badge     { font-size:calc(9px * var(--font-scale)); padding:1px 6px; border-radius:8px; font-family:'DM Mono',monospace; flex-shrink:0; }
   .b-ok      { background:var(--bg-inset); color:var(--text-muted); }

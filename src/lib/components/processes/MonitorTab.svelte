@@ -149,6 +149,10 @@
             rdLoading={rdLoading[pl.id] ?? false}
             {timePreset}
             {canOperate}
+            {status}
+            {ctrlBusy}
+            {ctrlError}
+            ontoggle={toggleProcess}
             expanded={expandedPl === pl.id}
             onexpand={() => toggleExpand(pl.id)}
           />

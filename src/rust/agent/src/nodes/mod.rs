@@ -1,6 +1,5 @@
 // agent/src/nodes/mod.rs
 
-use actuator::ActuatorNode;
 use agrodash_shared::{
     ConnectionRef, HttpConnection, MqttConnection, NodeAction, NodeConfig, NodeKind, NodeState,
     SharedConnections, Signal,
@@ -9,7 +8,6 @@ use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::PgPool;
 
-pub mod actuator;
 pub mod actuators;
 pub mod decisions;
 pub mod filters;
@@ -17,16 +15,6 @@ pub mod source;
 pub mod subscriber;
 pub mod utils;
 pub mod watchdog;
-
-/// Contexto del pipeline pasado a cada nodo en cada ciclo.
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
-pub struct NodeContext {
-    pub process_id: String,
-    pub pipeline_id: String,
-    pub node_id: String,
-    pub node_label: Option<String>,
-}
 
 // ── Trait ─────────────────────────────────────────────────────────────────────
 
@@ -37,7 +25,6 @@ pub trait NodeInstance: Send + Sync {
         inputs: Vec<Signal>,
         dt: f64,
         pool: &PgPool,
-        ctx: &NodeContext,
     ) -> Result<Option<Signal>>;
 
     async fn execute_override(&mut self, action: NodeAction) -> Result<Option<Signal>> {
@@ -148,10 +135,6 @@ pub async fn build(
             )))
         }
 
-        NodeKind::Actuator(c) => Ok(Box::new(
-            ActuatorNode::new(cfg.id.clone(), c.clone(), shared_connections).await?,
-        )),
-
         NodeKind::MqttSubscriber(c) => {
             let conn = resolve_mqtt_connection(&c.connection, shared_connections)?;
             Ok(Box::new(
@@ -183,6 +166,21 @@ pub fn resolve_mqtt_connection(
             .mqtt
             .clone()
             .ok_or_else(|| anyhow::anyhow!("Conexión inline sin campo mqtt")),
+        ConnectionRef::Named(other) if other.starts_with("mqtt://") || other.starts_with("mqtts://") => {
+            // URL inline como string — construir MqttConnection directamente
+            let url = other.trim_start_matches("mqtt://").trim_start_matches("mqtts://");
+            let (host, port) = url.split_once(':')
+                .map(|(h, p)| (h.to_string(), p.parse::<u16>().unwrap_or(1883)))
+                .unwrap_or((url.to_string(), 1883));
+            Ok(MqttConnection {
+                broker_url:     other.clone(),
+                client_id:      format!("agrodash-act-{}", uuid::Uuid::new_v4()),
+                username:       None,
+                password:       None,
+                keepalive_secs: Some(30),
+                qos:            Some(1),
+            })
+        }
         ConnectionRef::Named(other) => {
             anyhow::bail!("Referencia de conexión MQTT desconocida: '{}'", other)
         }
