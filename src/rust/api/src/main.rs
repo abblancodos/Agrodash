@@ -66,6 +66,25 @@ async fn main() {
 
     info!("Conectado a PostgreSQL");
 
+    // ── Health check al arrancar ──────────────────────────────────────────────
+    // Si el contenedor se reinició mientras un proceso estaba en 'stopping',
+    // nadie lo va a pasar a 'stopped' porque el agente ya no existe.
+    // Resetear esos procesos para que puedan volver a iniciarse.
+    let fixed = sqlx::query_scalar!(
+        "UPDATE processes SET status='stopped', updated_at=now()
+         WHERE status='stopping'
+         RETURNING id"
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+    if !fixed.is_empty() {
+        tracing::warn!(
+            "Procesos en 'stopping' al arrancar — reseteados a 'stopped': {:?}",
+            fixed
+        );
+    }
+
     tokio::spawn(tasks::stats_worker::run(pool.clone()));
 
     // AgentManager

@@ -173,7 +173,7 @@ impl AgentManager {
     /// Detener todos los agentes de un proceso:
     ///   1. Escribir status='stopping' en DB (desired state)
     ///   2. NOTIFY Stop a cada pipeline
-    ///   3. Remover del mapa — el monitor no reiniciará
+    ///   3. Esperar que los child mueran y marcar stopped
     pub async fn stop_process(self: &Arc<Self>, process_id: Uuid) {
         let keys: Vec<AgentKey> = {
             self.agents
@@ -185,15 +185,64 @@ impl AgentManager {
                 .collect()
         };
 
+        // Notificar primero — el agente recibe Stop y termina limpiamente
         for key in &keys {
-            // Remover antes de NOTIFY — el monitor verá que ya no está
-            self.agents.write().await.remove(key);
             self.notify(key, AgentCommand::Stop).await.ok();
         }
 
-        // Si no había agentes en el mapa (arrancaron antes del manager),
-        // el desired state en DB (status='stopping') garantiza que al
-        // próximo ciclo el agente se detenga solo.
+        // Esperar a que los child mueran (máx 15s) y luego marcar stopped
+        let self_clone = Arc::clone(self);
+        let keys_clone = keys.clone();
+        tokio::spawn(async move {
+            for key in &keys_clone {
+                // Esperar muerte del child con timeout
+                let died = tokio::time::timeout(Duration::from_secs(15), async {
+                    loop {
+                        let alive = self_clone.agents.read().await.contains_key(key);
+                        if !alive {
+                            break;
+                        }
+                        // Verificar si el child ya terminó
+                        let finished = {
+                            let agents = self_clone.agents.read().await;
+                            if let Some(entry) = agents.get(key) {
+                                entry
+                                    .lock()
+                                    .await
+                                    .child
+                                    .try_wait()
+                                    .map(|s| s.is_some())
+                                    .unwrap_or(false)
+                            } else {
+                                true
+                            }
+                        };
+                        if finished {
+                            break;
+                        }
+                        sleep(Duration::from_millis(500)).await;
+                    }
+                })
+                .await;
+
+                if died.is_err() {
+                    // Timeout — matar el child a la fuerza
+                    warn!(
+                        "Agente {}/{} no terminó en 15s — forzando kill",
+                        key.process_id, key.pipeline_id
+                    );
+                    if let Some(entry) = self_clone.agents.write().await.remove(key) {
+                        entry.lock().await.child.kill().await.ok();
+                    }
+                } else {
+                    self_clone.agents.write().await.remove(key);
+                }
+            }
+
+            // Todos los agentes del proceso terminaron — marcar stopped
+            self_clone.mark_status(process_id, "stopped").await;
+            info!("Proceso {} marcado como stopped", process_id);
+        });
     }
 
     /// Checkpoint a todos y cerrar al apagar la API.
@@ -285,6 +334,10 @@ impl AgentManager {
                 Some("stopping") | Some("stopped") | Some("error") | None => {
                     info!("Proceso en estado {:?} — no reiniciar agente", status);
                     self.agents.write().await.remove(&key);
+                    // Si quedó en stopping (ej. crash del agente), marcar stopped
+                    if status.as_deref() == Some("stopping") {
+                        self.mark_status(key.process_id, "stopped").await;
+                    }
                     break;
                 }
                 _ => {}
