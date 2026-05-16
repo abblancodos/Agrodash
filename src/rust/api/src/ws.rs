@@ -336,7 +336,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, process_id: Uuid, use
     {
         // Pipeline states
         let rows = sqlx::query!(
-            "SELECT pipeline_id, state FROM process_pipeline_states WHERE process_id = $1",
+            "SELECT pipeline_id, state FROM pipeline_states WHERE process_id = $1",
             process_id
         )
         .fetch_all(&state.pool)

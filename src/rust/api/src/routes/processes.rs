@@ -382,8 +382,18 @@ pub async fn update_process(
     .await
     .map_err(err)?;
 
-    // Si se actualizó la config, notificar a los agentes activos para que recarguen
+    // Si se actualizó la config: detectar pipelines eliminados y recargar los que quedan
     if body.config.is_some() {
+        // Leer config vieja (ya persistida por el UPDATE de arriba) — comparar con la nueva
+        // para detectar pipelines que el usuario borró en el editor.
+        let old_ids: Vec<String> = sqlx::query_scalar!(
+            "SELECT pipeline_id FROM pipeline_states WHERE process_id = $1",
+            process_id,
+        )
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+
         let row = sqlx::query!(
             "SELECT status, config FROM processes WHERE id = $1",
             process_id
@@ -393,27 +403,57 @@ pub async fn update_process(
         .map_err(err)?;
 
         if let Some(r) = row {
+            let new_cfg = serde_json::from_value::<ProcessConfig>(r.config)
+                .map_err(|e| err(format!("Config inválida: {e}")))?;
+
+            let new_ids: std::collections::HashSet<&str> =
+                new_cfg.pipelines.iter().map(|p| p.id.as_str()).collect();
+
+            // ── Pipelines eliminados: detener agente + limpiar DB ─────────────
+            for old_id in &old_ids {
+                if !new_ids.contains(old_id.as_str()) {
+                    let key = AgentKey {
+                        process_id,
+                        pipeline_id: old_id.clone(),
+                    };
+                    state
+                        .manager
+                        .notify(&key, agrodash_shared::AgentCommand::Stop)
+                        .await
+                        .ok();
+                    sqlx::query!(
+                        "DELETE FROM pipeline_states WHERE process_id = $1 AND pipeline_id = $2",
+                        process_id,
+                        old_id,
+                    )
+                    .execute(&state.pool)
+                    .await
+                    .ok();
+                    warn!(
+                        "Pipeline {} eliminado de la config — agente detenido y estado limpiado",
+                        old_id
+                    );
+                }
+            }
+
+            // ── Pipelines existentes: Checkpoint + Reload en caliente ─────────
             if r.status == "running" {
-                if let Ok(cfg) = serde_json::from_value::<ProcessConfig>(r.config) {
-                    for pl in &cfg.pipelines {
-                        let key = AgentKey {
-                            process_id,
-                            pipeline_id: pl.id.clone(),
-                        };
-                        // Checkpoint primero (guarda estado actual del Kalman etc.)
-                        state
-                            .manager
-                            .notify(&key, agrodash_shared::AgentCommand::Checkpoint)
-                            .await
-                            .ok();
-                        // Luego Reload con la nueva config
-                        state
-                            .manager
-                            .notify(&key, agrodash_shared::AgentCommand::Reload)
-                            .await
-                            .ok();
-                        info!("Config actualizada en caliente para pipeline {}", pl.id);
-                    }
+                for pl in &new_cfg.pipelines {
+                    let key = AgentKey {
+                        process_id,
+                        pipeline_id: pl.id.clone(),
+                    };
+                    state
+                        .manager
+                        .notify(&key, agrodash_shared::AgentCommand::Checkpoint)
+                        .await
+                        .ok();
+                    state
+                        .manager
+                        .notify(&key, agrodash_shared::AgentCommand::Reload)
+                        .await
+                        .ok();
+                    info!("Config actualizada en caliente para pipeline {}", pl.id);
                 }
             }
         }
@@ -1303,7 +1343,7 @@ pub async fn get_agent_state(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let row = sqlx::query!(
         r#"
-        SELECT state FROM process_pipeline_states
+        SELECT state FROM pipeline_states
         WHERE process_id = $1 AND pipeline_id = $2
         "#,
         process_id,
@@ -1313,7 +1353,7 @@ pub async fn get_agent_state(
     .await
     .map_err(err)?;
 
-    Ok(Json(row.map(|r| r.state).unwrap_or(json!({}))))
+    Ok(Json(row.and_then(|r| r.state).unwrap_or(json!({}))))
 }
 
 pub async fn post_agent_state(
@@ -1323,7 +1363,7 @@ pub async fn post_agent_state(
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
     sqlx::query!(
         r#"
-        INSERT INTO process_pipeline_states (process_id, pipeline_id, state, updated_at)
+        INSERT INTO pipeline_states (process_id, pipeline_id, state, updated_at)
         VALUES ($1, $2, $3, now())
         ON CONFLICT (process_id, pipeline_id)
         DO UPDATE SET state = $3, updated_at = now()
