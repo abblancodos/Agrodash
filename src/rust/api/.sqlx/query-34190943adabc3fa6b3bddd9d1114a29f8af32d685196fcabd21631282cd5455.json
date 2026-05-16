@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT pipeline_id, state FROM process_pipeline_states WHERE process_id = $1",
+  "query": "SELECT pipeline_id, state FROM pipeline_states WHERE process_id = $1",
   "describe": {
     "columns": [
       {
@@ -24,5 +24,5 @@
       false
     ]
   },
-  "hash": "24e8126a9d6eb4bb04c3b02163ba848e30bbd83472106853ed6411f5377159ce"
+  "hash": "34190943adabc3fa6b3bddd9d1114a29f8af32d685196fcabd21631282cd5455"
 }

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM pipeline_states WHERE process_id = $1 AND pipeline_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "de977b7a09d86cef99de2e37683f948f1fdbc1b86713a1ae6425d5aadd5a1c9b"
+}
