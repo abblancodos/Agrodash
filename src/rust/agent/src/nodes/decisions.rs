@@ -250,6 +250,7 @@ pub struct HysteresisNode {
     cfg: HysteresisConfig,
     state: Option<NodeAction>,
     last_change: Option<String>,
+    last_val: Option<f64>,
     trend: Option<TrendTracker>,
 }
 
@@ -261,6 +262,7 @@ impl HysteresisNode {
             cfg,
             state: None,
             last_change: None,
+            last_val: None,
             trend,
         }
     }
@@ -315,6 +317,7 @@ impl NodeInstance for HysteresisNode {
         if let Some(t) = &mut self.trend {
             t.push(&x);
         }
+        self.last_val = Some(val);
         let prev = self.state.clone();
         let action = if val < self.cfg.low {
             self.cfg.action_below_low.clone()
@@ -372,17 +375,20 @@ impl NodeInstance for HysteresisNode {
     }
 
     fn metrics(&self) -> Vec<(String, f64)> {
+        let mut m = vec![("low".into(), self.cfg.low), ("high".into(), self.cfg.high)];
+        if let Some(v) = self.last_val {
+            m.push(("val".into(), v));
+        }
         if let Some(s) = &self.state {
-            vec![(
+            m.push((
                 "decision".into(),
                 match s {
                     NodeAction::On => 1.0,
                     _ => 0.0,
                 },
-            )]
-        } else {
-            vec![]
+            ));
         }
+        m
     }
 }
 

@@ -402,13 +402,13 @@ function createStore() {
 
     // ── Readings ───────────────────────────────────────────────────────────
     async fetchReadings(
-      id: string, pipelineId: string, sinceHours: number, limit = 500
+      id: string, pipelineId: string, sinceHours = 6, limit = 500,
+      since?: Date, until?: Date,
     ): Promise<ProcessReading[]> {
-      const since = new Date(Date.now() - sinceHours * 3_600_000).toISOString();
-      const res = await fetch(
-        `${API}/api/v1/processes/${id}/readings?pipeline_id=${pipelineId}&since=${since}&limit=${limit}`,
-        { credentials: 'include' }
-      );
+      const sinceDate = since ?? new Date(Date.now() - sinceHours * 3_600_000);
+      let url = `${API}/api/v1/processes/${id}/readings?pipeline_id=${pipelineId}&since=${sinceDate.toISOString()}&limit=${limit}`;
+      if (until) url += `&until=${until.toISOString()}`;
+      const res = await fetch(url, { credentials: 'include' });
       const data = await res.json();
       return (data.readings ?? []).reverse();
     },

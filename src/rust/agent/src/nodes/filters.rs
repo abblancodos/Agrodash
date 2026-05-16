@@ -21,6 +21,8 @@ pub struct KalmanNode {
     r: Vec<f64>,
     n: usize,
     initialized: bool,
+    last_k: Vec<f64>,
+    last_innov: Vec<f64>,
 }
 
 impl KalmanNode {
@@ -36,6 +38,8 @@ impl KalmanNode {
             r: vec![],
             n: 0,
             initialized: false,
+            last_k: vec![],
+            last_innov: vec![],
         }
     }
 
@@ -48,6 +52,8 @@ impl KalmanNode {
         self.r = self.cfg.R.expand(dim);
         self.p = vec![self.cfg.P0; dim];
         self.x = vec![0.0; dim];
+        self.last_k = vec![0.0; dim];
+        self.last_innov = vec![0.0; dim];
         self.initialized = true;
     }
 }
@@ -77,8 +83,11 @@ impl NodeInstance for KalmanNode {
         for i in 0..self.dim {
             self.p[i] += self.q[i] * dt;
             let k = self.p[i] / (self.p[i] + self.r[i]);
-            self.x[i] += k * (z[i] - self.x[i]);
+            let innov = z[i] - self.x[i];
+            self.x[i] += k * innov;
             self.p[i] *= 1.0 - k;
+            self.last_k[i] = k;
+            self.last_innov[i] = innov;
         }
         self.n += 1;
         Ok(Some(Signal::Vector(self.x.clone())))
@@ -96,6 +105,21 @@ impl NodeInstance for KalmanNode {
             data: serde_json::json!({ "x": self.x, "p": self.p, "n": self.n }),
             is_ready: self.is_ready(),
         }
+    }
+
+    fn metrics(&self) -> Vec<(String, f64)> {
+        let mut m = Vec::new();
+        for i in 0..self.dim {
+            let suffix = if self.dim == 1 {
+                String::new()
+            } else {
+                format!("[{i}]")
+            };
+            m.push((format!("p{suffix}"), self.p[i]));
+            m.push((format!("k{suffix}"), self.last_k[i]));
+            m.push((format!("innov{suffix}"), self.last_innov[i]));
+        }
+        m
     }
 
     fn load_state(&mut self, state: &NodeState) {

@@ -211,7 +211,6 @@
             {processId}
             pipelineId={pipeline.id}
             labels={sensorLabels}
-            hours={hoursMap[timePreset] ?? 6}
             loggerTag={l.tag}
             upstreamType={l.nodeType}
           />
@@ -220,8 +219,8 @@
     </div>
   {/if}
 
-  <!-- Sensores en columnas -->
-  {#if loggers.length > 0}
+  <!-- Sensores en columnas — solo cuando la card NO está expandida -->
+  {#if loggers.length > 0 && !expanded}
     <div class="sensor-strip">
       {#each loggers as l, i (l.id)}
         {#if i > 0}<div class="s-divider"></div>{/if}
@@ -251,7 +250,6 @@
             {processId}
             pipelineId={pipeline.id}
             labels={sensorLabels}
-            hours={hoursMap[timePreset] ?? 6}
             loggerTag={lg.tag}
             upstreamType={lg.nodeType}
           />
