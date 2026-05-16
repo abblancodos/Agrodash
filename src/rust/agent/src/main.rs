@@ -823,6 +823,8 @@ async fn save_state(pool: &PgPool, shared: &AgentShared) {
         override_active,
     );
 
+    let state_json = serde_json::to_value(&state).unwrap_or_default();
+
     sqlx::query!(
         r#"INSERT INTO pipeline_states (process_id, pipeline_id, state, updated_at)
            VALUES ($1, $2, $3, now())
@@ -830,11 +832,31 @@ async fn save_state(pool: &PgPool, shared: &AgentShared) {
            DO UPDATE SET state = $3, updated_at = now()"#,
         shared.process_id,
         shared.pipeline_id,
-        serde_json::to_value(&state).unwrap_or_default(),
+        state_json,
     )
     .execute(pool)
     .await
     .ok();
+
+    // Notificar al WS hub vía pg_notify para que haga broadcast inmediato al frontend.
+    // Canal: "ws_state_{process_id_con_guiones_bajos}"
+    // Payload: { pipeline_id, state }
+    let channel = format!(
+        "ws_state_{}",
+        shared.process_id.to_string().replace('-', "_")
+    );
+    let payload = serde_json::json!({
+        "pipeline_id": shared.pipeline_id,
+        "state":       state,
+    });
+    if let Ok(payload_str) = serde_json::to_string(&payload) {
+        sqlx::query("SELECT pg_notify($1, $2)")
+            .bind(&channel)
+            .bind(&payload_str)
+            .execute(pool)
+            .await
+            .ok();
+    }
 }
 
 async fn persist_overrides(pool: &PgPool, shared: &AgentShared) {
@@ -863,6 +885,18 @@ async fn mark_stopped(pool: &PgPool, process_id: Uuid) {
     .execute(pool)
     .await
     .ok();
+
+    // Notificar al WS hub para que el frontend vea el cambio de status sin polling
+    let channel = format!("ws_state_{}", process_id.to_string().replace('-', "_"));
+    let payload = serde_json::json!({ "process_status": "stopped" });
+    if let Ok(payload_str) = serde_json::to_string(&payload) {
+        sqlx::query("SELECT pg_notify($1, $2)")
+            .bind(&channel)
+            .bind(&payload_str)
+            .execute(pool)
+            .await
+            .ok();
+    }
 }
 
 async fn write_agent_error(pool: &PgPool, process_id: Uuid, pipeline_id: &str, msg: &str) {

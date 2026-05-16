@@ -285,6 +285,71 @@ async fn handle_socket(socket: WebSocket, state: AppState, process_id: Uuid, use
         });
     }
 
+    // ── Escuchar estado del agente via PG NOTIFY ──────────────────────────
+    // El agente publica en "ws_state_{process_id}" cada vez que guarda estado
+    // (cada SAVE_EVERY ciclos y al salir de warmup). El hub hace broadcast
+    // inmediato al frontend sin necesidad de polling ni HTTP entre agente y API.
+    {
+        let pg_channel = format!("ws_state_{}", process_id.to_string().replace('-', "_"));
+        let ws_clone = state.ws.clone();
+        let pid = process_id;
+        let pool_clone = state.pool.clone();
+        tokio::spawn(async move {
+            use sqlx::postgres::PgListener;
+            let mut listener = match PgListener::connect_with(&pool_clone).await {
+                Ok(l) => l,
+                Err(e) => {
+                    tracing::warn!("WS state listener: {e}");
+                    return;
+                }
+            };
+            if listener.listen(&pg_channel).await.is_err() {
+                return;
+            }
+            tracing::info!("WS: escuchando PG NOTIFY {pg_channel}");
+            loop {
+                match listener.recv().await {
+                    Ok(notif) => {
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(notif.payload())
+                        {
+                            if let Some(status) = val.get("process_status").and_then(|v| v.as_str())
+                            {
+                                // Cambio de status del proceso (ej: stopped)
+                                ws_clone
+                                    .publish(
+                                        pid,
+                                        WsEvent::ProcessStatus {
+                                            status: status.to_string(),
+                                            last_seen_at: None,
+                                        },
+                                    )
+                                    .await;
+                            } else if let Some(pipeline_id) =
+                                val.get("pipeline_id").and_then(|v| v.as_str())
+                            {
+                                // Estado de pipeline
+                                let state_val = val.get("state").cloned().unwrap_or_default();
+                                ws_clone
+                                    .publish(
+                                        pid,
+                                        WsEvent::PipelineState {
+                                            pipeline_id: pipeline_id.to_string(),
+                                            state: state_val,
+                                        },
+                                    )
+                                    .await;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("WS state listener error: {e}");
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
     // ── Lanzar relay MQTT si el proceso tiene broker configurado ──────────
     {
         let cfg_row = sqlx::query!("SELECT config FROM processes WHERE id = $1", process_id)

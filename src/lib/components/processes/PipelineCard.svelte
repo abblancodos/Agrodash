@@ -163,10 +163,10 @@
       <button
         class="ctrl-btn"
         class:ctrl-stop={status === 'running'}
-        disabled={ctrlBusy || status === 'error'}
+        disabled={ctrlBusy || status === 'error' || status === 'stopping'}
         onclick={(e) => { e.stopPropagation(); ontoggle(); }}
       >
-        {#if ctrlBusy}…{:else if status === 'running'}■{:else}▶{/if}
+        {#if ctrlBusy || status === 'stopping'}…{:else if status === 'running'}■{:else}▶{/if}
       </button>
     {/if}
   </button>

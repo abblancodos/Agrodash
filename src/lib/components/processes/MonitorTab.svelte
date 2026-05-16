@@ -42,8 +42,17 @@
     untrack(() => { for (const pl of pipelines) loadReadings(pl.id); });
   }
 
+  // Carga inicial al montar (independiente del WS)
   $effect(() => {
-    void lastCycle;
+    const pls = pipelines;
+    if (pls.length === 0) return;
+    untrack(() => { for (const pl of pls) loadReadings(pl.id); });
+  });
+
+  // Recarga cuando llega un ciclo nuevo por WS
+  $effect(() => {
+    const cycle = lastCycle;
+    if (cycle === 0) return;
     const pls = pipelines;
     untrack(() => { for (const pl of pls) loadReadings(pl.id); });
   });
@@ -126,9 +135,9 @@
       {#if ctrlError}<span class="g-error">{ctrlError}</span>{/if}
       {#if canOperate}
         <button class="action-btn" class:running={status === 'running'}
-          disabled={ctrlBusy || status === 'error'}
+          disabled={ctrlBusy || status === 'error' || status === 'stopping'}
           onclick={toggleProcess}>
-          {#if ctrlBusy}…{:else if status === 'running'}■ detener{:else}▶ iniciar{/if}
+          {#if ctrlBusy || status === 'stopping'}…{:else if status === 'running'}■ detener{:else}▶ iniciar{/if}
         </button>
       {/if}
     </div>
