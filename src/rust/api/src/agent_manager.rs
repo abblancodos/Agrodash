@@ -17,7 +17,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use agrodash_shared::{AgentCommand, ProcessConfig};
-use chrono::Utc;
 use sqlx::PgPool;
 use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, RwLock};
@@ -213,12 +212,12 @@ impl AgentManager {
         let self_clone = Arc::clone(self);
         tokio::spawn(async move {
             for mut child in children {
-                let died = tokio::time::timeout(Duration::from_secs(15), child.wait()).await;
+                let died = tokio::time::timeout(
+                    Duration::from_secs(15),
+                    child.wait(),
+                ).await;
                 if died.is_err() {
-                    warn!(
-                        "Un agente del proceso {} no terminó en 15s — forzando kill",
-                        process_id
-                    );
+                    warn!("Un agente del proceso {} no terminó en 15s — forzando kill", process_id);
                     child.kill().await.ok();
                 }
             }
@@ -335,26 +334,15 @@ impl AgentManager {
             };
 
             if restarts >= self.cfg.max_restarts {
-                let msg = format!(
-                    "El agente reinició {} veces y siguió fallando. Revisá los logs.",
-                    restarts
-                );
-                error!(
-                    "Agente {}/{} alcanzó máximo de reinicios",
-                    key.process_id, key.pipeline_id
-                );
-                self.mark_status_msg(key.process_id, "error", Some(&msg))
-                    .await;
+                let msg = format!("El agente reinició {} veces y siguió fallando. Revisá los logs.", restarts);
+                error!("Agente {}/{} alcanzó máximo de reinicios", key.process_id, key.pipeline_id);
+                self.mark_status_msg(key.process_id, "error", Some(&msg)).await;
                 // Log en process_logs para que aparezca en el tab de logs
                 sqlx::query!(
                     "INSERT INTO process_logs (process_id, level, source, message)
                      VALUES ($1, 'error', 'agent', $2)",
-                    key.process_id,
-                    msg,
-                )
-                .execute(&self.pool)
-                .await
-                .ok();
+                    key.process_id, msg,
+                ).execute(&self.pool).await.ok();
                 // pg_notify al WS para que aparezca en tiempo real
                 let channel = format!("ws_log_{}", key.process_id.to_string().replace('-', "_"));
                 let payload = serde_json::json!({
@@ -363,11 +351,8 @@ impl AgentManager {
                 });
                 if let Ok(s) = serde_json::to_string(&payload) {
                     sqlx::query("SELECT pg_notify($1, $2)")
-                        .bind(&channel)
-                        .bind(&s)
-                        .execute(&self.pool)
-                        .await
-                        .ok();
+                        .bind(&channel).bind(&s)
+                        .execute(&self.pool).await.ok();
                 }
                 self.agents.write().await.remove(&key);
                 break;
@@ -401,30 +386,21 @@ impl AgentManager {
                 Err(e) => {
                     let msg = format!("No se pudo reiniciar el agente: {e}");
                     error!("{msg}");
-                    self.mark_status_msg(key.process_id, "error", Some(&msg))
-                        .await;
+                    self.mark_status_msg(key.process_id, "error", Some(&msg)).await;
                     sqlx::query!(
                         "INSERT INTO process_logs (process_id, level, source, message)
                          VALUES ($1, 'error', 'agent', $2)",
-                        key.process_id,
-                        msg,
-                    )
-                    .execute(&self.pool)
-                    .await
-                    .ok();
-                    let channel =
-                        format!("ws_log_{}", key.process_id.to_string().replace('-', "_"));
+                        key.process_id, msg,
+                    ).execute(&self.pool).await.ok();
+                    let channel = format!("ws_log_{}", key.process_id.to_string().replace('-', "_"));
                     let payload = serde_json::json!({
                         "level": "error", "source": "agent", "message": msg,
                         "ts": chrono::Utc::now().to_rfc3339(),
                     });
                     if let Ok(s) = serde_json::to_string(&payload) {
                         sqlx::query("SELECT pg_notify($1, $2)")
-                            .bind(&channel)
-                            .bind(&s)
-                            .execute(&self.pool)
-                            .await
-                            .ok();
+                            .bind(&channel).bind(&s)
+                            .execute(&self.pool).await.ok();
                     }
                     self.agents.write().await.remove(&key);
                     break;
@@ -440,8 +416,7 @@ impl AgentManager {
     async fn mark_status_msg(&self, process_id: Uuid, status: &str, error_msg: Option<&str>) {
         sqlx::query!(
             "UPDATE processes SET status=$1, updated_at=now() WHERE id=$2",
-            status,
-            process_id,
+            status, process_id,
         )
         .execute(&self.pool)
         .await

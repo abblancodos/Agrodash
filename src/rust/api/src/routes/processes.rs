@@ -7,7 +7,6 @@ use axum::{
     response::sse::{Event, Sse},
     Json,
 };
-use chrono::Utc;
 use futures_util::stream::{self, Stream};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -40,10 +39,7 @@ pub(crate) async fn log_event(
     sqlx::query!(
         "INSERT INTO process_logs (process_id, level, source, message)
          VALUES ($1, $2, $3, $4)",
-        process_id,
-        level,
-        source,
-        message,
+        process_id, level, source, message,
     )
     .execute(pool)
     .await
@@ -468,10 +464,7 @@ pub async fn update_process(
                     .execute(&state.pool)
                     .await
                     .ok();
-                    warn!(
-                        "Pipeline {} eliminado de la config — agente detenido y estado limpiado",
-                        old_id
-                    );
+                    warn!("Pipeline {} eliminado de la config — agente detenido y estado limpiado", old_id);
                 }
             }
 
@@ -659,8 +652,7 @@ pub async fn restart_process(
     sqlx::query!(
         "INSERT INTO process_logs (process_id, source, message, user_id)
          VALUES ($1, 'system', 'Proceso reiniciado manualmente', $2)",
-        process_id,
-        claims.sub
+        process_id, claims.sub
     )
     .execute(&state.pool)
     .await
