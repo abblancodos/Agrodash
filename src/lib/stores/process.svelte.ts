@@ -258,7 +258,10 @@ function createStore() {
       wsReconnectTimer = setTimeout(() => {
         wsReconnectTimer = null;
         const API = (import.meta as any).env?.VITE_API_BASE ?? '';
-        const wsUrl = API.replace(/^http/, 'ws') + `/api/v1/processes/${processId}/ws`;
+        const wsBase = API
+          ? API.replace(/^https/, 'wss').replace(/^http/, 'ws')
+          : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
+        const wsUrl = wsBase + `/api/v1/processes/${processId}/ws`;
 
         const socket = new WebSocket(wsUrl);
         wsSocket = socket;
