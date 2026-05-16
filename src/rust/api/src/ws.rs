@@ -313,9 +313,11 @@ async fn handle_socket(socket: WebSocket, state: AppState, process_id: Uuid, use
                     Ok(notif) => {
                         if let Ok(val) = serde_json::from_str::<serde_json::Value>(notif.payload())
                         {
-                            if let Some(status) = val.get("process_status").and_then(|v| v.as_str()) {
+                            if let Some(status) = val.get("process_status").and_then(|v| v.as_str())
+                            {
                                 // Cambio de status del proceso (ej: stopped, error)
-                                let error_message = val.get("error_message")
+                                let error_message = val
+                                    .get("error_message")
                                     .and_then(|v| v.as_str())
                                     .map(String::from);
                                 ws_clone
@@ -328,7 +330,9 @@ async fn handle_socket(socket: WebSocket, state: AppState, process_id: Uuid, use
                                         },
                                     )
                                     .await;
-                            } else if let Some(pipeline_id) = val.get("pipeline_id").and_then(|v| v.as_str()) {
+                            } else if let Some(pipeline_id) =
+                                val.get("pipeline_id").and_then(|v| v.as_str())
+                            {
                                 // Estado de pipeline
                                 let state_val = val.get("state").cloned().unwrap_or_default();
                                 ws_clone
@@ -357,28 +361,58 @@ async fn handle_socket(socket: WebSocket, state: AppState, process_id: Uuid, use
     // un log. El hub lo convierte en WsEvent::Log y lo manda al frontend.
     {
         let pg_channel = format!("ws_log_{}", process_id.to_string().replace('-', "_"));
-        let ws_clone   = state.ws.clone();
-        let pid        = process_id;
+        let ws_clone = state.ws.clone();
+        let pid = process_id;
         let pool_clone = state.pool.clone();
         tokio::spawn(async move {
             use sqlx::postgres::PgListener;
             let mut listener = match PgListener::connect_with(&pool_clone).await {
                 Ok(l) => l,
-                Err(e) => { tracing::warn!("WS log listener: {e}"); return; }
+                Err(e) => {
+                    tracing::warn!("WS log listener: {e}");
+                    return;
+                }
             };
-            if listener.listen(&pg_channel).await.is_err() { return; }
+            if listener.listen(&pg_channel).await.is_err() {
+                return;
+            }
             tracing::info!("WS: escuchando PG NOTIFY {pg_channel}");
             loop {
                 match listener.recv().await {
                     Ok(notif) => {
-                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(notif.payload()) {
-                            let level   = val.get("level").and_then(|v| v.as_str()).unwrap_or("info").to_string();
-                            let source  = val.get("source").and_then(|v| v.as_str()).unwrap_or("system").to_string();
-                            let message = val.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            ws_clone.publish(pid, WsEvent::Log { level, source, message }).await;
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(notif.payload())
+                        {
+                            let level = val
+                                .get("level")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("info")
+                                .to_string();
+                            let source = val
+                                .get("source")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("system")
+                                .to_string();
+                            let message = val
+                                .get("message")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            ws_clone
+                                .publish(
+                                    pid,
+                                    WsEvent::Log {
+                                        level,
+                                        source,
+                                        message,
+                                    },
+                                )
+                                .await;
                         }
                     }
-                    Err(e) => { tracing::warn!("WS log listener error: {e}"); break; }
+                    Err(e) => {
+                        tracing::warn!("WS log listener error: {e}");
+                        break;
+                    }
                 }
             }
         });
@@ -684,7 +718,8 @@ async fn handle_client_msg(
                     ON c.process_id = p.id AND c.user_id = $2
                 WHERE p.id = $1
                 "#,
-                process_id, user_id,
+                process_id,
+                user_id,
             )
             .fetch_optional(&state.pool)
             .await
@@ -721,18 +756,29 @@ async fn handle_client_msg(
                         sink.send(Message::Text(e.to_string())).await.ok();
                         return;
                     }
-                    let Ok(cfg) = serde_json::from_value::<agrodash_shared::ProcessConfig>(row.config)
-                    else { return; };
+                    let Ok(cfg) =
+                        serde_json::from_value::<agrodash_shared::ProcessConfig>(row.config)
+                    else {
+                        return;
+                    };
                     sqlx::query!(
                         "UPDATE processes SET status='running', updated_at=now() WHERE id=$1",
                         process_id
-                    ).execute(&state.pool).await.ok();
+                    )
+                    .execute(&state.pool)
+                    .await
+                    .ok();
                     for pl in &cfg.pipelines {
                         state.manager.spawn(process_id, pl.id.clone()).await;
                     }
                     crate::routes::processes::log_event(
-                        &state.pool, process_id, "info", "system", "Proceso iniciado",
-                    ).await;
+                        &state.pool,
+                        process_id,
+                        "info",
+                        "system",
+                        "Proceso iniciado",
+                    )
+                    .await;
                 }
 
                 "stop" => {
@@ -742,17 +788,31 @@ async fn handle_client_msg(
                     sqlx::query!(
                         "UPDATE processes SET status='stopping', updated_at=now() WHERE id=$1",
                         process_id
-                    ).execute(&state.pool).await.ok();
+                    )
+                    .execute(&state.pool)
+                    .await
+                    .ok();
                     state.manager.stop_process(process_id).await;
                     // Notificar al frontend inmediatamente vía WS
-                    state.ws.publish(process_id, WsEvent::ProcessStatus {
-                        status: "stopping".to_string(),
-                        last_seen_at: None,
-                        error_message: None,
-                    }).await;
+                    state
+                        .ws
+                        .publish(
+                            process_id,
+                            WsEvent::ProcessStatus {
+                                status: "stopping".to_string(),
+                                last_seen_at: None,
+                                error_message: None,
+                            },
+                        )
+                        .await;
                     crate::routes::processes::log_event(
-                        &state.pool, process_id, "info", "system", "Proceso deteniéndose",
-                    ).await;
+                        &state.pool,
+                        process_id,
+                        "info",
+                        "system",
+                        "Proceso deteniéndose",
+                    )
+                    .await;
                 }
 
                 "restart" => {
@@ -761,26 +821,43 @@ async fn handle_client_msg(
                         sink.send(Message::Text(e.to_string())).await.ok();
                         return;
                     }
-                    let Ok(cfg) = serde_json::from_value::<agrodash_shared::ProcessConfig>(row.config)
-                    else { return; };
+                    let Ok(cfg) =
+                        serde_json::from_value::<agrodash_shared::ProcessConfig>(row.config)
+                    else {
+                        return;
+                    };
                     state.manager.stop_process(process_id).await;
                     tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
                     sqlx::query!(
                         "UPDATE processes SET status='running', updated_at=now() WHERE id=$1",
                         process_id
-                    ).execute(&state.pool).await.ok();
+                    )
+                    .execute(&state.pool)
+                    .await
+                    .ok();
                     for pl in &cfg.pipelines {
                         state.manager.spawn(process_id, pl.id.clone()).await;
                     }
                     // Notificar al frontend inmediatamente
-                    state.ws.publish(process_id, WsEvent::ProcessStatus {
-                        status: "running".to_string(),
-                        last_seen_at: None,
-                        error_message: None,
-                    }).await;
+                    state
+                        .ws
+                        .publish(
+                            process_id,
+                            WsEvent::ProcessStatus {
+                                status: "running".to_string(),
+                                last_seen_at: None,
+                                error_message: None,
+                            },
+                        )
+                        .await;
                     crate::routes::processes::log_event(
-                        &state.pool, process_id, "info", "system", "Proceso reiniciado manualmente",
-                    ).await;
+                        &state.pool,
+                        process_id,
+                        "info",
+                        "system",
+                        "Proceso reiniciado manualmente",
+                    )
+                    .await;
                 }
 
                 _ => {}
