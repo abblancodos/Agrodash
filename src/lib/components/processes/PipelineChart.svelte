@@ -210,9 +210,9 @@
       const data = readings.map(r => {
         if (sk) {
           const sv = r.scope_values?.[sk];
-          if (sv === 'on' || sv === 1)  return 1;
-          if (sv === 'off' || sv === 0) return 0;
-          if (typeof sv === 'number')   return sv > 0.5 ? 1 : 0;
+          if (sv === 'on')  return 1;
+          if (sv === 'off') return 0;
+          if (Array.isArray(sv)) return sv[0] > 0.5 ? 1 : 0;
         }
         return r.actuator === 'on' ? 1 : 0;
       });
@@ -244,8 +244,8 @@
         const sk = v.key.slice(6);
         data = readings.map(r => {
           const sv = r.scope_values?.[sk];
-          if (typeof sv === 'number') return sv;
           if (Array.isArray(sv) && typeof sv[0] === 'number') return sv[0];
+          return null;
           return null;
         });
       } else continue;

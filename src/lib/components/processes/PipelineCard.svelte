@@ -151,7 +151,8 @@
 <div class="card" class:card-on={hasOn}>
 
   <!-- Header — click expande la card -->
-  <button class="card-head" class:head-expanded={expanded} onclick={onexpand}>
+  <div class="card-head" class:head-expanded={expanded} role="button" tabindex="0"
+    onclick={onexpand} onkeydown={(e) => e.key === 'Enter' && onexpand()}>
     <span class="pl-name">{pipeline.label}</span>
     {#if !isReady}
       <span class="badge b-warm">warmup</span>
@@ -169,7 +170,7 @@
         {#if ctrlBusy || status === 'stopping'}…{:else if status === 'running'}■{:else}▶{/if}
       </button>
     {/if}
-  </button>
+  </div>
 
   <!-- Barra de progreso de warmup — visible mientras no está listo, no bloquea -->
   {#if !isReady}
