@@ -92,14 +92,11 @@ async fn stop_process_remueve_del_mapa() {
     // para que llame mark_status("stopped").
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let status = sqlx::query_scalar!(
-        "SELECT status FROM processes WHERE id = $1",
-        process_id,
-    )
-    .fetch_optional(mgr.pool())
-    .await
-    .ok()
-    .flatten();
+    let status = sqlx::query_scalar!("SELECT status FROM processes WHERE id = $1", process_id,)
+        .fetch_optional(mgr.pool())
+        .await
+        .ok()
+        .flatten();
 
     // El proceso no existe en DB (es un UUID inventado), así que status es None.
     // Lo que importa es que mark_status no haya crasheado — si llegamos aquí, ok.

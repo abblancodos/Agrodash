@@ -212,12 +212,12 @@ impl AgentManager {
         let self_clone = Arc::clone(self);
         tokio::spawn(async move {
             for mut child in children {
-                let died = tokio::time::timeout(
-                    Duration::from_secs(15),
-                    child.wait(),
-                ).await;
+                let died = tokio::time::timeout(Duration::from_secs(15), child.wait()).await;
                 if died.is_err() {
-                    warn!("Un agente del proceso {} no terminó en 15s — forzando kill", process_id);
+                    warn!(
+                        "Un agente del proceso {} no terminó en 15s — forzando kill",
+                        process_id
+                    );
                     child.kill().await.ok();
                 }
             }
