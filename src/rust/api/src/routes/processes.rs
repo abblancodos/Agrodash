@@ -1353,7 +1353,7 @@ pub async fn get_agent_state(
     .await
     .map_err(err)?;
 
-    Ok(Json(row.and_then(|r| r.state).unwrap_or(json!({}))))
+    Ok(Json(row.map(|r| r.state).unwrap_or(json!({}))))
 }
 
 pub async fn post_agent_state(
