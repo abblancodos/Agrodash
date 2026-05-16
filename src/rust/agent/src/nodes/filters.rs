@@ -108,6 +108,9 @@ impl NodeInstance for KalmanNode {
     }
 
     fn metrics(&self) -> Vec<(String, f64)> {
+        if self.dim == 0 || self.last_k.len() != self.dim {
+            return vec![];
+        }
         let mut m = Vec::new();
         for i in 0..self.dim {
             let suffix = if self.dim == 1 {
@@ -133,6 +136,12 @@ impl NodeInstance for KalmanNode {
             self.initialized = true;
             self.q = self.cfg.Q.expand(self.dim);
             self.r = self.cfg.R.expand(self.dim);
+            // Inicializar con longitud correcta para evitar index out of bounds
+            // en el primer ciclo tras cargar estado guardado
+            if self.last_k.len() != self.dim {
+                self.last_k = vec![0.0; self.dim];
+                self.last_innov = vec![0.0; self.dim];
+            }
         }
         if let Some(p) = state
             .data
