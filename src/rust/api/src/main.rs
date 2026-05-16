@@ -376,6 +376,10 @@ async fn main() {
             post(routes::processes::stop_process),
         )
         .route(
+            "/api/v1/processes/:id/restart",
+            post(routes::processes::restart_process),
+        )
+        .route(
             "/api/v1/processes/:id/test",
             post(routes::processes::self_test),
         )

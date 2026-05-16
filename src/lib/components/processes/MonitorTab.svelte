@@ -70,6 +70,14 @@
     finally { ctrlBusy = false; }
   }
 
+  async function restartProcess() {
+    ctrlBusy = true; ctrlError = '';
+    try {
+      await processStore.restartProcess(processId);
+    } catch (e: any) { ctrlError = e.message; }
+    finally { ctrlBusy = false; }
+  }
+
   async function allOff() {
     // Mandar ClearOverride + Override off a todos los actuadores de todos los pipelines
     for (const pl of pipelines) {
@@ -134,14 +142,28 @@
 
       {#if ctrlError}<span class="g-error">{ctrlError}</span>{/if}
       {#if canOperate}
-        <button class="action-btn" class:running={status === 'running'}
-          disabled={ctrlBusy || status === 'error' || status === 'stopping'}
-          onclick={toggleProcess}>
-          {#if ctrlBusy || status === 'stopping'}…{:else if status === 'running'}■ detener{:else}▶ iniciar{/if}
-        </button>
+        {#if status === 'error'}
+          <button class="action-btn action-restart" disabled={ctrlBusy} onclick={restartProcess}>
+            {#if ctrlBusy}…{:else}↺ reintentar{/if}
+          </button>
+        {:else}
+          <button class="action-btn" class:running={status === 'running'}
+            disabled={ctrlBusy || status === 'stopping'}
+            onclick={toggleProcess}>
+            {#if ctrlBusy || status === 'stopping'}…{:else if status === 'running'}■ detener{:else}▶ iniciar{/if}
+          </button>
+        {/if}
       {/if}
     </div>
   </div>
+
+  <!-- Banner de error -->
+  {#if status === 'error' && proc?.error_message}
+    <div class="error-banner">
+      <span class="error-icon">⚠</span>
+      <span class="error-text">{proc.error_message}</span>
+    </div>
+  {/if}
 
   <!-- Grid de pipelines -->
   {#if pipelines.length === 0}
@@ -204,6 +226,18 @@
   .action-btn:disabled                    { opacity:.4; cursor:default; }
   .action-btn.running                     { color:#e05454; border-color:#e0545444; }
   .action-btn.running:hover:not(:disabled){ background:#FCEBEB; }
+  .action-restart                         { color:#e07b54; border-color:#e07b5444; }
+  .action-restart:hover:not(:disabled)    { background:#FEF0EA; }
+
+  /* Banner de error */
+  .error-banner {
+    display:flex; align-items:flex-start; gap:8px;
+    padding:calc(8px * var(--font-scale)) calc(12px * var(--font-scale));
+    background:#FCEBEB; border:0.5px solid #F09595; border-radius:8px;
+    font-size:calc(11px * var(--font-scale)); font-family:'DM Mono',monospace; color:#A32D2D;
+  }
+  .error-icon { flex-shrink:0; font-size:calc(13px * var(--font-scale)); }
+  .error-text { line-height:1.5; }
 
   /* ── Grid 2 columnas ── */
   .pl-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:calc(8px * var(--font-scale)); }
