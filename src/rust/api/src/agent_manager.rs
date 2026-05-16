@@ -170,10 +170,15 @@ impl AgentManager {
         Ok(())
     }
 
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
     /// Detener todos los agentes de un proceso:
     ///   1. Escribir status='stopping' en DB (desired state)
     ///   2. NOTIFY Stop a cada pipeline
-    ///   3. Esperar que los child mueran y marcar stopped
+    ///   3. Remover del mapa inmediatamente
+    ///   4. Esperar que los child mueran en background y marcar stopped
     pub async fn stop_process(self: &Arc<Self>, process_id: Uuid) {
         let keys: Vec<AgentKey> = {
             self.agents
@@ -185,61 +190,37 @@ impl AgentManager {
                 .collect()
         };
 
-        // Notificar primero — el agente recibe Stop y termina limpiamente
+        // Notificar Stop y capturar los child antes de remover del mapa
+        let mut children: Vec<Child> = Vec::new();
         for key in &keys {
             self.notify(key, AgentCommand::Stop).await.ok();
         }
+        for key in &keys {
+            if let Some(entry) = self.agents.write().await.remove(key) {
+                let child = entry.into_inner().child;
+                children.push(child);
+            }
+        }
 
-        // Esperar a que los child mueran (máx 15s) y luego marcar stopped
+        if keys.is_empty() {
+            // No había agentes en el mapa — marcar stopped directamente
+            self.mark_status(process_id, "stopped").await;
+            return;
+        }
+
+        // Esperar que los child mueran en background y marcar stopped
         let self_clone = Arc::clone(self);
-        let keys_clone = keys.clone();
         tokio::spawn(async move {
-            for key in &keys_clone {
-                // Esperar muerte del child con timeout
-                let died = tokio::time::timeout(Duration::from_secs(15), async {
-                    loop {
-                        let alive = self_clone.agents.read().await.contains_key(key);
-                        if !alive {
-                            break;
-                        }
-                        // Verificar si el child ya terminó
-                        let finished = {
-                            let agents = self_clone.agents.read().await;
-                            if let Some(entry) = agents.get(key) {
-                                entry
-                                    .lock()
-                                    .await
-                                    .child
-                                    .try_wait()
-                                    .map(|s| s.is_some())
-                                    .unwrap_or(false)
-                            } else {
-                                true
-                            }
-                        };
-                        if finished {
-                            break;
-                        }
-                        sleep(Duration::from_millis(500)).await;
-                    }
-                })
-                .await;
-
+            for mut child in children {
+                let died = tokio::time::timeout(
+                    Duration::from_secs(15),
+                    child.wait(),
+                ).await;
                 if died.is_err() {
-                    // Timeout — matar el child a la fuerza
-                    warn!(
-                        "Agente {}/{} no terminó en 15s — forzando kill",
-                        key.process_id, key.pipeline_id
-                    );
-                    if let Some(entry) = self_clone.agents.write().await.remove(key) {
-                        entry.lock().await.child.kill().await.ok();
-                    }
-                } else {
-                    self_clone.agents.write().await.remove(key);
+                    warn!("Un agente del proceso {} no terminó en 15s — forzando kill", process_id);
+                    child.kill().await.ok();
                 }
             }
-
-            // Todos los agentes del proceso terminaron — marcar stopped
             self_clone.mark_status(process_id, "stopped").await;
             info!("Proceso {} marcado como stopped", process_id);
         });

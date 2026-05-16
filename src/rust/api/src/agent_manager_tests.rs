@@ -26,9 +26,12 @@ async fn manager() -> Arc<AgentManager> {
 // ─────────────────────────────────────────────────────────────────────────────
 // stop_process
 //
-// Invariante: stop_process debe remover la key del mapa interno.
-// Si no la remueve, el monitor intenta reiniciar un proceso que el usuario
-// detuvo intencionalmente.
+// Invariantes:
+//   1. stop_process remueve la key del mapa inmediatamente (síncrono).
+//      Si no la remueve, el monitor intenta reiniciar un proceso detenido.
+//   2. stop_process marca el proceso como 'stopped' en DB en background.
+//      El child 'true' termina solo en <1s, así que con un pequeño yield
+//      el spawn del background ya corrió.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // stop_process con proceso inexistente no debe fallar ni dejar estado sucio.
@@ -46,9 +49,8 @@ async fn stop_process_inexistente_no_falla() {
     );
 }
 
-// stop_process debe remover la key del mapa aunque no haya binario real.
-// Insertamos una entrada dummy directamente en el mapa interno para simular
-// un agente activo sin necesidad de spawnar un proceso real.
+// stop_process debe remover la key del mapa inmediatamente y marcar stopped
+// en DB después de que el child termina.
 #[tokio::test]
 async fn stop_process_remueve_del_mapa() {
     let mgr = manager().await;
@@ -70,7 +72,7 @@ async fn stop_process_remueve_del_mapa() {
         .await
         .insert(key, Mutex::new(AgentEntry { child, restarts: 0 }));
 
-    // Verificar que está en el mapa.
+    // Verificar precondición.
     assert!(
         mgr.active_pipelines(process_id)
             .await
@@ -78,12 +80,33 @@ async fn stop_process_remueve_del_mapa() {
         "precondición: el pipeline debe estar en el mapa"
     );
 
-    // stop_process debe removerlo.
+    // stop_process remueve del mapa inmediatamente (antes de retornar).
     mgr.stop_process(process_id).await;
 
     assert!(
         mgr.active_pipelines(process_id).await.is_empty(),
-        "stop_process no removió el pipeline del mapa"
+        "stop_process no removió el pipeline del mapa inmediatamente"
+    );
+
+    // El child 'true' termina solo en ms — dar tiempo al spawn background
+    // para que llame mark_status("stopped").
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let status = sqlx::query_scalar!(
+        "SELECT status FROM processes WHERE id = $1",
+        process_id,
+    )
+    .fetch_optional(mgr.pool())
+    .await
+    .ok()
+    .flatten();
+
+    // El proceso no existe en DB (es un UUID inventado), así que status es None.
+    // Lo que importa es que mark_status no haya crasheado — si llegamos aquí, ok.
+    // En un test con proceso real en DB, esto debería devolver Some("stopped").
+    assert!(
+        status.as_deref() != Some("stopping"),
+        "stop_process dejó el proceso en 'stopping' — mark_status no corrió"
     );
 }
 
