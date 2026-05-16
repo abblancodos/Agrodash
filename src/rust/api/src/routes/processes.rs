@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 use std::{convert::Infallible, time::Duration};
 use tokio::time::interval;
 use uuid::Uuid;
+use chrono::Utc;
 
 use crate::agent_manager::AgentKey;
 use crate::auth::Claims;
@@ -25,6 +26,41 @@ fn err(e: impl std::fmt::Display) -> (StatusCode, Json<Value>) {
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(json!({"error": e.to_string()})),
     )
+}
+
+/// Inserta un log en `process_logs` y notifica al WS hub via pg_notify.
+/// El hub escucha `ws_log_{process_id}` y emite `WsEvent::Log` en tiempo real.
+pub(crate) async fn log_event(
+    pool: &sqlx::PgPool,
+    process_id: Uuid,
+    level: &str,
+    source: &str,
+    message: &str,
+) {
+    sqlx::query!(
+        "INSERT INTO process_logs (process_id, level, source, message)
+         VALUES ($1, $2, $3, $4)",
+        process_id, level, source, message,
+    )
+    .execute(pool)
+    .await
+    .ok();
+
+    let channel = format!("ws_log_{}", process_id.to_string().replace('-', "_"));
+    let payload = serde_json::json!({
+        "level":   level,
+        "source":  source,
+        "message": message,
+        "ts":      chrono::Utc::now().to_rfc3339(),
+    });
+    if let Ok(s) = serde_json::to_string(&payload) {
+        sqlx::query("SELECT pg_notify($1, $2)")
+            .bind(&channel)
+            .bind(&s)
+            .execute(pool)
+            .await
+            .ok();
+    }
 }
 
 fn forbidden() -> (StatusCode, Json<Value>) {
@@ -429,10 +465,7 @@ pub async fn update_process(
                     .execute(&state.pool)
                     .await
                     .ok();
-                    warn!(
-                        "Pipeline {} eliminado de la config — agente detenido y estado limpiado",
-                        old_id
-                    );
+                    warn!("Pipeline {} eliminado de la config — agente detenido y estado limpiado", old_id);
                 }
             }
 
@@ -565,7 +598,69 @@ pub async fn stop_process(
     Ok(StatusCode::ACCEPTED)
 }
 
-// ── POST /processes/:id/test — self-test de infraestructura ───────────────────
+// ── POST /processes/:id/restart ───────────────────────────────────────────────
+//
+// Reinicia un proceso en estado error o stopped.
+// Mata cualquier agente que quede vivo, resetea el contador de reinicios,
+// y arranca de nuevo igual que /start.
+
+pub async fn restart_process(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(process_id): Path<Uuid>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    require_process_role(&state.pool, process_id, claims.sub, "operator").await?;
+
+    let row = sqlx::query!(
+        "SELECT config, status FROM processes WHERE id = $1",
+        process_id
+    )
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(err)?
+    .ok_or_else(not_found)?;
+
+    // Solo reiniciar desde error o stopped
+    if row.status == "running" || row.status == "stopping" {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(json!({"error": "Detené el proceso antes de reiniciarlo"})),
+        ));
+    }
+
+    let cfg: ProcessConfig =
+        serde_json::from_value(row.config).map_err(|e| err(format!("Config inválida: {e}")))?;
+
+    // Limpiar cualquier agente zombie que pudiera quedar
+    state.manager.stop_process(process_id).await;
+    // Dar un momento para que termine
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Marcar como running
+    sqlx::query!(
+        "UPDATE processes SET status='running', updated_at=now() WHERE id=$1",
+        process_id
+    )
+    .execute(&state.pool)
+    .await
+    .map_err(err)?;
+
+    // Spawnar agentes con contadores de restart en 0
+    for pipeline in &cfg.pipelines {
+        state.manager.spawn(process_id, pipeline.id.clone()).await;
+    }
+
+    sqlx::query!(
+        "INSERT INTO process_logs (process_id, source, message, user_id)
+         VALUES ($1, 'system', 'Proceso reiniciado manualmente', $2)",
+        process_id, claims.sub
+    )
+    .execute(&state.pool)
+    .await
+    .ok();
+
+    Ok(StatusCode::NO_CONTENT)
+}
 //
 // Modos:
 //   - Si el proceso está running: envía SelfTest a cada agente vía socket (dry-run real)

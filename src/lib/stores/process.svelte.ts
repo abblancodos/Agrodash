@@ -39,14 +39,15 @@ export interface ProcessConfig {
 export type ProcessStatus = 'running' | 'stopping' | 'stopped' | 'error' | 'unknown';
 
 export interface Process {
-  id:           string;
-  name:         string;
-  description?: string;
-  status:       ProcessStatus;
-  config:       ProcessConfig;
-  last_seen_at: string | null;
-  updated_at:   string;
-  user_role?:   string;
+  id:            string;
+  name:          string;
+  description?:  string;
+  status:        ProcessStatus;
+  config:        ProcessConfig;
+  last_seen_at:  string | null;
+  updated_at:    string;
+  user_role?:    string;
+  error_message?: string | null;
 }
 
 export interface PipelineAgentState {
@@ -292,7 +293,12 @@ function createStore() {
               }
               case 'process_status': {
                 if (process) {
-                  process = { ...process, status: msg.status, last_seen_at: msg.last_seen_at ?? null };
+                  process = {
+                    ...process,
+                    status: msg.status,
+                    last_seen_at: msg.last_seen_at ?? null,
+                    error_message: msg.error_message ?? null,
+                  };
                 }
                 break;
               }
@@ -303,9 +309,9 @@ function createStore() {
               }
               case 'log': {
                 logs = [...logs.slice(-199), {
-                  ts: new Date().toISOString(),
-                  level: msg.level,
-                  source: msg.source,
+                  ts:      msg.ts ?? new Date().toISOString(),
+                  level:   msg.level,
+                  source:  msg.source,
                   message: msg.message,
                 }];
                 break;
@@ -336,31 +342,57 @@ function createStore() {
       }, delay);
     },
 
-    // ── Proceso ────────────────────────────────────────────────────────────
+    // ── Proceso: ciclo de vida por WS (fallback HTTP si WS no conectado) ──────
     async start(id: string) {
-      const res = await fetch(`${API}/api/v1/processes/${id}/start`, {
-        method: 'POST', credentials: 'include',
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error ?? `HTTP ${res.status}`);
+      if (wsSocket && wsSocket.readyState === WebSocket.OPEN) {
+        wsSocket.send(JSON.stringify({ type: 'start' }));
+        if (process) process = { ...process, status: 'running' };
+      } else {
+        const res = await fetch(`${API}/api/v1/processes/${id}/start`, {
+          method: 'POST', credentials: 'include',
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error ?? `HTTP ${res.status}`);
+        }
+        if (process) process = { ...process, status: 'running' };
       }
-      if (process) process = { ...process, status: 'running' };
     },
 
     async stop(id: string) {
-      const res = await fetch(`${API}/api/v1/processes/${id}/stop`, {
-        method: 'POST', credentials: 'include',
-      });
-      if (!res.ok && res.status !== 202) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error ?? `HTTP ${res.status}`);
+      if (wsSocket && wsSocket.readyState === WebSocket.OPEN) {
+        wsSocket.send(JSON.stringify({ type: 'stop' }));
+        if (process) process = { ...process, status: 'stopping' };
+      } else {
+        const res = await fetch(`${API}/api/v1/processes/${id}/stop`, {
+          method: 'POST', credentials: 'include',
+        });
+        if (!res.ok && res.status !== 202) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error ?? `HTTP ${res.status}`);
+        }
+        if (process) process = { ...process, status: 'stopping' };
       }
-      if (process) process = { ...process, status: 'stopping' };
     },
 
     patchStatus(status: string, lastSeenAt: string | null) {
       if (process) process = { ...process, status: status as ProcessStatus, last_seen_at: lastSeenAt };
+    },
+
+    async restartProcess(id: string) {
+      if (wsSocket && wsSocket.readyState === WebSocket.OPEN) {
+        wsSocket.send(JSON.stringify({ type: 'restart' }));
+        // El WS responde con ProcessStatus running cuando arranca
+      } else {
+        const res = await fetch(`${API}/api/v1/processes/${id}/restart`, {
+          method: 'POST', credentials: 'include',
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error ?? `HTTP ${res.status}`);
+        }
+        if (process) process = { ...process, status: 'running', error_message: null };
+      }
     },
 
     // ── Logs ───────────────────────────────────────────────────────────────
