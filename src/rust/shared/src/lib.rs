@@ -67,7 +67,7 @@ pub enum NodeKind {
     // Actuadores
     MqttActuator(MqttActuatorConfig),
     HttpActuator(HttpActuatorConfig),
-    Actuator(ActuatorConfig),
+    Actuator(Box<ActuatorConfig>),
     // Sanity / Watchdog
     MqttSubscriber(MqttSubscriberConfig),
     Watchdog(WatchdogConfig),
@@ -109,10 +109,7 @@ pub enum Signal {
     Vector(Vec<f64>),
     /// Vector con pesos asociados (ej: valores Kalman + 1/P como pesos).
     /// Los nodos que no entienden pesos pueden ignorarlos y usar solo `values`.
-    WeightedVector {
-        values: Vec<f64>,
-        weights: Vec<f64>,
-    },
+    WeightedVector { values: Vec<f64>, weights: Vec<f64> },
     Action(NodeAction),
 }
 
@@ -235,12 +232,8 @@ pub struct SprtConfig {
     pub trend: Option<TrendConfig>,
 }
 
-fn default_robust_method() -> String {
-    "weighted".to_string()
-}
-fn default_confirmation_cycles() -> usize {
-    3
-}
+fn default_robust_method() -> String { "weighted".to_string() }
+fn default_confirmation_cycles() -> usize { 3 }
 
 // ── Actuadores ────────────────────────────────────────────────────────────────
 

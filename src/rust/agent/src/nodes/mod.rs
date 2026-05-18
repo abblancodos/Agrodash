@@ -159,7 +159,7 @@ pub async fn build(
         ))),
 
         NodeKind::Actuator(c) => Ok(Box::new(
-            ActuatorNode::new(cfg.id.clone(), c.clone(), shared_connections).await?,
+            ActuatorNode::new(cfg.id.clone(), *c.clone(), shared_connections).await?,
         )),
     }
 }
