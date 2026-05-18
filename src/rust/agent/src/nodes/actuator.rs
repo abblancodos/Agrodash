@@ -239,7 +239,11 @@ impl ActuatorNode {
                     NodeAction::On if d <= *threshold_deact => NodeAction::Off,
                     NodeAction::Off if d >= *threshold_act => NodeAction::On,
                     NodeAction::Hold => {
-                        if d >= *threshold_act { NodeAction::On } else { NodeAction::Off }
+                        if d >= *threshold_act {
+                            NodeAction::On
+                        } else {
+                            NodeAction::Off
+                        }
                     }
                     other => other.clone(),
                 }
@@ -719,8 +723,8 @@ fn apply_reduction(signal: &[f64], reduction: &Reduction, weights: Option<&[f64]
     }
     match reduction {
         Reduction::Mean => signal.iter().sum::<f64>() / signal.len() as f64,
-        Reduction::Min  => signal.iter().cloned().fold(f64::INFINITY, f64::min),
-        Reduction::Max  => signal.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+        Reduction::Min => signal.iter().cloned().fold(f64::INFINITY, f64::min),
+        Reduction::Max => signal.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
         Reduction::Component { index } => signal.get(*index).copied().unwrap_or(0.0),
         Reduction::WeightedByP => {
             // Media ponderada por 1/P[i] — sensores con menor incertidumbre pesan más.
@@ -731,9 +735,7 @@ fn apply_reduction(signal: &[f64], reduction: &Reduction, weights: Option<&[f64]
                 if w_sum < 1e-12 {
                     return signal.iter().sum::<f64>() / signal.len() as f64;
                 }
-                signal.iter().zip(w.iter())
-                    .map(|(v, w)| v * w)
-                    .sum::<f64>() / w_sum
+                signal.iter().zip(w.iter()).map(|(v, w)| v * w).sum::<f64>() / w_sum
             } else {
                 // Sin pesos del Kalman → media simple
                 signal.iter().sum::<f64>() / signal.len() as f64

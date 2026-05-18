@@ -92,10 +92,15 @@ impl NodeInstance for KalmanNode {
         self.n += 1;
         // Emitir WeightedVector con pesos = 1/P[i] (mayor certeza → mayor peso).
         // Los nodos que no usan pesos (Logger, Hysteresis vieja, etc.) los ignoran.
-        let weights = self.p.iter()
+        let weights = self
+            .p
+            .iter()
             .map(|&p| if p > 1e-12 { 1.0 / p } else { 1e12 })
             .collect();
-        Ok(Some(Signal::WeightedVector { values: self.x.clone(), weights }))
+        Ok(Some(Signal::WeightedVector {
+            values: self.x.clone(),
+            weights,
+        }))
     }
 
     fn is_ready(&self) -> bool {
@@ -113,12 +118,18 @@ impl NodeInstance for KalmanNode {
     }
 
     fn metrics(&self) -> Vec<(String, f64)> {
-        if self.dim == 0 || self.last_k.len() != self.dim { return vec![]; }
+        if self.dim == 0 || self.last_k.len() != self.dim {
+            return vec![];
+        }
         let mut m = Vec::new();
         for i in 0..self.dim {
-            let suffix = if self.dim == 1 { String::new() } else { format!("[{i}]") };
-            m.push((format!("p{suffix}"),     self.p[i]));
-            m.push((format!("k{suffix}"),     self.last_k[i]));
+            let suffix = if self.dim == 1 {
+                String::new()
+            } else {
+                format!("[{i}]")
+            };
+            m.push((format!("p{suffix}"), self.p[i]));
+            m.push((format!("k{suffix}"), self.last_k[i]));
             m.push((format!("innov{suffix}"), self.last_innov[i]));
         }
         m
@@ -138,7 +149,7 @@ impl NodeInstance for KalmanNode {
             // Inicializar con longitud correcta para evitar index out of bounds
             // en el primer ciclo tras cargar estado guardado
             if self.last_k.len() != self.dim {
-                self.last_k    = vec![0.0; self.dim];
+                self.last_k = vec![0.0; self.dim];
                 self.last_innov = vec![0.0; self.dim];
             }
         }
