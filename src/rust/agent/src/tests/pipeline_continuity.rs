@@ -84,10 +84,12 @@ mod tests {
             // El nodo no usa pool — el puntero no se desreferencia
             // En un test real usaríamos sqlx::test o un mock
             assert!(result.is_ok(), "ciclo {i}: Kalman falló: {:?}", result);
-            if let Ok(Some(Signal::Vector(v))) = result {
+            if let Ok(Some(Signal::WeightedVector { values: v, weights: w })) = result {
                 assert_eq!(v.len(), 2, "dim debe ser 2");
                 assert!(v[0].is_finite(), "componente 0 debe ser finito");
                 assert!(v[1].is_finite(), "componente 1 debe ser finito");
+                assert_eq!(w.len(), 2, "pesos deben tener dim 2");
+                assert!(w[0] > 0.0, "peso 0 debe ser positivo");
             }
         }
     }
@@ -197,11 +199,11 @@ mod tests {
             vec![vec_signal(&[3.0, 30.0])], 1.0, unsafe { &*(0x1 as *const PgPool) }, &ctx
         ).await.unwrap();
 
-        if let Some(Signal::Vector(v)) = result {
+        if let Some(Signal::WeightedVector { values: v, .. }) = result {
             assert!((v[0] - 2.0).abs() < 0.5, "Media dim 0 ≈ 2.0, got {}", v[0]);
             assert!((v[1] - 20.0).abs() < 5.0, "Media dim 1 ≈ 20.0, got {}", v[1]);
         } else {
-            panic!("MovingAvg no retornó Vector");
+            panic!("MovingAvg no retornó WeightedVector");
         }
     }
 
@@ -224,7 +226,7 @@ mod tests {
             let result = node.execute(
                 vec![signal.clone()], 1.0, unsafe { &*(0x1 as *const PgPool) }, &ctx
             ).await.unwrap();
-            if let Some(Signal::Vector(v)) = result {
+            if let Some(Signal::WeightedVector { values: v, .. }) = result {
                 last = v[0];
             }
         }

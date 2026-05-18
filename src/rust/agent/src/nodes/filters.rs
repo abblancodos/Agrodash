@@ -92,15 +92,10 @@ impl NodeInstance for KalmanNode {
         self.n += 1;
         // Emitir WeightedVector con pesos = 1/P[i] (mayor certeza → mayor peso).
         // Los nodos que no usan pesos (Logger, Hysteresis vieja, etc.) los ignoran.
-        let weights = self
-            .p
-            .iter()
+        let weights = self.p.iter()
             .map(|&p| if p > 1e-12 { 1.0 / p } else { 1e12 })
             .collect();
-        Ok(Some(Signal::WeightedVector {
-            values: self.x.clone(),
-            weights,
-        }))
+        Ok(Some(Signal::WeightedVector { values: self.x.clone(), weights }))
     }
 
     fn is_ready(&self) -> bool {
@@ -118,18 +113,12 @@ impl NodeInstance for KalmanNode {
     }
 
     fn metrics(&self) -> Vec<(String, f64)> {
-        if self.dim == 0 || self.last_k.len() != self.dim {
-            return vec![];
-        }
+        if self.dim == 0 || self.last_k.len() != self.dim { return vec![]; }
         let mut m = Vec::new();
         for i in 0..self.dim {
-            let suffix = if self.dim == 1 {
-                String::new()
-            } else {
-                format!("[{i}]")
-            };
-            m.push((format!("p{suffix}"), self.p[i]));
-            m.push((format!("k{suffix}"), self.last_k[i]));
+            let suffix = if self.dim == 1 { String::new() } else { format!("[{i}]") };
+            m.push((format!("p{suffix}"),     self.p[i]));
+            m.push((format!("k{suffix}"),     self.last_k[i]));
             m.push((format!("innov{suffix}"), self.last_innov[i]));
         }
         m
@@ -149,7 +138,7 @@ impl NodeInstance for KalmanNode {
             // Inicializar con longitud correcta para evitar index out of bounds
             // en el primer ciclo tras cargar estado guardado
             if self.last_k.len() != self.dim {
-                self.last_k = vec![0.0; self.dim];
+                self.last_k    = vec![0.0; self.dim];
                 self.last_innov = vec![0.0; self.dim];
             }
         }
@@ -173,6 +162,8 @@ pub struct MovingAvgNode {
     cfg: MovingAvgConfig,
     buf: VecDeque<Vec<f64>>,
     n: usize,
+    /// Varianza de la ventana por componente — usada como P para WeightedVector
+    var: Vec<f64>,
 }
 
 impl MovingAvgNode {
@@ -182,6 +173,7 @@ impl MovingAvgNode {
             cfg,
             buf: VecDeque::new(),
             n: 0,
+            var: vec![],
         }
     }
 }
@@ -215,7 +207,16 @@ impl NodeInstance for MovingAvgNode {
         }
         let n = self.buf.len() as f64;
         mean.iter_mut().for_each(|v| *v /= n);
-        Ok(Some(Signal::Vector(mean)))
+
+        // Varianza de la ventana → peso = 1/var (mayor varianza = menor confianza)
+        let dim = mean.len();
+        if self.var.len() != dim { self.var = vec![1.0; dim]; }
+        for i in 0..dim {
+            let v = self.buf.iter().map(|s| (s[i] - mean[i]).powi(2)).sum::<f64>() / n;
+            self.var[i] = v.max(1e-12);
+        }
+        let weights = self.var.iter().map(|&v| 1.0 / v).collect();
+        Ok(Some(Signal::WeightedVector { values: mean, weights }))
     }
     fn is_ready(&self) -> bool {
         self.n >= self.cfg.warmup_samples && self.buf.len() == self.cfg.window_n
@@ -249,6 +250,8 @@ pub struct EwmaNode {
     cfg: EwmaConfig,
     alpha: Vec<f64>,
     y: Option<Vec<f64>>,
+    /// Varianza exponencial running por componente (Welford online para EWMA)
+    var: Vec<f64>,
     n: usize,
 }
 
@@ -259,6 +262,7 @@ impl EwmaNode {
             cfg,
             alpha: vec![],
             y: None,
+            var: vec![],
             n: 0,
         }
     }
@@ -282,13 +286,21 @@ impl NodeInstance for EwmaNode {
         if self.alpha.is_empty() {
             self.alpha = self.cfg.alpha.expand(z.len());
         }
+        if self.var.len() != z.len() {
+            self.var = vec![1.0; z.len()];
+        }
         let y = self.y.get_or_insert_with(|| z.clone());
         #[allow(clippy::needless_range_loop)]
         for i in 0..z.len() {
+            let innov = z[i] - y[i];
+            // Varianza exponencial: V = α*innov² + (1-α)*V
+            self.var[i] = self.alpha[i] * innov * innov + (1.0 - self.alpha[i]) * self.var[i];
+            self.var[i] = self.var[i].max(1e-12);
             y[i] = self.alpha[i] * z[i] + (1.0 - self.alpha[i]) * y[i];
         }
         self.n += 1;
-        Ok(Some(Signal::Vector(y.clone())))
+        let weights = self.var.iter().map(|&v| 1.0 / v).collect();
+        Ok(Some(Signal::WeightedVector { values: y.clone(), weights }))
     }
     fn is_ready(&self) -> bool {
         self.n >= self.cfg.warmup_samples
@@ -297,15 +309,15 @@ impl NodeInstance for EwmaNode {
         NodeState {
             node_id: self.id.clone(),
             node_type: "ewma".into(),
-            data: serde_json::json!({ "y": self.y, "n": self.n }),
+            data: serde_json::json!({ "y": self.y, "var": self.var, "n": self.n }),
             is_ready: self.is_ready(),
         }
     }
     fn load_state(&mut self, state: &NodeState) {
-        self.y = state
-            .data
-            .get("y")
-            .and_then(|v| serde_json::from_value(v.clone()).ok());
+        self.y = state.data.get("y").and_then(|v| serde_json::from_value(v.clone()).ok());
+        self.var = state.data.get("var")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
         if let Some(n) = state.data.get("n").and_then(|v| v.as_u64()) {
             self.n = n as usize;
         }
@@ -319,6 +331,7 @@ pub struct LowpassNode {
     cfg: LowpassConfig,
     tau: Vec<f64>,
     y: Option<Vec<f64>>,
+    var: Vec<f64>,
     n: usize,
 }
 
@@ -329,6 +342,7 @@ impl LowpassNode {
             cfg,
             tau: vec![],
             y: None,
+            var: vec![],
             n: 0,
         }
     }
@@ -352,14 +366,21 @@ impl NodeInstance for LowpassNode {
         if self.tau.is_empty() {
             self.tau = self.cfg.tau_seconds.expand(z.len());
         }
+        if self.var.len() != z.len() {
+            self.var = vec![1.0; z.len()];
+        }
         let y = self.y.get_or_insert_with(|| z.clone());
         #[allow(clippy::needless_range_loop)]
         for i in 0..z.len() {
             let a = dt / (self.tau[i] + dt);
+            let innov = z[i] - y[i];
+            self.var[i] = a * innov * innov + (1.0 - a) * self.var[i];
+            self.var[i] = self.var[i].max(1e-12);
             y[i] = a * z[i] + (1.0 - a) * y[i];
         }
         self.n += 1;
-        Ok(Some(Signal::Vector(y.clone())))
+        let weights = self.var.iter().map(|&v| 1.0 / v).collect();
+        Ok(Some(Signal::WeightedVector { values: y.clone(), weights }))
     }
     fn is_ready(&self) -> bool {
         self.n >= self.cfg.warmup_samples
@@ -368,15 +389,15 @@ impl NodeInstance for LowpassNode {
         NodeState {
             node_id: self.id.clone(),
             node_type: "lowpass".into(),
-            data: serde_json::json!({ "y": self.y, "n": self.n }),
+            data: serde_json::json!({ "y": self.y, "var": self.var, "n": self.n }),
             is_ready: self.is_ready(),
         }
     }
     fn load_state(&mut self, state: &NodeState) {
-        self.y = state
-            .data
-            .get("y")
-            .and_then(|v| serde_json::from_value(v.clone()).ok());
+        self.y = state.data.get("y").and_then(|v| serde_json::from_value(v.clone()).ok());
+        self.var = state.data.get("var")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
         if let Some(n) = state.data.get("n").and_then(|v| v.as_u64()) {
             self.n = n as usize;
         }
@@ -403,6 +424,7 @@ impl NodeInstance for PassthroughNode {
         _pool: &PgPool,
         _ctx: &super::NodeContext,
     ) -> Result<Option<Signal>> {
+        // Propaga la señal tal cual — incluyendo WeightedVector si viene del Kalman u otro filtro
         Ok(inputs.into_iter().next())
     }
     fn save_state(&self) -> NodeState {

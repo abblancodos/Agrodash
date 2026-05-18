@@ -109,10 +109,7 @@ pub enum Signal {
     Vector(Vec<f64>),
     /// Vector con pesos asociados (ej: valores Kalman + 1/P como pesos).
     /// Los nodos que no entienden pesos pueden ignorarlos y usar solo `values`.
-    WeightedVector {
-        values: Vec<f64>,
-        weights: Vec<f64>,
-    },
+    WeightedVector { values: Vec<f64>, weights: Vec<f64> },
     Action(NodeAction),
 }
 
@@ -234,6 +231,9 @@ pub struct SprtConfig {
     #[serde(default)]
     pub trend: Option<TrendConfig>,
 }
+
+fn default_robust_method() -> String { "weighted".to_string() }
+fn default_confirmation_cycles() -> usize { 3 }
 
 // ── Actuadores ────────────────────────────────────────────────────────────────
 
@@ -417,6 +417,47 @@ pub enum DecisionMethod {
         reduction: Reduction,
         low: f64,
         high: f64,
+        #[serde(default = "NodeAction::default_off")]
+        action_below: NodeAction,
+        #[serde(default = "NodeAction::default_on")]
+        action_above: NodeAction,
+    },
+    /// Decisor robusto para grupos de sensores heterogéneos.
+    /// Usa la salida del Kalman (x̂ + P) para rechazar outliers y confirmar
+    /// tendencias sin delay adicional.
+    ///
+    /// Flujo por ciclo:
+    ///   1. Descartar sensores outlier: |x̂[i] - median| > outlier_k * sqrt(P[i])
+    ///   2. Calcular estimado central sobre los sensores válidos:
+    ///      - "median"   → mediana
+    ///      - "mean"     → media
+    ///      - "weighted" → media ponderada por 1/P
+    ///      - "reference"→ usar solo el sensor en reference_index, validar con el grupo
+    ///   3. Si spread_ratio = (max-min)/central > max_spread_ratio → Hold (grupo incoherente)
+    ///   4. Histéresis sobre el estimado central con ventana de confirmación:
+    ///      los últimos confirmation_cycles estimados deben estar todos bajo low (o sobre high)
+    ///      para cambiar de estado — aprovecha que el Kalman ya filtró, no agrega delay extra
+    RobustGroup {
+        low: f64,
+        high: f64,
+        /// "median" | "mean" | "weighted" | "reference"
+        #[serde(default = "default_robust_method")]
+        central_method: String,
+        /// Índice del sensor de referencia (para central_method = "reference")
+        #[serde(default)]
+        reference_index: usize,
+        /// Descartar sensor si |x̂[i] - median| > outlier_k * sqrt(P[i]).
+        /// None = no descartar outliers.
+        #[serde(default)]
+        outlier_k: Option<f64>,
+        /// Fracción máxima de spread aceptable: (max-min)/central.
+        /// Si se supera → Hold. None = sin límite de spread.
+        #[serde(default)]
+        max_spread_ratio: Option<f64>,
+        /// Ciclos consecutivos que debe mantenerse la condición antes de actuar.
+        /// 1 = actuar inmediatamente (igual que hysteresis normal).
+        #[serde(default = "default_confirmation_cycles")]
+        confirmation_cycles: usize,
         #[serde(default = "NodeAction::default_off")]
         action_below: NodeAction,
         #[serde(default = "NodeAction::default_on")]

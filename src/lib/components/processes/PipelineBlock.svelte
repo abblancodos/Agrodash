@@ -422,13 +422,15 @@
           <select class="inp" value={node.decision?.method ?? 'hysteresis'}
             onchange={(e) => {
               const m = (e.target as HTMLSelectElement).value;
-              if (m === 'hysteresis')   set('decision', { method:'hysteresis', reduction:{type:'mean'}, low:0.08, high:0.085, action_below:'on', action_above:'off' });
-              if (m === 'mahalanobis')  set('decision', { method:'mahalanobis', target:[], threshold_act:2.5, threshold_deact:1.0 });
-              if (m === 'sprt')         set('decision', { method:'sprt', mu_h0:0.0, mu_h1:1.0, sigma:0.1, alpha:0.05, beta:0.05, reduction:{type:'mean'}, reset_on_action:true });
+              if (m === 'hysteresis')    set('decision', { method:'hysteresis', reduction:{type:'mean'}, low:0.08, high:0.085, action_below:'on', action_above:'off' });
+              if (m === 'mahalanobis')   set('decision', { method:'mahalanobis', target:[], threshold_act:2.5, threshold_deact:1.0 });
+              if (m === 'sprt')          set('decision', { method:'sprt', mu_h0:0.0, mu_h1:1.0, sigma:0.1, alpha:0.05, beta:0.05, reduction:{type:'mean'}, reset_on_action:true });
+              if (m === 'robust_group')  set('decision', { method:'robust_group', low:0.38, high:0.45, central_method:'weighted', reference_index:0, outlier_k:2.0, max_spread_ratio:0.3, confirmation_cycles:3, action_below:'on', action_above:'off' });
             }}>
             <option value="hysteresis">Hysteresis</option>
             <option value="mahalanobis">Mahalanobis</option>
             <option value="sprt">SPRT</option>
+            <option value="robust_group">Grupo robusto</option>
           </select>
         </div>
 
@@ -448,6 +450,92 @@
                   oninput={(e) => set('decision', { ...node.decision, high: parseFloat((e.target as HTMLInputElement).value) })} />
               </div>
             </div>
+            <div class="field-row">
+              <div class="field">
+                <label>acción &lt; low</label>
+                <select class="inp" value={node.decision.action_below ?? 'on'}
+                  onchange={(e) => set('decision', { ...node.decision, action_below: (e.target as HTMLSelectElement).value })}>
+                  <option value="on">ON</option><option value="off">OFF</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>acción &gt; high</label>
+                <select class="inp" value={node.decision.action_above ?? 'off'}
+                  onchange={(e) => set('decision', { ...node.decision, action_above: (e.target as HTMLSelectElement).value })}>
+                  <option value="on">ON</option><option value="off">OFF</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        {/if}
+
+        {#if node.decision?.method === 'robust_group'}
+          <div class="subpanel">
+            <!-- Umbrales -->
+            <div class="field-row">
+              <div class="field">
+                <label>low</label>
+                <input class="inp mono" type="number" step="0.001"
+                  value={node.decision.low ?? 0.38}
+                  oninput={(e) => set('decision', { ...node.decision, low: parseFloat((e.target as HTMLInputElement).value) })} />
+              </div>
+              <div class="field">
+                <label>high</label>
+                <input class="inp mono" type="number" step="0.001"
+                  value={node.decision.high ?? 0.45}
+                  oninput={(e) => set('decision', { ...node.decision, high: parseFloat((e.target as HTMLInputElement).value) })} />
+              </div>
+            </div>
+            <!-- Método central -->
+            <div class="field">
+              <label>valor central</label>
+              <select class="inp" value={node.decision.central_method ?? 'weighted'}
+                onchange={(e) => set('decision', { ...node.decision, central_method: (e.target as HTMLSelectElement).value })}>
+                <option value="weighted">Media ponderada por P (recomendado)</option>
+                <option value="median">Mediana</option>
+                <option value="mean">Media simple</option>
+                <option value="reference">Sensor de referencia</option>
+              </select>
+            </div>
+            {#if node.decision.central_method === 'reference'}
+              <div class="field">
+                <label>índice de referencia <span class="hint">0 = primer sensor</span></label>
+                <input class="inp mono" type="number" min="0" step="1"
+                  value={node.decision.reference_index ?? 0}
+                  oninput={(e) => set('decision', { ...node.decision, reference_index: parseInt((e.target as HTMLInputElement).value) })} />
+              </div>
+            {/if}
+            <!-- Outlier rejection -->
+            <div class="field-row">
+              <div class="field">
+                <label>outlier k <span class="hint">σ de Kalman, vacío = off</span></label>
+                <input class="inp mono" type="number" step="0.1" min="0"
+                  value={node.decision.outlier_k ?? ''}
+                  placeholder="2.0"
+                  oninput={(e) => {
+                    const v = parseFloat((e.target as HTMLInputElement).value);
+                    set('decision', { ...node.decision, outlier_k: isNaN(v) ? null : v });
+                  }} />
+              </div>
+              <div class="field">
+                <label>spread máx <span class="hint">fracción, vacío = off</span></label>
+                <input class="inp mono" type="number" step="0.05" min="0" max="1"
+                  value={node.decision.max_spread_ratio ?? ''}
+                  placeholder="0.30"
+                  oninput={(e) => {
+                    const v = parseFloat((e.target as HTMLInputElement).value);
+                    set('decision', { ...node.decision, max_spread_ratio: isNaN(v) ? null : v });
+                  }} />
+              </div>
+            </div>
+            <!-- Confirmation window -->
+            <div class="field">
+              <label>ciclos de confirmación <span class="hint">N ciclos consecutivos bajo/sobre umbral</span></label>
+              <input class="inp mono" type="number" min="1" max="20" step="1"
+                value={node.decision.confirmation_cycles ?? 3}
+                oninput={(e) => set('decision', { ...node.decision, confirmation_cycles: parseInt((e.target as HTMLInputElement).value) })} />
+            </div>
+            <!-- Acciones -->
             <div class="field-row">
               <div class="field">
                 <label>acción &lt; low</label>
