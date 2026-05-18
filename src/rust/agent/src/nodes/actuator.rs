@@ -247,11 +247,7 @@ impl ActuatorNode {
                     NodeAction::On if d <= *threshold_deact => NodeAction::Off,
                     NodeAction::Off if d >= *threshold_act => NodeAction::On,
                     NodeAction::Hold => {
-                        if d >= *threshold_act {
-                            NodeAction::On
-                        } else {
-                            NodeAction::Off
-                        }
+                        if d >= *threshold_act { NodeAction::On } else { NodeAction::Off }
                     }
                     other => other.clone(),
                 }
@@ -269,56 +265,50 @@ impl ActuatorNode {
                 action_above,
             } => {
                 let n = signal.len();
-                if n == 0 {
-                    return self.last_action.clone().unwrap_or(NodeAction::Hold);
-                }
+                if n == 0 { return self.last_action.clone().unwrap_or(NodeAction::Hold); }
 
-                // ── 1. Calcular mediana para referencia de outliers ───────
-                let mut sorted = signal.to_vec();
-                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                let median = if n % 2 == 0 {
-                    (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+                // Descartar valores físicamente imposibles (NaN, <0, >1 para VWC)
+                // antes de cualquier cálculo
+                let signal: Vec<f64> = signal.iter().copied()
+                    .filter(|v| v.is_finite() && *v >= 0.0 && *v <= 1.0)
+                    .collect();
+                let n = signal.len();
+                if n == 0 { return self.last_action.clone().unwrap_or(NodeAction::Hold); }
+
+                // ── 1. Mediana para referencia de outliers ────────────────
+                let mut sorted = signal.clone();
+                sorted.sort_by(|a, b| a.total_cmp(b));
+                let median = if n.is_multiple_of(2) {
+                    (sorted[n/2 - 1] + sorted[n/2]) / 2.0
                 } else {
-                    sorted[n / 2]
+                    sorted[n/2]
                 };
 
-                // ── 2. Rechazar outliers usando P del Kalman ─────────────
-                let valid_indices: Vec<usize> = (0..n)
-                    .filter(|&i| {
-                        if let (Some(k), Some(ref w)) = (outlier_k, &weights) {
-                            // sqrt(P[i]) = 1/sqrt(w[i]) porque w[i] = 1/P[i]
-                            let sigma_i = if w[i] > 1e-12 {
-                                (1.0 / w[i]).sqrt()
-                            } else {
-                                1.0
-                            };
-                            (signal[i] - median).abs() <= k * sigma_i
-                        } else {
-                            true // sin outlier_k → aceptar todos
-                        }
-                    })
-                    .collect();
+                // ── 2. Rechazar outliers usando P del Kalman ──────────────
+                let valid_indices: Vec<usize> = (0..n).filter(|&i| {
+                    if let (Some(k), Some(w)) = (outlier_k, &weights) {
+                        let sigma_i = if w[i] > 1e-12 { (1.0/w[i]).sqrt() } else { 1.0 };
+                        (signal[i] - median).abs() <= k * sigma_i
+                    } else {
+                        true
+                    }
+                }).collect();
 
                 if valid_indices.is_empty() {
-                    // Todos descartados → hold
                     return self.last_action.clone().unwrap_or(NodeAction::Hold);
                 }
 
-                // ── 3. Calcular estimado central sobre sensores válidos ───
+                // ── 3. Estimado central sobre sensores válidos ────────────
                 let valid_vals: Vec<f64> = valid_indices.iter().map(|&i| signal[i]).collect();
                 let central = match central_method.as_str() {
                     "median" => {
                         let mut vs = valid_vals.clone();
-                        vs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                        vs.sort_by(|a, b| a.total_cmp(b));
                         let m = vs.len();
-                        if m % 2 == 0 {
-                            (vs[m / 2 - 1] + vs[m / 2]) / 2.0
-                        } else {
-                            vs[m / 2]
-                        }
+                        if m.is_multiple_of(2) { (vs[m/2-1] + vs[m/2]) / 2.0 } else { vs[m/2] }
                     }
                     "weighted" => {
-                        if let Some(ref w) = weights {
+                        if let Some(w) = &weights {
                             let wsum: f64 = valid_indices.iter().map(|&i| w[i]).sum();
                             if wsum > 1e-12 {
                                 valid_indices.iter().map(|&i| signal[i] * w[i]).sum::<f64>() / wsum
@@ -330,60 +320,46 @@ impl ActuatorNode {
                         }
                     }
                     "reference" => {
-                        // Usar sensor de referencia si está entre los válidos
-                        // Si fue descartado como outlier → usar media de válidos
                         if valid_indices.contains(reference_index) {
                             signal[*reference_index]
                         } else {
                             valid_vals.iter().sum::<f64>() / valid_vals.len() as f64
                         }
                     }
-                    _ => valid_vals.iter().sum::<f64>() / valid_vals.len() as f64, // "mean"
+                    _ => valid_vals.iter().sum::<f64>() / valid_vals.len() as f64,
                 };
 
                 // ── 4. Verificar spread ───────────────────────────────────
                 if let Some(max_spread) = max_spread_ratio {
                     let vmin = valid_vals.iter().cloned().fold(f64::INFINITY, f64::min);
                     let vmax = valid_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                    let spread = if central.abs() > 1e-12 {
-                        (vmax - vmin) / central.abs()
-                    } else {
-                        0.0
-                    };
+                    let spread = if central.abs() > 1e-12 { (vmax - vmin) / central.abs() } else { 0.0 };
                     if spread > *max_spread {
-                        // Grupo demasiado disperso → hold sin cambiar estado
-                        self.robust_history.clear(); // resetear confirmación
+                        self.robust_history.clear();
                         return self.last_action.clone().unwrap_or(NodeAction::Hold);
                     }
                 }
 
-                // ── 5. Actualizar historial para confirmation window ──────
+                // ── 5. Historial de confirmación ──────────────────────────
                 self.robust_history.push_back(central);
                 while self.robust_history.len() > *confirmation_cycles {
                     self.robust_history.pop_front();
                 }
-
-                // Solo decidir si tenemos suficiente historia
                 if self.robust_history.len() < *confirmation_cycles {
                     return self.last_action.clone().unwrap_or(NodeAction::Hold);
                 }
 
-                // ── 6. Histéresis sobre el estimado confirmado ────────────
-                let all_below_low = self.robust_history.iter().all(|&v| v <= *low);
+                // ── 6. Histéresis sobre estimado confirmado ───────────────
+                let all_below_low  = self.robust_history.iter().all(|&v| v <= *low);
                 let all_above_high = self.robust_history.iter().all(|&v| v >= *high);
                 let current = self.last_action.clone().unwrap_or(NodeAction::Hold);
-
                 match &current {
-                    NodeAction::On if all_above_high => action_above.clone(),
-                    NodeAction::Off if all_below_low => action_below.clone(),
+                    NodeAction::On  if all_above_high => action_above.clone(),
+                    NodeAction::Off if all_below_low  => action_below.clone(),
                     NodeAction::Hold => {
-                        if all_below_low {
-                            action_below.clone()
-                        } else if all_above_high {
-                            action_above.clone()
-                        } else {
-                            NodeAction::Hold
-                        }
+                        if all_below_low       { action_below.clone() }
+                        else if all_above_high { action_above.clone() }
+                        else                   { NodeAction::Hold }
                     }
                     other => other.clone(),
                 }
@@ -710,36 +686,21 @@ impl NodeInstance for ActuatorNode {
         for msg in inbox_msgs {
             if msg == "__reconnected__" {
                 if let Some(last) = self.last_action.clone() {
-                    tracing::info!(
-                        "[Actuator {}] Reconexión MQTT — republicando {:?}",
-                        self.id,
-                        last
-                    );
+                    tracing::info!("[Actuator {}] Reconexión MQTT — republicando {:?}", self.id, last);
                     self.send_action(&last).await.ok();
                 }
-            } else if let Some(valve) = msg
-                .strip_prefix("ASK,")
-                .or_else(|| msg.strip_prefix("ask,"))
-            {
+            } else if let Some(valve) = msg.strip_prefix("ASK,").or_else(|| msg.strip_prefix("ask,")) {
                 let valve = valve.trim().to_string();
                 let state_str = match &self.last_action {
-                    Some(NodeAction::On) => "ON",
+                    Some(NodeAction::On)  => "ON",
                     Some(NodeAction::Off) => "OFF",
-                    _ => "UNKNOWN",
+                    _                     => "UNKNOWN",
                 };
                 let response = format!("STATE,{valve},{state_str}");
                 tracing::info!("[Actuator {}] ASK recibido → {response}", self.id);
                 if let Some(ref client) = self.mqtt_client {
                     if let OutputMethod::Mqtt { topic, .. } = &self.cfg.output {
-                        client
-                            .publish(
-                                topic,
-                                rumqttc::QoS::AtMostOnce,
-                                false,
-                                response.as_bytes().to_vec(),
-                            )
-                            .await
-                            .ok();
+                        client.publish(topic, rumqttc::QoS::AtMostOnce, false, response.as_bytes().to_vec()).await.ok();
                     }
                 }
             }
@@ -874,8 +835,15 @@ impl NodeInstance for ActuatorNode {
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as u32;
         // Restaurar historial RobustGroup
-        if let Some(hist) = state.data.get("robust_history").and_then(|v| v.as_array()) {
-            self.robust_history = hist.iter().filter_map(|v| v.as_f64()).collect();
+        if let Some(hist) = state
+            .data
+            .get("robust_history")
+            .and_then(|v| v.as_array())
+        {
+            self.robust_history = hist
+                .iter()
+                .filter_map(|v| v.as_f64())
+                .collect();
         }
     }
 
@@ -919,8 +887,8 @@ fn apply_reduction(signal: &[f64], reduction: &Reduction, weights: Option<&[f64]
     }
     match reduction {
         Reduction::Mean => signal.iter().sum::<f64>() / signal.len() as f64,
-        Reduction::Min => signal.iter().cloned().fold(f64::INFINITY, f64::min),
-        Reduction::Max => signal.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+        Reduction::Min  => signal.iter().cloned().fold(f64::INFINITY, f64::min),
+        Reduction::Max  => signal.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
         Reduction::Component { index } => signal.get(*index).copied().unwrap_or(0.0),
         Reduction::WeightedByP => {
             // Media ponderada por 1/P[i] — sensores con menor incertidumbre pesan más.
@@ -931,7 +899,9 @@ fn apply_reduction(signal: &[f64], reduction: &Reduction, weights: Option<&[f64]
                 if w_sum < 1e-12 {
                     return signal.iter().sum::<f64>() / signal.len() as f64;
                 }
-                signal.iter().zip(w.iter()).map(|(v, w)| v * w).sum::<f64>() / w_sum
+                signal.iter().zip(w.iter())
+                    .map(|(v, w)| v * w)
+                    .sum::<f64>() / w_sum
             } else {
                 // Sin pesos del Kalman → media simple
                 signal.iter().sum::<f64>() / signal.len() as f64
