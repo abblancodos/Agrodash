@@ -814,9 +814,8 @@
                 </div>
               </div>
             {/if}
-            </div>
-            <button class="btn-remove-field" onclick={() => set('coherence', null)}>quitar coherencia</button>
           </div>
+            <button class="btn-remove-field" onclick={() => set('coherence', null)}>quitar coherencia</button>
         {:else}
           <button class="btn-add-field" onclick={() => set('coherence', { expected_on:'ascending', expected_off:'descending', min_delta:0.02, window_secs:300, relative:false })}>
             + configurar coherencia
