@@ -543,6 +543,18 @@ pub struct CoherenceCheck {
     /// Texto de la alerta mostrada en el frontend.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub alert_label: Option<String>,
+    /// Topic MQTT donde publicar ASK,N para consultar el estado real de la válvula.
+    /// Si está configurado, después de cada actuación el nodo envía ASK,N y verifica
+    /// que STATE,N,ON/OFF coincida con la acción enviada.
+    /// Formato: "topic/de/consulta" — el gateway responde en el mismo ack_topic.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub query_topic: Option<String>,
+    /// Número de válvula para el ASK (ej. "1"). Default: extraído del payload.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub query_valve: Option<String>,
+    /// Segundos a esperar la respuesta STATE antes de marcar alerta. Default: 10.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub query_timeout_secs: Option<f64>,
 }
 
 /// Nodo Actuator unificado.

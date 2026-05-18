@@ -45,6 +45,10 @@ pub struct ActuatorNode {
     // RobustGroup — historial de estimados centrales para confirmation window
     robust_history: std::collections::VecDeque<f64>,
 
+    // Flag: preguntar estado real al gateway en el próximo ciclo
+    // Se activa al arrancar (load_state) y al salir del override manual
+    query_state_on_next_cycle: bool,
+
     // Mahalanobis — covarianza adaptativa del Kalman (si use_kalman_p)
     #[allow(dead_code)]
     kalman_p: Option<Vec<f64>>,
@@ -100,6 +104,7 @@ impl ActuatorNode {
             on_since: None,
             sprt_llr: 0.0,
             robust_history: std::collections::VecDeque::new(),
+            query_state_on_next_cycle: false,
             kalman_p: None,
             override_action: None,
             ack_locked: false,
@@ -462,6 +467,50 @@ impl ActuatorNode {
                             "■ OFF"
                         }
                     );
+
+                    // ── Consulta de estado via ASK si está configurado ────
+                    if let Some(coh) = &self.cfg.coherence.clone() {
+                        if let Some(ref qt) = coh.query_topic.clone() {
+                            // Extraer número de válvula del payload (ej. "on,1" → "1")
+                            let valve = coh.query_valve.clone().unwrap_or_else(|| {
+                                payload.split(',').nth(1).unwrap_or("1").trim().to_string()
+                            });
+                            let ask_msg = format!("ASK,{valve}");
+                            let expected_state = match action {
+                                NodeAction::On => "ON",
+                                NodeAction::Off => "OFF",
+                                NodeAction::Hold => return Ok(()),
+                            }
+                            .to_string();
+                            let timeout = coh.query_timeout_secs.unwrap_or(10.0);
+                            let node_id = self.id.clone();
+
+                            // Publicar ASK
+                            client
+                                .publish(qt, QoS::AtMostOnce, false, ask_msg.as_bytes().to_vec())
+                                .await
+                                .ok();
+                            tracing::info!("[Actuator {node_id}] ASK enviado → {qt}: {ask_msg}");
+
+                            // Spawnar verificación asíncrona — no bloquea el ciclo
+                            let inbox_tx = self.inbox_tx.clone();
+                            tokio::spawn(async move {
+                                tokio::time::sleep(tokio::time::Duration::from_secs_f64(timeout))
+                                    .await;
+                                // La respuesta llega por inbox como "STATE,N,ON/OFF"
+                                // Si no llegó en el timeout, loguear alerta
+                                // (El inbox ya drainea los STATE en el próximo ciclo de execute)
+                                tracing::warn!(
+                                    "[Actuator {node_id}] Timeout esperando STATE,{valve},{expected_state}"
+                                );
+                                // Enviar señal al execute para que genere alerta de coherencia
+                                if let Some(tx) = inbox_tx {
+                                    tx.send(format!("__state_timeout__{valve}__{expected_state}"))
+                                        .ok();
+                                }
+                            });
+                        }
+                    }
                 }
             }
 
@@ -699,6 +748,35 @@ impl NodeInstance for ActuatorNode {
             _ => return Ok(None),
         };
 
+        // ── Consultar estado real al gateway si es necesario ─────────────
+        // Se activa al arrancar (load_state) o al salir del override manual.
+        // Envía ASK,N — la respuesta STATE,N,ON/OFF llegará por inbox
+        // en el próximo ciclo y actualizará last_action antes de decidir.
+        if self.query_state_on_next_cycle {
+            self.query_state_on_next_cycle = false;
+            if let Some(coh) = &self.cfg.coherence.clone() {
+                if let Some(ref qt) = coh.query_topic.clone() {
+                    let valve = coh.query_valve.clone().unwrap_or_else(|| "1".to_string());
+                    let ask_msg = format!("ASK,{valve}");
+                    if let Some(ref client) = self.mqtt_client {
+                        client
+                            .publish(
+                                qt,
+                                rumqttc::QoS::AtMostOnce,
+                                false,
+                                ask_msg.as_bytes().to_vec(),
+                            )
+                            .await
+                            .ok();
+                        tracing::info!(
+                            "[Actuator {}] Consulta inicial de estado → {qt}: {ask_msg}",
+                            self.id
+                        );
+                    }
+                }
+            }
+        }
+
         // Drainear mensajes pendientes del inbox a un Vec para soltar el borrow
         // antes de llamar a send_action (que necesita &mut self).
         let inbox_msgs: Vec<String> = if let Some(ref mut rx) = self.inbox_rx {
@@ -721,6 +799,61 @@ impl NodeInstance for ActuatorNode {
                     );
                     self.send_action(&last).await.ok();
                 }
+            } else if let Some(rest) = msg.strip_prefix("STATE,") {
+                // Respuesta del gateway al ASK: "STATE,N,ON" o "STATE,N,OFF"
+                let parts: Vec<&str> = rest.splitn(2, ',').collect();
+                if parts.len() == 2 {
+                    let reported = parts[1].trim().to_uppercase();
+
+                    // Arranque / post-override: sincronizar last_action desde el gateway
+                    if self.last_action.is_none() {
+                        self.last_action = match reported.as_str() {
+                            "ON" => Some(NodeAction::On),
+                            "OFF" => Some(NodeAction::Off),
+                            _ => None,
+                        };
+                        tracing::info!(
+                            "[Actuator {}] Estado inicial sincronizado desde gateway: {reported}",
+                            self.id
+                        );
+                    } else {
+                        let expected = match &self.last_action {
+                            Some(NodeAction::On) => "ON",
+                            Some(NodeAction::Off) => "OFF",
+                            _ => "",
+                        };
+                        if !expected.is_empty() && reported != expected {
+                            let alert = format!(
+                                "Estado incoherente: agente envió {expected} pero gateway reporta {reported}"
+                            );
+                            tracing::warn!("[Actuator {}] ⚠ {alert}", self.id);
+                            self.coherence_alert = Some(alert);
+                        } else {
+                            tracing::info!(
+                                "[Actuator {}] ✓ Estado confirmado: {reported}",
+                                self.id
+                            );
+                            if self
+                                .coherence_alert
+                                .as_ref()
+                                .map(|a| a.contains("incoherente"))
+                                .unwrap_or(false)
+                            {
+                                self.coherence_alert = None;
+                            }
+                        }
+                    }
+                }
+            } else if let Some(rest) = msg.strip_prefix("__state_timeout__") {
+                // Timeout esperando STATE — el gateway no respondió al ASK
+                let parts: Vec<&str> = rest.splitn(2, "__").collect();
+                let valve = parts.first().copied().unwrap_or("?");
+                let expected = parts.get(1).copied().unwrap_or("?");
+                let alert = format!(
+                    "No hubo respuesta del gateway al ASK,{valve} (esperado STATE,{valve},{expected})"
+                );
+                tracing::warn!("[Actuator {}] ⚠ {alert}", self.id);
+                self.coherence_alert = Some(alert);
             } else if let Some(valve) = msg
                 .strip_prefix("ASK,")
                 .or_else(|| msg.strip_prefix("ask,"))
@@ -863,6 +996,8 @@ impl NodeInstance for ActuatorNode {
 
     fn load_state(&mut self, state: &NodeState) {
         self.last_action = None; // fuerza sync en primer ciclo
+                                 // Al arrancar: preguntar el estado real al gateway antes de decidir
+        self.query_state_on_next_cycle = true;
         self.last_at = state
             .data
             .get("last_at")
@@ -896,6 +1031,8 @@ impl NodeInstance for ActuatorNode {
         self.ack_locked = false;
         self.coherence_alert = None;
         self.retry_count = 0;
+        // Al salir del override → preguntar estado real en el próximo ciclo
+        self.query_state_on_next_cycle = true;
     }
 
     fn metrics(&self) -> Vec<(String, f64)> {

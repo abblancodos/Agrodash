@@ -790,6 +790,31 @@
                 oninput={(e) => set('coherence', { ...node.coherence, alert_label: (e.target as HTMLInputElement).value || null })}
                 placeholder="Sensor no respondió al riego" />
             </div>
+
+            <!-- Consulta MQTT de estado -->
+            <div class="field">
+              <label>consulta de estado <span class="hint">topic donde publicar ASK,N</span></label>
+              <input class="inp mono" value={node.coherence.query_topic ?? ''}
+                oninput={(e) => set('coherence', { ...node.coherence, query_topic: (e.target as HTMLInputElement).value || null })}
+                placeholder="ej. control/valvula" />
+            </div>
+            {#if node.coherence.query_topic}
+              <div class="field-row">
+                <div class="field">
+                  <label>válvula <span class="hint">número para ASK,N</span></label>
+                  <input class="inp mono" value={node.coherence.query_valve ?? ''}
+                    oninput={(e) => set('coherence', { ...node.coherence, query_valve: (e.target as HTMLInputElement).value || null })}
+                    placeholder="1" />
+                </div>
+                <div class="field">
+                  <label>timeout respuesta (s)</label>
+                  <input class="inp mono" type="number" step="1" min="1"
+                    value={node.coherence.query_timeout_secs ?? 10}
+                    oninput={(e) => set('coherence', { ...node.coherence, query_timeout_secs: parseFloat((e.target as HTMLInputElement).value) })} />
+                </div>
+              </div>
+            {/if}
+            </div>
             <button class="btn-remove-field" onclick={() => set('coherence', null)}>quitar coherencia</button>
           </div>
         {:else}
