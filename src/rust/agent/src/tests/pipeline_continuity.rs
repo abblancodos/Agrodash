@@ -166,6 +166,9 @@ mod tests {
             (Signal::Vector(a), Some(Signal::Vector(b))) => {
                 assert_eq!(a, b, "Logger debe pasar el vector sin cambios");
             }
+            (Signal::WeightedVector { values: a, .. }, Some(Signal::WeightedVector { values: b, .. })) => {
+                assert_eq!(a, b, "Logger debe pasar el WeightedVector sin cambios");
+            }
             _ => panic!("Logger devolvió tipo inesperado: {:?}", result),
         }
     }

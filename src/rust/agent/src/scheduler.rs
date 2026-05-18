@@ -300,6 +300,7 @@ impl PipelineGraph {
             if let Some(sig) = signals.get(node_id) {
                 let val = match sig {
                     Signal::Vector(v) => serde_json::json!(v),
+                    Signal::WeightedVector { values, .. } => serde_json::json!(values),
                     Signal::Action(a) => serde_json::json!(format!("{a:?}").to_lowercase()),
                 };
                 map.insert(tag.clone(), val);
@@ -369,6 +370,7 @@ impl PipelineGraph {
             .find_map(|id| {
                 signals.get(*id).and_then(|s| match s {
                     Signal::Vector(v) => Some(v.clone()),
+                    Signal::WeightedVector { values, .. } => Some(values.clone()),
                     _ => None,
                 })
             })
@@ -378,6 +380,7 @@ impl PipelineGraph {
                     if SOURCE_TYPES.contains(&ns.node_type.as_str()) {
                         signals.get(id).and_then(|s| match s {
                             Signal::Vector(v) => Some(v.clone()),
+                            Signal::WeightedVector { values, .. } => Some(values.clone()),
                             _ => None,
                         })
                     } else {
@@ -393,6 +396,7 @@ impl PipelineGraph {
             }
             signals.get(id).and_then(|s| match s {
                 Signal::Vector(v) => Some(v.clone()),
+                Signal::WeightedVector { values, .. } => Some(values.clone()),
                 _ => None,
             })
         });

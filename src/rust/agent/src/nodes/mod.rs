@@ -229,6 +229,7 @@ pub fn resolve_http_connection(
 pub fn expect_vector(signal: &Signal, node_id: &str) -> Result<Vec<f64>> {
     match signal {
         Signal::Vector(v) => Ok(v.clone()),
+        Signal::WeightedVector { values, .. } => Ok(values.clone()),
         Signal::Action(_) => anyhow::bail!(
             "Nodo '{node_id}': se esperaba Signal::Vector pero se recibió Signal::Action"
         ),
@@ -239,7 +240,7 @@ pub fn expect_vector(signal: &Signal, node_id: &str) -> Result<Vec<f64>> {
 pub fn expect_action(signal: &Signal, node_id: &str) -> Result<NodeAction> {
     match signal {
         Signal::Action(a) => Ok(a.clone()),
-        Signal::Vector(_) => anyhow::bail!(
+        Signal::Vector(_) | Signal::WeightedVector { .. } => anyhow::bail!(
             "Nodo '{node_id}': se esperaba Signal::Action pero se recibió Signal::Vector"
         ),
     }

@@ -719,6 +719,8 @@ async fn process_cmd(pool: &PgPool, shared: &Arc<AgentShared>, cmd: AgentCommand
                             "signal": match sig {
                                 agrodash_shared::Signal::Vector(v) =>
                                     serde_json::json!({"type":"vector","values":v}),
+                                agrodash_shared::Signal::WeightedVector { values, weights } =>
+                                    serde_json::json!({"type":"vector","values":values,"weights":weights}),
                                 agrodash_shared::Signal::Action(a) =>
                                     serde_json::json!({"type":"action","value":format!("{a:?}")}),
                             }

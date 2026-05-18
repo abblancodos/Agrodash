@@ -467,6 +467,11 @@ impl NodeInstance for WatchdogNode {
                         signal = Some(v.clone());
                     }
                 }
+                Signal::WeightedVector { values, .. } => {
+                    if signal.is_none() {
+                        signal = Some(values.clone());
+                    }
+                }
             }
         }
 

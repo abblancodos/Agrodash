@@ -200,7 +200,7 @@ impl ActuatorNode {
 
     // ── Decisión ──────────────────────────────────────────────────────────────
 
-    fn decide(&mut self, signal: &[f64]) -> NodeAction {
+    fn decide(&mut self, signal: &[f64], weights: Option<&[f64]>) -> NodeAction {
         match &self.cfg.decision.clone() {
             DecisionMethod::Hysteresis {
                 reduction,
@@ -209,9 +209,8 @@ impl ActuatorNode {
                 action_below,
                 action_above,
             } => {
-                let val = apply_reduction(signal, reduction);
+                let val = apply_reduction(signal, reduction, weights);
                 let current = self.last_action.clone().unwrap_or(NodeAction::Hold);
-                // Histéresis: solo cambia si cruza el umbral opuesto
                 match &current {
                     NodeAction::On if val <= *low => action_below.clone(),
                     NodeAction::Off if val >= *high => action_above.clone(),
@@ -240,11 +239,7 @@ impl ActuatorNode {
                     NodeAction::On if d <= *threshold_deact => NodeAction::Off,
                     NodeAction::Off if d >= *threshold_act => NodeAction::On,
                     NodeAction::Hold => {
-                        if d >= *threshold_act {
-                            NodeAction::On
-                        } else {
-                            NodeAction::Off
-                        }
+                        if d >= *threshold_act { NodeAction::On } else { NodeAction::Off }
                     }
                     other => other.clone(),
                 }
@@ -259,7 +254,7 @@ impl ActuatorNode {
                 reduction,
                 reset_on_action,
             } => {
-                let val = apply_reduction(signal, reduction);
+                let val = apply_reduction(signal, reduction, weights);
                 let log_ratio = sprt_step(val, *mu_h0, *mu_h1, *sigma);
                 self.sprt_llr += log_ratio;
 
@@ -548,8 +543,11 @@ impl NodeInstance for ActuatorNode {
         pool: &PgPool,
         ctx: &NodeContext,
     ) -> Result<Option<Signal>> {
-        let signal = match inputs.first() {
-            Some(Signal::Vector(v)) => v.clone(),
+        let (signal, weights_opt) = match inputs.first() {
+            Some(Signal::WeightedVector { values, weights }) => {
+                (values.clone(), Some(weights.clone()))
+            }
+            Some(Signal::Vector(v)) => (v.clone(), None),
             _ => return Ok(None),
         };
 
@@ -557,7 +555,7 @@ impl NodeInstance for ActuatorNode {
         let action = if let Some(ov) = &self.override_action.clone() {
             ov.clone()
         } else {
-            self.decide(&signal)
+            self.decide(&signal, weights_opt.as_deref())
         };
 
         // Coherence check (no bloquea, solo alerta)
@@ -715,16 +713,32 @@ impl NodeInstance for ActuatorNode {
 
 // ── Helpers matemáticos ───────────────────────────────────────────────────────
 
-fn apply_reduction(signal: &[f64], reduction: &Reduction) -> f64 {
+fn apply_reduction(signal: &[f64], reduction: &Reduction, weights: Option<&[f64]>) -> f64 {
     if signal.is_empty() {
         return 0.0;
     }
     match reduction {
         Reduction::Mean => signal.iter().sum::<f64>() / signal.len() as f64,
-        Reduction::Min => signal.iter().cloned().fold(f64::INFINITY, f64::min),
-        Reduction::Max => signal.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+        Reduction::Min  => signal.iter().cloned().fold(f64::INFINITY, f64::min),
+        Reduction::Max  => signal.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
         Reduction::Component { index } => signal.get(*index).copied().unwrap_or(0.0),
-        Reduction::WeightedByP => signal.iter().sum::<f64>() / signal.len() as f64,
+        Reduction::WeightedByP => {
+            // Media ponderada por 1/P[i] — sensores con menor incertidumbre pesan más.
+            // Los pesos vienen del Kalman via Signal::WeightedVector (weights = 1/P).
+            // Si no hay pesos (señal no viene del Kalman), cae a media simple.
+            if let Some(w) = weights {
+                let w_sum: f64 = w.iter().take(signal.len()).sum();
+                if w_sum < 1e-12 {
+                    return signal.iter().sum::<f64>() / signal.len() as f64;
+                }
+                signal.iter().zip(w.iter())
+                    .map(|(v, w)| v * w)
+                    .sum::<f64>() / w_sum
+            } else {
+                // Sin pesos del Kalman → media simple
+                signal.iter().sum::<f64>() / signal.len() as f64
+            }
+        }
         _ => signal.iter().sum::<f64>() / signal.len() as f64,
     }
 }
