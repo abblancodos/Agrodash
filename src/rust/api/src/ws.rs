@@ -78,9 +78,12 @@ pub enum WsEvent {
 #[derive(Clone, Default)]
 pub struct WsBroadcast {
     inner: Arc<RwLock<HashMap<Uuid, broadcast::Sender<WsEvent>>>>,
-    /// Senders de shutdown para el relay MQTT de cada proceso.
-    /// Cuando se envía (), el task mqtt_relay termina.
     relay_shutdown: Arc<RwLock<HashMap<Uuid, tokio::sync::oneshot::Sender<()>>>>,
+    pg_listeners_active: Arc<RwLock<std::collections::HashSet<Uuid>>>,
+    /// CancellationToken por proceso — se cancela cuando no queda ningún cliente WS.
+    pg_listener_cancel: Arc<RwLock<HashMap<Uuid, tokio_util::sync::CancellationToken>>>,
+    /// Contador de clientes WS activos por proceso.
+    client_count: Arc<RwLock<HashMap<Uuid, usize>>>,
 }
 
 impl WsBroadcast {
@@ -122,8 +125,221 @@ impl WsBroadcast {
         map.retain(|_, tx| tx.receiver_count() > 0);
     }
 
+    /// Registrar un cliente WS conectado. Arranca los listeners si es el primero.
+    pub async fn client_connect(&self, process_id: Uuid, pool: &sqlx::PgPool) {
+        let mut counts = self.client_count.write().await;
+        let count = counts.entry(process_id).or_insert(0);
+        *count += 1;
+        let is_first = *count == 1;
+        drop(counts);
+
+        if is_first {
+            self.ensure_pg_listeners(process_id, pool).await;
+        }
+    }
+
+    /// Registrar un cliente WS desconectado. Si era el último, cancelar los listeners.
+    pub async fn client_disconnect(&self, process_id: Uuid) {
+        let mut counts = self.client_count.write().await;
+        let count = counts.entry(process_id).or_insert(0);
+        if *count > 0 {
+            *count -= 1;
+        }
+        let is_last = *count == 0;
+        drop(counts);
+
+        if is_last {
+            // Cancelar listeners — libera las 3 conexiones de Postgres
+            if let Some(token) = self.pg_listener_cancel.write().await.remove(&process_id) {
+                token.cancel();
+            }
+            // Permitir que se relancen si alguien conecta de nuevo
+            self.pg_listeners_active.write().await.remove(&process_id);
+            info!("WS: último cliente desconectó de {process_id} — listeners cancelados");
+        }
+    }
+
+    /// Arrancar los 3 listeners de pg_notify para un proceso una sola vez.
+    /// Cada listener consume una conexión del pool permanentemente, así que
+    /// los creamos una vez y los reutilizamos para todos los clientes WS.
+    pub async fn ensure_pg_listeners(&self, process_id: Uuid, pool: &sqlx::PgPool) {
+        {
+            let active = self.pg_listeners_active.read().await;
+            if active.contains(&process_id) {
+                return;
+            }
+        }
+        {
+            let mut active = self.pg_listeners_active.write().await;
+            if active.contains(&process_id) {
+                return;
+            }
+            active.insert(process_id);
+        }
+
+        let cancel = tokio_util::sync::CancellationToken::new();
+        self.pg_listener_cancel
+            .write()
+            .await
+            .insert(process_id, cancel.clone());
+
+        let pid_str = process_id.to_string().replace('-', "_");
+
+        macro_rules! spawn_pg_listener {
+            ($channel:expr, $ws:expr, $pid:expr, $pool:expr, $cancel:expr, $handler:expr) => {{
+                let channel   = $channel;
+                let ws        = $ws.clone();
+                let pid       = $pid;
+                let pool      = $pool.clone();
+                let cancel    = $cancel.clone();
+                let handler   = std::sync::Arc::new($handler);
+                tokio::spawn(async move {
+                    use sqlx::postgres::PgListener;
+                    loop {
+                        if cancel.is_cancelled() { break; }
+                        let mut listener = match PgListener::connect_with(&pool).await {
+                            Ok(l) => l,
+                            Err(e) => {
+                                tracing::warn!("pg_listener {channel}: {e} — reintento en 5s");
+                                tokio::select! {
+                                    _ = cancel.cancelled() => break,
+                                    _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {}
+                                }
+                                continue;
+                            }
+                        };
+                        if listener.listen(&channel).await.is_err() { break; }
+                        tracing::info!("WS: escuchando PG NOTIFY {channel}");
+                        loop {
+                            tokio::select! {
+                                _ = cancel.cancelled() => {
+                                    tracing::info!("WS: listener {channel} cancelado");
+                                    return; // salir del task completo
+                                }
+                                result = listener.recv() => {
+                                    match result {
+                                        Ok(notif) => {
+                                            if let Ok(val) = serde_json::from_str::<serde_json::Value>(notif.payload()) {
+                                                handler(val, ws.clone(), pid).await;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!("pg_listener {channel} error: {e} — reconectando");
+                                            break; // reconectar loop exterior
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }};
+        }
+
+        // ── ws_state_: estado del pipeline + process_status ───────────────
+        spawn_pg_listener!(
+            format!("ws_state_{pid_str}"),
+            self,
+            process_id,
+            pool,
+            cancel,
+            |val: serde_json::Value, ws: WsBroadcast, pid: Uuid| async move {
+                if let Some(status) = val.get("process_status").and_then(|v| v.as_str()) {
+                    let error_message = val
+                        .get("error_message")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    ws.publish(
+                        pid,
+                        WsEvent::ProcessStatus {
+                            status: status.to_string(),
+                            last_seen_at: None,
+                            error_message,
+                        },
+                    )
+                    .await;
+                } else if let Some(pipeline_id) = val.get("pipeline_id").and_then(|v| v.as_str()) {
+                    let state_val = val.get("state").cloned().unwrap_or_default();
+                    ws.publish(
+                        pid,
+                        WsEvent::PipelineState {
+                            pipeline_id: pipeline_id.to_string(),
+                            state: state_val,
+                        },
+                    )
+                    .await;
+                }
+            }
+        );
+
+        // ── ws_ack_: etapas de confirmación MQTT ──────────────────────────
+        spawn_pg_listener!(
+            format!("ws_ack_{pid_str}"),
+            self,
+            process_id,
+            pool,
+            cancel,
+            |val: serde_json::Value, ws: WsBroadcast, pid: Uuid| async move {
+                let actuator_id = val
+                    .get("actuator_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let pipeline_id = val
+                    .get("pipeline_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let msg_str = serde_json::to_string(&val).unwrap_or_default();
+                ws.publish(
+                    pid,
+                    WsEvent::MqttAck {
+                        pipeline_id,
+                        actuator_id,
+                        msg: msg_str,
+                    },
+                )
+                .await;
+            }
+        );
+
+        // ── ws_log_: logs en tiempo real ──────────────────────────────────
+        spawn_pg_listener!(
+            format!("ws_log_{pid_str}"),
+            self,
+            process_id,
+            pool,
+            cancel,
+            |val: serde_json::Value, ws: WsBroadcast, pid: Uuid| async move {
+                let level = val
+                    .get("level")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("info")
+                    .to_string();
+                let source = val
+                    .get("source")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("system")
+                    .to_string();
+                let message = val
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                ws.publish(
+                    pid,
+                    WsEvent::Log {
+                        level,
+                        source,
+                        message,
+                    },
+                )
+                .await;
+            }
+        );
+    }
+
     /// Lanzar el relay MQTT para un proceso si aún no está corriendo.
-    /// Se llama cuando el primer cliente WS conecta al proceso.
     pub async fn ensure_mqtt_relay(
         &self,
         process_id: Uuid,
@@ -228,195 +444,10 @@ async fn handle_socket(socket: WebSocket, state: AppState, process_id: Uuid, use
 
     info!("WS conectado: proceso={process_id} user={user_id}");
 
-    // ── Escuchar ACKs del agente via PG NOTIFY ────────────────────────────
-    // El agente publica en "ws_ack_{process_id}" cuando una stage avanza.
-    // Esto reemplaza el relay MQTT externo — el agente es la única fuente de verdad.
-    {
-        let pg_channel = format!("ws_ack_{}", process_id.to_string().replace('-', "_"));
-        let ws_clone = state.ws.clone();
-        let pid = process_id;
-        let pool_clone = state.pool.clone();
-        tokio::spawn(async move {
-            use sqlx::postgres::PgListener;
-            let mut listener = match PgListener::connect_with(&pool_clone).await {
-                Ok(l) => l,
-                Err(e) => {
-                    tracing::warn!("WS ack listener: {e}");
-                    return;
-                }
-            };
-            if listener.listen(&pg_channel).await.is_err() {
-                return;
-            }
-            tracing::info!("WS: escuchando PG NOTIFY {pg_channel}");
-            loop {
-                match listener.recv().await {
-                    Ok(notif) => {
-                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(notif.payload())
-                        {
-                            let actuator_id = val
-                                .get("actuator_id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let pipeline_id = val
-                                .get("pipeline_id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let msg_str = serde_json::to_string(&val).unwrap_or_default();
-                            ws_clone
-                                .publish(
-                                    pid,
-                                    WsEvent::MqttAck {
-                                        pipeline_id,
-                                        actuator_id,
-                                        msg: msg_str,
-                                    },
-                                )
-                                .await;
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("WS ack listener error: {e}");
-                        break;
-                    }
-                }
-            }
-        });
-    }
-
-    // ── Escuchar estado del agente via PG NOTIFY ──────────────────────────
-    // El agente publica en "ws_state_{process_id}" cada vez que guarda estado
-    // (cada SAVE_EVERY ciclos y al salir de warmup). El hub hace broadcast
-    // inmediato al frontend sin necesidad de polling ni HTTP entre agente y API.
-    {
-        let pg_channel = format!("ws_state_{}", process_id.to_string().replace('-', "_"));
-        let ws_clone = state.ws.clone();
-        let pid = process_id;
-        let pool_clone = state.pool.clone();
-        tokio::spawn(async move {
-            use sqlx::postgres::PgListener;
-            let mut listener = match PgListener::connect_with(&pool_clone).await {
-                Ok(l) => l,
-                Err(e) => {
-                    tracing::warn!("WS state listener: {e}");
-                    return;
-                }
-            };
-            if listener.listen(&pg_channel).await.is_err() {
-                return;
-            }
-            tracing::info!("WS: escuchando PG NOTIFY {pg_channel}");
-            loop {
-                match listener.recv().await {
-                    Ok(notif) => {
-                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(notif.payload())
-                        {
-                            if let Some(status) = val.get("process_status").and_then(|v| v.as_str())
-                            {
-                                // Cambio de status del proceso (ej: stopped, error)
-                                let error_message = val
-                                    .get("error_message")
-                                    .and_then(|v| v.as_str())
-                                    .map(String::from);
-                                ws_clone
-                                    .publish(
-                                        pid,
-                                        WsEvent::ProcessStatus {
-                                            status: status.to_string(),
-                                            last_seen_at: None,
-                                            error_message,
-                                        },
-                                    )
-                                    .await;
-                            } else if let Some(pipeline_id) =
-                                val.get("pipeline_id").and_then(|v| v.as_str())
-                            {
-                                // Estado de pipeline
-                                let state_val = val.get("state").cloned().unwrap_or_default();
-                                ws_clone
-                                    .publish(
-                                        pid,
-                                        WsEvent::PipelineState {
-                                            pipeline_id: pipeline_id.to_string(),
-                                            state: state_val,
-                                        },
-                                    )
-                                    .await;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("WS state listener error: {e}");
-                        break;
-                    }
-                }
-            }
-        });
-    }
-
-    // ── Escuchar logs via PG NOTIFY ───────────────────────────────────────
-    // log_event() notifica en "ws_log_{process_id}" cada vez que se escribe
-    // un log. El hub lo convierte en WsEvent::Log y lo manda al frontend.
-    {
-        let pg_channel = format!("ws_log_{}", process_id.to_string().replace('-', "_"));
-        let ws_clone = state.ws.clone();
-        let pid = process_id;
-        let pool_clone = state.pool.clone();
-        tokio::spawn(async move {
-            use sqlx::postgres::PgListener;
-            let mut listener = match PgListener::connect_with(&pool_clone).await {
-                Ok(l) => l,
-                Err(e) => {
-                    tracing::warn!("WS log listener: {e}");
-                    return;
-                }
-            };
-            if listener.listen(&pg_channel).await.is_err() {
-                return;
-            }
-            tracing::info!("WS: escuchando PG NOTIFY {pg_channel}");
-            loop {
-                match listener.recv().await {
-                    Ok(notif) => {
-                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(notif.payload())
-                        {
-                            let level = val
-                                .get("level")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("info")
-                                .to_string();
-                            let source = val
-                                .get("source")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("system")
-                                .to_string();
-                            let message = val
-                                .get("message")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            ws_clone
-                                .publish(
-                                    pid,
-                                    WsEvent::Log {
-                                        level,
-                                        source,
-                                        message,
-                                    },
-                                )
-                                .await;
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("WS log listener error: {e}");
-                        break;
-                    }
-                }
-            }
-        });
-    }
+    // Registrar cliente — arranca listeners si es el primero, o reutiliza los existentes.
+    // Cuando el último cliente desconecte, client_disconnect cancela los listeners
+    // y libera las 3 conexiones de Postgres.
+    state.ws.client_connect(process_id, &state.pool).await;
 
     // ── Lanzar relay MQTT si el proceso tiene broker configurado ──────────
     {
@@ -562,6 +593,10 @@ async fn handle_socket(socket: WebSocket, state: AppState, process_id: Uuid, use
     }
 
     info!("WS desconectado: proceso={process_id} user={user_id}");
+
+    // Decrementar contador — si era el último cliente, cancela los listeners
+    // de pg_notify y libera las 3 conexiones de Postgres.
+    state.ws.client_disconnect(process_id).await;
 
     // Si no quedan clientes WS para este proceso, detener el relay MQTT
     let tx = state.ws.sender(process_id).await;

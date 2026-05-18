@@ -59,7 +59,15 @@ async fn main() {
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL no está definida");
 
     let pool = PgPoolOptions::new()
-        .max_connections(10)
+        .max_connections(20)
+        .after_connect(|conn, _| {
+            Box::pin(async move {
+                sqlx::query("SET application_name = 'agrodash-api'")
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
         .connect(&database_url)
         .await
         .expect("No se pudo conectar a PostgreSQL");
