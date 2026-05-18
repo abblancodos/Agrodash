@@ -92,10 +92,15 @@ impl NodeInstance for KalmanNode {
         self.n += 1;
         // Emitir WeightedVector con pesos = 1/P[i] (mayor certeza → mayor peso).
         // Los nodos que no usan pesos (Logger, Hysteresis vieja, etc.) los ignoran.
-        let weights = self.p.iter()
+        let weights = self
+            .p
+            .iter()
             .map(|&p| if p > 1e-12 { 1.0 / p } else { 1e12 })
             .collect();
-        Ok(Some(Signal::WeightedVector { values: self.x.clone(), weights }))
+        Ok(Some(Signal::WeightedVector {
+            values: self.x.clone(),
+            weights,
+        }))
     }
 
     fn is_ready(&self) -> bool {
@@ -113,12 +118,18 @@ impl NodeInstance for KalmanNode {
     }
 
     fn metrics(&self) -> Vec<(String, f64)> {
-        if self.dim == 0 || self.last_k.len() != self.dim { return vec![]; }
+        if self.dim == 0 || self.last_k.len() != self.dim {
+            return vec![];
+        }
         let mut m = Vec::new();
         for i in 0..self.dim {
-            let suffix = if self.dim == 1 { String::new() } else { format!("[{i}]") };
-            m.push((format!("p{suffix}"),     self.p[i]));
-            m.push((format!("k{suffix}"),     self.last_k[i]));
+            let suffix = if self.dim == 1 {
+                String::new()
+            } else {
+                format!("[{i}]")
+            };
+            m.push((format!("p{suffix}"), self.p[i]));
+            m.push((format!("k{suffix}"), self.last_k[i]));
             m.push((format!("innov{suffix}"), self.last_innov[i]));
         }
         m
@@ -138,7 +149,7 @@ impl NodeInstance for KalmanNode {
             // Inicializar con longitud correcta para evitar index out of bounds
             // en el primer ciclo tras cargar estado guardado
             if self.last_k.len() != self.dim {
-                self.last_k    = vec![0.0; self.dim];
+                self.last_k = vec![0.0; self.dim];
                 self.last_innov = vec![0.0; self.dim];
             }
         }
@@ -210,13 +221,23 @@ impl NodeInstance for MovingAvgNode {
 
         // Varianza de la ventana → peso = 1/var (mayor varianza = menor confianza)
         let dim = mean.len();
-        if self.var.len() != dim { self.var = vec![1.0; dim]; }
+        if self.var.len() != dim {
+            self.var = vec![1.0; dim];
+        }
         for i in 0..dim {
-            let v = self.buf.iter().map(|s| (s[i] - mean[i]).powi(2)).sum::<f64>() / n;
+            let v = self
+                .buf
+                .iter()
+                .map(|s| (s[i] - mean[i]).powi(2))
+                .sum::<f64>()
+                / n;
             self.var[i] = v.max(1e-12);
         }
         let weights = self.var.iter().map(|&v| 1.0 / v).collect();
-        Ok(Some(Signal::WeightedVector { values: mean, weights }))
+        Ok(Some(Signal::WeightedVector {
+            values: mean,
+            weights,
+        }))
     }
     fn is_ready(&self) -> bool {
         self.n >= self.cfg.warmup_samples && self.buf.len() == self.cfg.window_n
@@ -300,7 +321,10 @@ impl NodeInstance for EwmaNode {
         }
         self.n += 1;
         let weights = self.var.iter().map(|&v| 1.0 / v).collect();
-        Ok(Some(Signal::WeightedVector { values: y.clone(), weights }))
+        Ok(Some(Signal::WeightedVector {
+            values: y.clone(),
+            weights,
+        }))
     }
     fn is_ready(&self) -> bool {
         self.n >= self.cfg.warmup_samples
@@ -314,8 +338,13 @@ impl NodeInstance for EwmaNode {
         }
     }
     fn load_state(&mut self, state: &NodeState) {
-        self.y = state.data.get("y").and_then(|v| serde_json::from_value(v.clone()).ok());
-        self.var = state.data.get("var")
+        self.y = state
+            .data
+            .get("y")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+        self.var = state
+            .data
+            .get("var")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default();
         if let Some(n) = state.data.get("n").and_then(|v| v.as_u64()) {
@@ -380,7 +409,10 @@ impl NodeInstance for LowpassNode {
         }
         self.n += 1;
         let weights = self.var.iter().map(|&v| 1.0 / v).collect();
-        Ok(Some(Signal::WeightedVector { values: y.clone(), weights }))
+        Ok(Some(Signal::WeightedVector {
+            values: y.clone(),
+            weights,
+        }))
     }
     fn is_ready(&self) -> bool {
         self.n >= self.cfg.warmup_samples
@@ -394,8 +426,13 @@ impl NodeInstance for LowpassNode {
         }
     }
     fn load_state(&mut self, state: &NodeState) {
-        self.y = state.data.get("y").and_then(|v| serde_json::from_value(v.clone()).ok());
-        self.var = state.data.get("var")
+        self.y = state
+            .data
+            .get("y")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+        self.var = state
+            .data
+            .get("var")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default();
         if let Some(n) = state.data.get("n").and_then(|v| v.as_u64()) {
