@@ -2,7 +2,7 @@
 //
 // La columna created_at es timestamptz. Los datos se insertaron en hora CR
 // (America/Costa_Rica, UTC-6). La API devuelve timestamps en UTC puro para
-// que el frontend pueda convertir a cualquier timezone correctamente.
+// que el frontend pueda convertir a cualquier timezone correctamente....
 #![allow(clippy::panic)]
 
 use axum::{
