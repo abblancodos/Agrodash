@@ -58,7 +58,7 @@ pub async fn get_readings(
         .into_iter()
         .map(|r| ReadingBucket {
             bucket: r.bucket,
-            value:  r.value,
+            value: r.value,
         })
         .collect();
 
@@ -83,7 +83,7 @@ pub async fn get_time_range(
 
     Ok(Json(TimeRange {
         first: row.first,
-        last:  row.last,
+        last: row.last,
     }))
 }
 
@@ -110,7 +110,7 @@ pub async fn get_last_reading(
 
     Ok(Json(row.map(|r| ReadingBucket {
         bucket: r.bucket,
-        value:  r.value,
+        value: r.value,
     })))
 }
 
