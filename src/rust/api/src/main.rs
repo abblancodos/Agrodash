@@ -65,11 +65,12 @@ async fn main() {
                 // TIMEZONE — todos los datos son Costa Rica naive.
                 // Fijar la sesión en CR hace que now(), comparaciones y
                 // cualquier cast implícito sean consistentes con created_at.
-                sqlx::query(
-                    "SET TIME ZONE 'America/Costa_Rica'; SET application_name = 'agrodash-api'",
-                )
-                .execute(conn)
-                .await?;
+                sqlx::query("SET TIME ZONE 'America/Costa_Rica'")
+                    .execute(&mut *conn)
+                    .await?;
+                sqlx::query("SET application_name = 'agrodash-api'")
+                    .execute(&mut *conn)
+                    .await?;
                 Ok(())
             })
         })
