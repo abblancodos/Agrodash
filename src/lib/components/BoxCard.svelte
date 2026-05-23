@@ -14,7 +14,7 @@
     box: Box;
     stats: SensorStat[];
     correlations: SensorCorrelation[];
-    /** Rango global — usado como fallback si no hay prefs guardadas.... */
+    /** Rango global — usado como fallback si no hay prefs guardadas */
     from: Date;
     to: Date;
     live: boolean;
@@ -211,40 +211,51 @@
       </div>
     </div>
 
-    <!-- Controles: CSV + filtro sensores + presets de tiempo -->
+    <!-- Controles: una sola fila alineada -->
     <div class="card-head__controls">
-      <button class="csv-btn" onclick={() => csvOpen = true} title="Descargar CSV">
-        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><path d="M2 10v2h10v-2M7 2v7M4 6l3 3 3-3"/></svg>
-        CSV
-      </button>
-      <button class="filter-btn" class:active={filterOpen || hiddenCount() > 0 || sensorSort !== 'score'}
-        onclick={() => filterOpen = !filterOpen} title="Filtrar sensores">
-        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" width="12" height="12">
+      <!-- Presets de tiempo -->
+      <div class="ctrl-presets">
+        {#each PRESETS as p}
+          <button class="ctrl-btn" class:active={activePreset === p.label}
+            onclick={() => applyPreset(p)}>{p.label}</button>
+        {/each}
+      </div>
+
+      <!-- Separador visual -->
+      <span class="ctrl-vsep"></span>
+
+      <!-- Date pickers inline -->
+      <div class="ctrl-pickers">
+        <DateTimePicker bind:value={localFrom} max={localTo} label="DESDE"
+          onchange={onFromChange} />
+        <span class="ctrl-arrow">→</span>
+        <DateTimePicker bind:value={localTo} min={localFrom} label="HASTA"
+          onchange={onToChange} />
+        {#if activePreset === 'custom'}
+          <button class="ctrl-btn ctrl-btn--icon" title="Volver a 24h"
+            onclick={() => applyPreset(PRESETS[2])}>↺</button>
+        {/if}
+      </div>
+
+      <!-- Separador visual -->
+      <span class="ctrl-vsep"></span>
+
+      <!-- Filtrar sensores -->
+      <button class="ctrl-btn ctrl-btn--label"
+        class:active={filterOpen || hiddenCount() > 0 || sensorSort !== 'score'}
+        onclick={() => filterOpen = !filterOpen}>
+        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" width="11" height="11">
           <path d="M2 3h10M4 7h6M6 11h2"/>
         </svg>
-        {#if hiddenCount() > 0}<span class="filter-count">{hiddenCount()}</span>{/if}
+        filtrar
+        {#if hiddenCount() > 0}<span class="ctrl-badge">{hiddenCount()}</span>{/if}
       </button>
-      <div class="card-head__time">
-        <div class="card-head__presets">
-          {#each PRESETS as p}
-            <button class="pbtn" class:active={activePreset === p.label}
-              onclick={() => applyPreset(p)}>
-              {p.label}
-            </button>
-          {/each}
-        </div>
-        <div class="card-head__pickers">
-          <DateTimePicker bind:value={localFrom} max={localTo} label="DESDE"
-            onchange={onFromChange} />
-          <span class="picker-sep">→</span>
-          <DateTimePicker bind:value={localTo}  min={localFrom} label="HASTA"
-            onchange={onToChange} />
-          {#if activePreset === 'custom'}
-            <button class="picker-reset" title="Volver a 24h"
-              onclick={() => applyPreset(PRESETS[2])}>↺</button>
-          {/if}
-        </div>
-      </div>
+
+      <!-- CSV -->
+      <button class="ctrl-btn ctrl-btn--label" onclick={() => csvOpen = true} title="Descargar CSV">
+        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><path d="M2 10v2h10v-2M7 2v7M4 6l3 3 3-3"/></svg>
+        CSV
+      </button>
     </div>
   </header>
 
@@ -520,8 +531,9 @@
   .card-head__controls {
     display: flex;
     align-items: center;
-    gap: calc(6px * var(--font-scale));
+    gap: calc(5px * var(--font-scale));
     flex-shrink: 0;
+    flex-wrap: wrap;
   }
   .card-head__title {
     font-size: calc(14px * var(--font-scale));
@@ -536,45 +548,42 @@
     color: var(--text-muted);
     margin-top: 2px;
   }
-  .card-head__time {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: calc(5px * var(--font-scale));
-  }
-  .card-head__presets { display: flex; gap: calc(3px * var(--font-scale)); flex-wrap: wrap; justify-content: flex-end; }
-  .card-head__pickers {
-    display: flex;
-    align-items: center;
-    gap: calc(5px * var(--font-scale));
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
-  .picker-sep { color: var(--text-muted); font-size: calc(12px * var(--font-scale)); }
-  .picker-reset {
-    padding: calc(2px * var(--font-scale)) calc(6px * var(--font-scale));
+  /* ── Controles del header: una sola fila ── */
+  .ctrl-presets { display: flex; gap: calc(3px * var(--font-scale)); }
+
+  .ctrl-btn {
+    display: inline-flex; align-items: center; gap: calc(4px * var(--font-scale));
+    height: 26px;
+    padding: 0 calc(8px * var(--font-scale));
     border: 0.5px solid var(--border-default); border-radius: 4px;
     background: transparent; color: var(--text-muted);
-    font-size: calc(12px * var(--font-scale)); cursor: pointer;
+    font-family: 'DM Mono', monospace; font-size: calc(11px * var(--font-scale));
+    letter-spacing: .04em; cursor: pointer; white-space: nowrap;
     transition: all .12s;
   }
-  .picker-reset:hover { background: var(--interactive-hover); color: var(--text-secondary); }
+  .ctrl-btn:hover { background: var(--interactive-hover); color: var(--text-secondary); border-color: var(--border-strong, var(--border-default)); }
+  .ctrl-btn.active { background: var(--accent-bg); color: var(--accent-text); border-color: transparent; }
+  .ctrl-btn--label { color: var(--text-secondary); }
+  .ctrl-btn--icon { padding: 0 calc(6px * var(--font-scale)); }
 
-  /* Preset buttons */
-  .pbtn {
-    padding: calc(3px * var(--font-scale)) calc(7px * var(--font-scale));
-    border: 0.5px solid var(--border-default);
-    border-radius: 4px;
-    background: transparent;
-    color: var(--text-secondary);
-    font-family: 'DM Mono', monospace;
-    font-size: calc(14px * var(--font-scale));
-    cursor: pointer;
-    letter-spacing: .04em;
-    transition: all .12s;
+  .ctrl-pickers {
+    display: flex; align-items: center;
+    gap: calc(4px * var(--font-scale));
   }
-  .pbtn:hover  { background: var(--interactive-hover); }
-  .pbtn.active { background: var(--accent-bg); color: var(--accent-text); border-color: transparent; }
+  /* Hacer que los DateTimePicker tengan el mismo height que ctrl-btn */
+  .ctrl-pickers :global(.dtp__trigger) {
+    height: 26px; padding: 0 calc(8px * var(--font-scale));
+    font-size: calc(11px * var(--font-scale));
+  }
+
+  .ctrl-arrow { color: var(--text-muted); font-size: calc(11px * var(--font-scale)); }
+  .ctrl-vsep { width: 0.5px; height: 16px; background: var(--border-subtle); flex-shrink: 0; }
+  .ctrl-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 15px; height: 15px; border-radius: 50%;
+    background: rgba(186,117,23,0.25); color: #e8a838;
+    font-size: calc(9px * var(--font-scale)); font-weight: 600; line-height: 1;
+  }
 
   /* Columnas */
   .sensor-cols-head {
@@ -674,25 +683,7 @@
     background: var(--bg-surface);
   }
 
-  .csv-btn {
-    display: flex;
-    align-items: center;
-    gap: calc(4px * var(--font-scale));
-    padding: calc(3px * var(--font-scale)) calc(8px * var(--font-scale));
-    border: 0.5px solid var(--border-default);
-    border-radius: 4px;
-    background: transparent;
-    color: var(--text-muted);
-    font-family: 'DM Mono', monospace;
-    font-size: calc(14px * var(--font-scale));
-    letter-spacing: .06em;
-    cursor: pointer;
-    transition: all .12s;
-  }
-  .csv-btn:hover {
-    background: var(--interactive-hover);
-    color: var(--text-secondary);
-  }
+  /* csv-btn migrado a ctrl-btn */
 
 
   .ct-chevron { font-size: calc(8px * var(--font-scale)); color: var(--text-muted); transition: transform .15s; display: inline-block; }
@@ -721,19 +712,32 @@
   /* ── Mobile ──────────────────────────────────────────────────────────── */
   @media (max-width: 640px) {
 
-    /* ── Card header: título en primera línea, controles en segunda ── */
+    /* ── Card header: título, luego dos filas de controles ── */
     .card-head {
       flex-direction: column;
       align-items: flex-start;
-      gap: calc(6px * var(--font-scale));
+      gap: calc(8px * var(--font-scale));
       padding: calc(10px * var(--font-scale)) calc(12px * var(--font-scale));
     }
     .card-head__info { width: 100%; }
-    .card-head__controls { width: 100%; }
-    .card-head__time { align-items: flex-start; }
-    .card-head__pickers { display: none; }   /* ocultar pickers en mobile — presets bastan */
     .card-head__title { font-size: calc(13px * var(--font-scale)); }
     .card-head__sub { font-size: calc(11px * var(--font-scale)); }
+
+    /* Controles en dos filas limpias */
+    .card-head__controls {
+      width: 100%;
+      flex-wrap: wrap;
+      gap: calc(4px * var(--font-scale));
+      row-gap: calc(5px * var(--font-scale));
+    }
+    /* Pickers ocultos — presets bastan en mobile */
+    .ctrl-pickers { display: none; }
+    /* Ocultar separadores que quedaron huérfanos */
+    .ctrl-vsep { display: none; }
+    /* Los presets ocupan su propio renglón */
+    .ctrl-presets { width: 100%; }
+    /* Filtrar y CSV van en la segunda fila */
+    .ctrl-btn--label { flex: 1; justify-content: center; }
 
     /* ── Ocultar cabecera de columnas — en mobile son autoevidentes ── */
     .sensor-cols-head { display: none; }
@@ -795,26 +799,15 @@
 
     /* ── Etiqueta de correlación ── */
     .corr-label { font-size: calc(10px * var(--font-scale)); }
+
+    /* ── Panel de filtros de sensores en mobile ── */
+    .sensor-filter-panel { padding: calc(10px * var(--font-scale)) calc(12px * var(--font-scale)); gap: calc(10px * var(--font-scale)); }
+    .sfp-row { flex-direction: column; align-items: flex-start; gap: calc(5px * var(--font-scale)); }
+    .sfp-label { min-width: unset; }
+    .sfp-pills { flex-wrap: wrap; }
   }
 
-  /* ── Filter panel button ── */
-  .filter-btn {
-    display: flex; align-items: center; gap: 4px;
-    padding: calc(3px * var(--font-scale)) calc(8px * var(--font-scale));
-    border: 0.5px solid var(--border-default);
-    border-radius: 4px; background: transparent;
-    color: var(--text-muted);
-    font-family: 'DM Mono', monospace; font-size: calc(14px * var(--font-scale));
-    cursor: pointer; transition: all .12s;
-  }
-  .filter-btn:hover { background: var(--interactive-hover); color: var(--text-secondary); }
-  .filter-btn.active { background: var(--interactive-hover); border-color: var(--text-muted); color: var(--text-secondary); }
-  .filter-count {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 16px; height: 16px; border-radius: 50%;
-    background: rgba(186,117,23,0.25); color: #e8a838;
-    font-size: calc(10px * var(--font-scale)); font-weight: 600; line-height: 1;
-  }
+  /* filter-btn migrado a ctrl-btn */
 
   /* ── Sensor filter panel ── */
   .sensor-filter-panel {

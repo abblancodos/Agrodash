@@ -449,31 +449,25 @@
         </div>
 
       {:else if mode === 'cards'}
-        <!-- Barra de filtros de cards -->
+        <!-- Barra de filtros de cards — una línea, compacta -->
         <div class="cards-filterbar">
-          <div class="cfb-group">
-            <span class="cfb-label">ordenar</span>
-            <div class="cfb-pills">
-              <button class="cfb-pill" class:active={cardSort === 'anomalia'} onclick={() => cardSort = 'anomalia'}>anomalía</button>
-              <button class="cfb-pill" class:active={cardSort === 'reciente'} onclick={() => cardSort = 'reciente'}>más reciente</button>
-              <button class="cfb-pill" class:active={cardSort === 'nombre-az'} onclick={() => cardSort = 'nombre-az'}>nombre A→Z</button>
-              <button class="cfb-pill" class:active={cardSort === 'nombre-za'} onclick={() => cardSort = 'nombre-za'}>nombre Z→A</button>
-            </div>
+          <span class="cfb-label">ordenar</span>
+          <div class="cfb-sort">
+            <button class="cfb-pill" class:active={cardSort === 'anomalia'} onclick={() => cardSort = 'anomalia'}>anomalía</button>
+            <button class="cfb-pill" class:active={cardSort === 'reciente'} onclick={() => cardSort = 'reciente'}>reciente</button>
+            <button class="cfb-pill" class:active={cardSort === 'nombre-az'} onclick={() => cardSort = 'nombre-az'}>A→Z</button>
+            <button class="cfb-pill" class:active={cardSort === 'nombre-za'} onclick={() => cardSort = 'nombre-za'}>Z→A</button>
           </div>
-          {#if boxes.length}
-            {@const allTypes = [...new Set(boxes.flatMap(b => b.sensors.map(s => s.type.toLowerCase())))].sort()}
-            <div class="cfb-group">
-              <span class="cfb-label">tipo de variable</span>
-              <div class="cfb-pills">
-                <button class="cfb-pill" class:active={cardTypeFilter === ''} onclick={() => cardTypeFilter = ''}>todos</button>
-                {#each allTypes as t}
-                  <button class="cfb-pill" class:active={cardTypeFilter === t} onclick={() => cardTypeFilter = t}>{t}</button>
-                {/each}
-              </div>
-            </div>
-          {/if}
+
+          <span class="cfb-vsep"></span>
+
+          <!-- Filtro de tipo via TypeSelector (dropdown con checkboxes) -->
+          <div class="cfb-type-wrap">
+            <TypeSelector {boxes} selected={activeTypes} onchange={(s) => activeTypes = s} />
+          </div>
+
           {#if cardTypeFilter || cardSort !== 'anomalia'}
-            <button class="cfb-reset" onclick={() => { cardSort = 'anomalia'; cardTypeFilter = ''; }}>↺ limpiar</button>
+            <button class="cfb-reset" onclick={() => { cardSort = 'anomalia'; cardTypeFilter = ''; }}>↺</button>
           {/if}
         </div>
         <!-- Vista cards: una BoxCard por caja -->
@@ -834,35 +828,47 @@
   .align-right { text-align: right; }
 
   /* Cards grid */
-  /* Cards filter bar */
+  /* Cards filter bar — fila única horizontal */
   .cards-filterbar {
-    display: flex; flex-direction: column; gap: calc(8px * var(--font-scale));
-    padding: calc(10px * var(--font-scale)) calc(2px * var(--font-scale));
-    margin-bottom: calc(6px * var(--font-scale));
+    display: flex;
+    align-items: center;
+    gap: calc(6px * var(--font-scale));
+    padding: calc(8px * var(--font-scale)) calc(2px * var(--font-scale));
+    margin-bottom: calc(4px * var(--font-scale));
+    flex-wrap: wrap;
   }
-  .cfb-group { display: flex; align-items: flex-start; gap: calc(10px * var(--font-scale)); flex-wrap: wrap; }
   .cfb-label {
     font-size: calc(11px * var(--font-scale)); color: var(--text-muted);
-    font-family: 'DM Mono', monospace; letter-spacing: .05em;
-    min-width: 90px; padding-top: calc(4px * var(--font-scale)); flex-shrink: 0;
+    font-family: 'DM Mono', monospace; letter-spacing: .06em; flex-shrink: 0;
   }
-  .cfb-pills { display: flex; gap: calc(4px * var(--font-scale)); flex-wrap: wrap; }
+  .cfb-sort { display: flex; gap: calc(3px * var(--font-scale)); }
   .cfb-pill {
-    padding: calc(3px * var(--font-scale)) calc(9px * var(--font-scale));
+    display: inline-flex; align-items: center;
+    height: 26px; padding: 0 calc(9px * var(--font-scale));
     border: 0.5px solid var(--border-default); border-radius: 4px;
-    background: transparent; color: var(--text-secondary);
+    background: transparent; color: var(--text-muted);
     font-family: 'DM Mono', monospace; font-size: calc(11px * var(--font-scale));
-    cursor: pointer; transition: all .1s; letter-spacing: .04em;
+    cursor: pointer; transition: all .1s; letter-spacing: .04em; white-space: nowrap;
   }
-  .cfb-pill:hover { background: var(--interactive-hover); }
+  .cfb-pill:hover { background: var(--interactive-hover); color: var(--text-secondary); }
   .cfb-pill.active { background: var(--accent-bg); color: var(--accent-text); border-color: transparent; }
-  .cfb-reset {
-    padding: calc(3px * var(--font-scale)) calc(8px * var(--font-scale));
-    border: none; background: none; cursor: pointer;
-    font-size: calc(11px * var(--font-scale)); color: var(--text-muted);
-    font-family: 'DM Mono', monospace;
+  .cfb-vsep { width: 0.5px; height: 16px; background: var(--border-subtle); flex-shrink: 0; }
+  .cfb-type-wrap { display: flex; align-items: center; }
+  /* Alinear el botón del TypeSelector con las pills */
+  .cfb-type-wrap :global(.tsel__btn) {
+    height: 26px; padding: 0 calc(9px * var(--font-scale));
+    font-size: calc(11px * var(--font-scale));
+    border-radius: 4px;
   }
-  .cfb-reset:hover { color: var(--text-secondary); }
+  .cfb-reset {
+    display: inline-flex; align-items: center;
+    height: 26px; padding: 0 calc(8px * var(--font-scale));
+    border: 0.5px solid var(--border-default); border-radius: 4px;
+    background: none; cursor: pointer;
+    font-size: calc(12px * var(--font-scale)); color: var(--text-muted);
+    font-family: 'DM Mono', monospace; transition: all .12s;
+  }
+  .cfb-reset:hover { background: var(--interactive-hover); color: var(--text-secondary); }
   .cards-grid { display: flex; flex-direction: column; gap: calc(10px * var(--font-scale)); }
 
   /* Charts grid */
@@ -1030,7 +1036,27 @@
     .dt-head { grid-template-columns: 64px 44px 80px repeat(4, 1fr) !important; gap: 4px !important; }
     .dt-row  { grid-template-columns: 64px 44px 80px repeat(4, 1fr) !important; gap: 4px !important; }
 
-    /* Cards grid — sin sparklines en filas (BoxCard las oculta via su propio @media) */
+    /* Filterbar de cards en mobile — dos líneas limpias */
+    .cards-filterbar {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: calc(6px * var(--font-scale));
+      padding: calc(6px * var(--font-scale)) 0;
+    }
+    /* Fila 1: label + sort pills con scroll horizontal si overflow */
+    .cfb-sort {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      flex-wrap: nowrap;
+      max-width: 100%;
+      padding-bottom: 2px;
+    }
+    .cfb-sort::-webkit-scrollbar { display: none; }
+    /* Fila 2: tipo + reset juntos */
+    .cfb-vsep { display: none; }
+    .cfb-type-wrap, .cfb-reset { flex-shrink: 0; }
+
+    /* Cards grid */
     .cards-grid { gap: 8px; }
 
     /* Bottom nav — visible en mobile */
