@@ -1,8 +1,16 @@
 // src/routes/readings.rs
 //
-// La columna created_at es timestamptz. Los datos se insertaron en hora CR
-// (America/Costa_Rica, UTC-6). La API devuelve timestamps en UTC puro para
-// que el frontend pueda convertir a cualquier timezone correctamente....
+// TIMEZONE — regla única:
+//   • created_at en la DB es timestamptz. Los datos entran en hora CR pero
+//     Postgres los almacena correctamente como UTC internamente.
+//   • El frontend manda from/to como ISO-8601 UTC ("...Z"). Axum los parsea
+//     como DateTime<Utc> — son valores UTC reales.
+//   • Al comparar con created_at se usa $2::timestamptz directamente, sin
+//     ningún AT TIME ZONE, porque ya son UTC.
+//   • Los buckets se devuelven AT TIME ZONE 'UTC' → NaiveDateTime representando
+//     hora UTC. El frontend agrega 'Z' y convierte a la zona local del usuario.
+//   • NO agregar AT TIME ZONE 'America/Costa_Rica' a los parámetros de filtro:
+//     eso desplazaría el filtro 6h al futuro (bug "lecturas de las próximas 6h").
 #![allow(clippy::panic)]
 
 use axum::{
@@ -24,10 +32,8 @@ pub async fn get_readings(
     let range_secs = (params.to - params.from).num_seconds().max(1);
     let bucket_secs = (range_secs / params.points).max(1);
 
-    // Convertir parámetros CR del frontend a UTC para comparar con la DB
-    // Los parámetros vienen como NaiveDateTime en CR (sin timezone)
-    // La DB guarda como timestamptz — comparar directo funciona porque
-    // Postgres interpreta el NaiveDateTime según la zona del servidor (CR)
+    // from/to son DateTime<Utc> reales — comparar directo con created_at (timestamptz).
+    // NO usar AT TIME ZONE en los parámetros: eso los desplazaría 6h incorrectamente.
     let rows = sqlx::query!(
         r#"
         SELECT
@@ -40,14 +46,14 @@ pub async fn get_readings(
         FROM readings
         WHERE
             sensor_id  = $1
-            AND created_at >= $2::timestamp AT TIME ZONE 'America/Costa_Rica'
-            AND created_at <= $3::timestamp AT TIME ZONE 'America/Costa_Rica'
+            AND created_at >= $2::timestamptz
+            AND created_at <= $3::timestamptz
         GROUP BY 1
         ORDER BY 1
         "#,
         params.sensor_id,
-        params.from,
-        params.to,
+        params.from as _,
+        params.to as _,
         bucket_secs,
     )
     .fetch_all(&pool)

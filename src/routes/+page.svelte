@@ -7,6 +7,9 @@
   import DateTimePicker from '$lib/components/DateTimePicker.svelte';
   import MultiSensorChart from '$lib/components/MultiSensorChart.svelte';
   import HelpPanel from '$lib/components/HelpPanel.svelte';
+  import { preferences } from '$lib/stores/preferences';
+  import type { CardSort } from '$lib/stores/preferences';
+  import { get as storeGet } from 'svelte/store';
 
   // ── Estado global ─────────────────────────────────────────────────────────
 
@@ -25,7 +28,7 @@
   let selectedBoxIds = $state<Set<string>>(new Set());
   let activeTypes    = $state<Set<string>>(new Set());
   let search         = $state('');
-  let live           = $state(false);
+  let live           = $state(false);  // se sobreescribe en onMount
   let expandedBoxId  = $state<string | null>(null);
 
   // ── Stats ─────────────────────────────────────────────────────────────────
@@ -52,7 +55,7 @@
   // ── Modo de visualización ─────────────────────────────────────────────────
 
   type Mode = 'compacto' | 'cards' | 'graficas' | 'analisis';
-  let mode = $state<Mode>('cards');
+  let mode = $state<Mode>('cards');  // se sobreescribe en onMount desde prefs
 
   const MODES: { id: Mode; label: string }[] = [
     { id: 'compacto', label: 'compacto' },
@@ -98,17 +101,38 @@
     )
   );
 
-  /** Cajas ordenadas por anomaly_score más alto de sus sensores */
+  // ── Filtros de vista cards (persistidos) ─────────────────────────────────
+  let cardSort       = $state<CardSort>('anomalia');    // sobreescrito en onMount
+  let cardTypeFilter = $state<string>('');              // sobreescrito en onMount
+
+  /** Últimas fechas por caja (del worker de stats) */
+  function boxLastSeen(boxId: string): number {
+    const dates = (stats?.sensors ?? [])
+      .filter(s => s.box_id === boxId && s.last_seen_at)
+      .map(s => new Date(s.last_seen_at!).getTime());
+    return dates.length ? Math.max(...dates) : 0;
+  }
+
+  function boxScore(boxId: string): number {
+    return Math.max(0, ...(stats?.sensors ?? [])
+      .filter(s => s.box_id === boxId)
+      .map(s => s.anomaly_score ?? 0));
+  }
+
+  /** Cajas filtradas por tipo de variable y ordenadas según cardSort */
   const sortedBoxes = $derived(() => {
-    if (!stats) return filteredBoxes;
-    return [...filteredBoxes].sort((a, b) => {
-      const scoreA = Math.max(...stats!.sensors
-        .filter(s => s.box_id === a.id)
-        .map(s => s.anomaly_score ?? 0));
-      const scoreB = Math.max(...stats!.sensors
-        .filter(s => s.box_id === b.id)
-        .map(s => s.anomaly_score ?? 0));
-      return scoreB - scoreA;
+    let base = filteredBoxes;
+    // Filtrar por tipo de variable (al menos un sensor del tipo)
+    if (cardTypeFilter) {
+      base = base.filter(b =>
+        b.sensors.some(s => s.type.toLowerCase() === cardTypeFilter)
+      );
+    }
+    return [...base].sort((a, b) => {
+      if (cardSort === 'anomalia') return boxScore(b.id) - boxScore(a.id);
+      if (cardSort === 'reciente') return boxLastSeen(b.id) - boxLastSeen(a.id);
+      if (cardSort === 'nombre-az') return a.name.localeCompare(b.name);
+      return b.name.localeCompare(a.name);
     });
   });
 
@@ -116,9 +140,44 @@
     stats?.sensors.filter(s => (s.anomaly_score ?? 0) >= 1.5).length ?? 0
   );
 
+  // ── Persistencia de prefs del dashboard ──────────────────────────────────
+  // prefsReady se activa en onMount después de restaurar — evita que los
+  // $effect persistan los valores default antes de que lleguen las prefs.
+
+  let prefsReady = $state(false);
+
+  $effect(() => {
+    if (!prefsReady) return;
+    preferences.setDash({ fromMs: fromDate.getTime(), toMs: toDate.getTime(), activePreset });
+  });
+  $effect(() => { if (prefsReady) preferences.setDash({ mode }); });
+  $effect(() => { if (prefsReady) preferences.setDash({ live }); });
+  $effect(() => { if (prefsReady) preferences.setDash({ cardSort, cardTypeFilter }); });
+
   // ── Mount ─────────────────────────────────────────────────────────────────
 
   onMount(() => {
+    // Restaurar prefs persistidas del dashboard
+    preferences.init();
+    const dash = storeGet(preferences).dash;
+    mode           = dash.mode as Mode;
+    live           = dash.live;
+    cardSort       = dash.cardSort;
+    cardTypeFilter = dash.cardTypeFilter;
+    activePreset   = dash.activePreset;
+    // Restaurar rango: si el preset no es 'custom', recalcular respecto a ahora
+    if (dash.activePreset !== 'custom') {
+      const preset = PRESETS.find(p => p.label === dash.activePreset);
+      if (preset) {
+        toDate   = new Date();
+        fromDate = new Date(toDate.getTime() - preset.hours * 3_600_000);
+      }
+    } else {
+      fromDate = new Date(dash.fromMs);
+      toDate   = new Date(dash.toMs);
+    }
+    prefsReady = true;  // habilitar persistencia en $effect
+
     // IIFE async para no bloquear el retorno de onMount (Svelte requiere () => void)
     (async () => { await Promise.all([
       fetchBoxes().then(b => {
@@ -390,6 +449,33 @@
         </div>
 
       {:else if mode === 'cards'}
+        <!-- Barra de filtros de cards -->
+        <div class="cards-filterbar">
+          <div class="cfb-group">
+            <span class="cfb-label">ordenar</span>
+            <div class="cfb-pills">
+              <button class="cfb-pill" class:active={cardSort === 'anomalia'} onclick={() => cardSort = 'anomalia'}>anomalía</button>
+              <button class="cfb-pill" class:active={cardSort === 'reciente'} onclick={() => cardSort = 'reciente'}>más reciente</button>
+              <button class="cfb-pill" class:active={cardSort === 'nombre-az'} onclick={() => cardSort = 'nombre-az'}>nombre A→Z</button>
+              <button class="cfb-pill" class:active={cardSort === 'nombre-za'} onclick={() => cardSort = 'nombre-za'}>nombre Z→A</button>
+            </div>
+          </div>
+          {#if boxes.length}
+            {@const allTypes = [...new Set(boxes.flatMap(b => b.sensors.map(s => s.type.toLowerCase())))].sort()}
+            <div class="cfb-group">
+              <span class="cfb-label">tipo de variable</span>
+              <div class="cfb-pills">
+                <button class="cfb-pill" class:active={cardTypeFilter === ''} onclick={() => cardTypeFilter = ''}>todos</button>
+                {#each allTypes as t}
+                  <button class="cfb-pill" class:active={cardTypeFilter === t} onclick={() => cardTypeFilter = t}>{t}</button>
+                {/each}
+              </div>
+            </div>
+          {/if}
+          {#if cardTypeFilter || cardSort !== 'anomalia'}
+            <button class="cfb-reset" onclick={() => { cardSort = 'anomalia'; cardTypeFilter = ''; }}>↺ limpiar</button>
+          {/if}
+        </div>
         <!-- Vista cards: una BoxCard por caja -->
         <div class="cards-grid">
           {#each sortedBoxes() as box (box.id)}
@@ -748,6 +834,35 @@
   .align-right { text-align: right; }
 
   /* Cards grid */
+  /* Cards filter bar */
+  .cards-filterbar {
+    display: flex; flex-direction: column; gap: calc(8px * var(--font-scale));
+    padding: calc(10px * var(--font-scale)) calc(2px * var(--font-scale));
+    margin-bottom: calc(6px * var(--font-scale));
+  }
+  .cfb-group { display: flex; align-items: flex-start; gap: calc(10px * var(--font-scale)); flex-wrap: wrap; }
+  .cfb-label {
+    font-size: calc(11px * var(--font-scale)); color: var(--text-muted);
+    font-family: 'DM Mono', monospace; letter-spacing: .05em;
+    min-width: 90px; padding-top: calc(4px * var(--font-scale)); flex-shrink: 0;
+  }
+  .cfb-pills { display: flex; gap: calc(4px * var(--font-scale)); flex-wrap: wrap; }
+  .cfb-pill {
+    padding: calc(3px * var(--font-scale)) calc(9px * var(--font-scale));
+    border: 0.5px solid var(--border-default); border-radius: 4px;
+    background: transparent; color: var(--text-secondary);
+    font-family: 'DM Mono', monospace; font-size: calc(11px * var(--font-scale));
+    cursor: pointer; transition: all .1s; letter-spacing: .04em;
+  }
+  .cfb-pill:hover { background: var(--interactive-hover); }
+  .cfb-pill.active { background: var(--accent-bg); color: var(--accent-text); border-color: transparent; }
+  .cfb-reset {
+    padding: calc(3px * var(--font-scale)) calc(8px * var(--font-scale));
+    border: none; background: none; cursor: pointer;
+    font-size: calc(11px * var(--font-scale)); color: var(--text-muted);
+    font-family: 'DM Mono', monospace;
+  }
+  .cfb-reset:hover { color: var(--text-secondary); }
   .cards-grid { display: flex; flex-direction: column; gap: calc(10px * var(--font-scale)); }
 
   /* Charts grid */

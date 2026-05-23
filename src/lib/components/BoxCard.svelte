@@ -1,21 +1,20 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
   import type { Box } from '$lib/api';
   import type { SensorStat, SensorCorrelation } from '$lib/api';
-  import { fetchReadings, normaliseSensorLabel, sensorColor } from '$lib/api';
+  import { normaliseSensorLabel, sensorColor } from '$lib/api';
   import { relTime, relTimeClass, anomalyClass, formatValue } from '$lib/utils';
+  import { preferences, type SensorSort } from '$lib/stores/preferences';
   import SensorChart from './SensorChart.svelte';
   import CsvDownloadMenu from './CsvDownloadMenu.svelte';
+  import DateTimePicker from './DateTimePicker.svelte';
 
   // ── Props ───────────────────────────────────────────────────────
 
   interface Props {
     box: Box;
-    /** Stats pre-calculadas del worker — ya filtradas para esta caja */
     stats: SensorStat[];
-    /** Correlaciones de esta caja (|r| >= threshold) */
     correlations: SensorCorrelation[];
-    /** Rango global de tiempo (default inicial) */
+    /** Rango global — usado como fallback si no hay prefs guardadas */
     from: Date;
     to: Date;
     live: boolean;
@@ -23,52 +22,65 @@
 
   let { box, stats, correlations, from, to, live }: Props = $props();
 
-  // ── Estado local de tiempo por caja ───────────────────────────────────────
+  // ── Estado local de tiempo por caja (persistido) ──────────────────────────
 
   const PRESETS = [
-    { label: '1h',  hours: 1  },
-    { label: '6h',  hours: 6  },
-    { label: '24h', hours: 24 },
+    { label: '1h',  hours: 1   },
+    { label: '6h',  hours: 6   },
+    { label: '24h', hours: 24  },
     { label: '7d',  hours: 168 },
     { label: '30d', hours: 720 },
   ];
 
-  let activePreset = $state('24h');
-  let localFrom    = $derived(from);
-  let localTo      = $derived(to);
+  function initTime() {
+    const saved = preferences.getBox(box.id);
+    if (saved.activePreset !== 'custom') {
+      const preset = PRESETS.find(p => p.label === saved.activePreset);
+      if (preset) {
+        const t = new Date();
+        return { preset: saved.activePreset, from: new Date(t.getTime() - preset.hours * 3_600_000), to: t };
+      }
+    }
+    return { preset: saved.activePreset, from: new Date(saved.fromMs), to: new Date(saved.toMs) };
+  }
+
+  const _init = initTime();
+  let activePreset = $state(_init.preset);
+  let localFrom    = $state(_init.from);
+  let localTo      = $state(_init.to);
 
   function applyPreset(p: { label: string; hours: number }) {
     activePreset = p.label;
     localTo      = new Date();
     localFrom    = new Date(localTo.getTime() - p.hours * 3_600_000);
+    preferences.setBox(box.id, { activePreset: p.label, fromMs: localFrom.getTime(), toMs: localTo.getTime() });
+  }
+
+  function onFromChange(d: Date) {
+    localFrom    = d;
+    activePreset = 'custom';
+    preferences.setBox(box.id, { activePreset: 'custom', fromMs: d.getTime(), toMs: localTo.getTime() });
+  }
+
+  function onToChange(d: Date) {
+    localTo      = d;
+    activePreset = 'custom';
+    preferences.setBox(box.id, { activePreset: 'custom', fromMs: localFrom.getTime(), toMs: d.getTime() });
   }
 
   // ── Lógica de sensores ─────────────────────────────────────────────────────
 
-  /**
-   * IDs de sensores que están correlacionados con OTRO sensor de la misma caja
-   * en la misma variable. Estos se agrupan al final.
-   */
   const correlatedSensorIds = $derived(() => {
     const ids = new Set<string>();
     for (const c of correlations) {
-      if (c.box_id === box.id) {
-        ids.add(c.sensor_id_a);
-        ids.add(c.sensor_id_b);
-      }
+      if (c.box_id === box.id) { ids.add(c.sensor_id_a); ids.add(c.sensor_id_b); }
     }
     return ids;
   });
 
-  /**
-   * Sensores de esta caja con sus stats, ordenados por anomaly_score DESC.
-   * Se divide en dos grupos: los que tienen comportamiento único (primero)
-   * y los que están correlacionados entre sí (al final, colapsados).
-   */
   const sensorStats = $derived(() =>
-    stats
-      .filter(s => s.box_id === box.id)
-      .sort((a, b) => (b.anomaly_score ?? -1) - (a.anomaly_score ?? -1))
+    stats.filter(s => s.box_id === box.id)
+         .sort((a, b) => (b.anomaly_score ?? -1) - (a.anomaly_score ?? -1))
   );
 
   const uniqueSensors = $derived(() =>
@@ -79,38 +91,26 @@
     sensorStats().filter(s => correlatedSensorIds().has(s.sensor_id))
   );
 
-  /**
-   * Para la sección correlacionada, agrupa por (sensor_type) y toma rango.
-   * Muestra una fila por tipo, con min–max de los valores actuales.
-   */
   const corrGroups = $derived(() => {
     const groups = new Map<string, { type: string; sensors: SensorStat[]; pearsonR: number }>();
     for (const c of correlations) {
       if (c.box_id !== box.id) continue;
       const key = c.sensor_type;
       if (!groups.has(key)) {
-        const sensorList = corrSensors().filter(
-          s => s.sensor_type.toLowerCase() === key
-        );
-        if (sensorList.length) {
-          groups.set(key, { type: key, sensors: sensorList, pearsonR: c.pearson_r });
-        }
+        const sensorList = corrSensors().filter(s => s.sensor_type.toLowerCase() === key);
+        if (sensorList.length) groups.set(key, { type: key, sensors: sensorList, pearsonR: c.pearson_r });
       }
     }
     return Array.from(groups.values());
   });
 
-  // ── Anomaly score de la caja (peor sensor) ────────────────────────────────
   const boxScore = $derived(() =>
-    Math.max(...sensorStats().map(s => s.anomaly_score ?? 0))
+    Math.max(0, ...sensorStats().map(s => s.anomaly_score ?? 0))
   );
   const boxAnomalyClass = $derived(() => anomalyClass(boxScore()));
 
-  // ── Último dato de la caja (más reciente entre todos los sensores) ─────────
   const boxLastSeen = $derived(() => {
-    const dates = sensorStats()
-      .map(s => s.last_seen_at)
-      .filter((d): d is string => d !== null);
+    const dates = sensorStats().map(s => s.last_seen_at).filter((d): d is string => d !== null);
     if (!dates.length) return null;
     return dates.reduce((a, b) => (a > b ? a : b));
   });
@@ -120,7 +120,13 @@
 
   $effect(() => {
     if (live) {
-      liveInterval = setInterval(() => { localTo = new Date(); }, 15_000);
+      liveInterval = setInterval(() => {
+        localTo = new Date();
+        if (activePreset !== 'custom') {
+          const preset = PRESETS.find(p => p.label === activePreset);
+          if (preset) localFrom = new Date(localTo.getTime() - preset.hours * 3_600_000);
+        }
+      }, 15_000);
     } else {
       if (liveInterval) clearInterval(liveInterval);
       liveInterval = null;
@@ -128,11 +134,57 @@
     return () => { if (liveInterval) clearInterval(liveInterval); };
   });
 
+  // ── Filtros de sensores (persistidos) ────────────────────────────────────
+
+  const _boxPrefs = preferences.getBox(box.id);
+  let filterOpen      = $state(false);
+  let sensorSort      = $state<SensorSort>(_boxPrefs.sensorSort);
+  let hideOlderThanH  = $state<number | null>(_boxPrefs.hideOlderThanH);
+  let hideLowVariance = $state(_boxPrefs.hideLowVariance);
+
+  $effect(() => {
+    preferences.setBox(box.id, { sensorSort, hideOlderThanH, hideLowVariance });
+  });
+
+  function isLowVariance(s: SensorStat): boolean {
+    if (!hideLowVariance) return false;
+    const range = (s.max_24h ?? 0) - (s.min_24h ?? 0);
+    const mean  = Math.abs(s.mean_24h ?? 0);
+    if (mean === 0) return range === 0;
+    return range / mean < 0.01;
+  }
+
+  function isOlderThan(s: SensorStat): boolean {
+    if (hideOlderThanH === null) return false;
+    if (!s.last_seen_at) return true;
+    return (Date.now() - new Date(s.last_seen_at).getTime()) / 3_600_000 > hideOlderThanH;
+  }
+
+  function applySort(arr: SensorStat[]): SensorStat[] {
+    return [...arr].sort((a, b) => {
+      if (sensorSort === 'score') return (b.anomaly_score ?? -1) - (a.anomaly_score ?? -1);
+      if (sensorSort === 'reciente') {
+        const ta = a.last_seen_at ? new Date(a.last_seen_at).getTime() : 0;
+        const tb = b.last_seen_at ? new Date(b.last_seen_at).getTime() : 0;
+        return tb - ta;
+      }
+      return a.sensor_type.localeCompare(b.sensor_type);
+    });
+  }
+
+  const visibleUnique = $derived(() =>
+    applySort(uniqueSensors().filter(s => !isOlderThan(s) && !isLowVariance(s)))
+  );
+
+  const hiddenCount = $derived(() =>
+    uniqueSensors().filter(s => isOlderThan(s) || isLowVariance(s)).length
+  );
+
   // ── Chart expand ─────────────────────────────────────────────────────────
-  let expandedSensorId  = $state<string | null>(null);
-  let hoveredSensorId   = $state<string | null>(null);
-  let expandedCorrType  = $state<string | null>(null);
-  let csvOpen = $state(false);
+  let expandedSensorId = $state<string | null>(null);
+  let hoveredSensorId  = $state<string | null>(null);
+  let expandedCorrType = $state<string | null>(null);
+  let csvOpen          = $state(false);
 
   function toggleExpand(sensorId: string) {
     expandedSensorId = expandedSensorId === sensorId ? null : sensorId;
@@ -159,22 +211,75 @@
       </div>
     </div>
 
-    <!-- Controles agrupados: CSV + presets de tiempo -->
+    <!-- Controles: CSV + filtro sensores + presets de tiempo -->
     <div class="card-head__controls">
       <button class="csv-btn" onclick={() => csvOpen = true} title="Descargar CSV">
         <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><path d="M2 10v2h10v-2M7 2v7M4 6l3 3 3-3"/></svg>
         CSV
       </button>
-      <div class="card-head__presets">
-        {#each PRESETS as p}
-          <button class="pbtn" class:active={activePreset === p.label}
-            onclick={() => applyPreset(p)}>
-            {p.label}
-          </button>
-        {/each}
+      <button class="filter-btn" class:active={filterOpen || hiddenCount() > 0 || sensorSort !== 'score'}
+        onclick={() => filterOpen = !filterOpen} title="Filtrar sensores">
+        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" width="12" height="12">
+          <path d="M2 3h10M4 7h6M6 11h2"/>
+        </svg>
+        {#if hiddenCount() > 0}<span class="filter-count">{hiddenCount()}</span>{/if}
+      </button>
+      <div class="card-head__time">
+        <div class="card-head__presets">
+          {#each PRESETS as p}
+            <button class="pbtn" class:active={activePreset === p.label}
+              onclick={() => applyPreset(p)}>
+              {p.label}
+            </button>
+          {/each}
+        </div>
+        <div class="card-head__pickers">
+          <DateTimePicker bind:value={localFrom} max={localTo} label="DESDE"
+            onchange={onFromChange} />
+          <span class="picker-sep">→</span>
+          <DateTimePicker bind:value={localTo}  min={localFrom} label="HASTA"
+            onchange={onToChange} />
+          {#if activePreset === 'custom'}
+            <button class="picker-reset" title="Volver a 24h"
+              onclick={() => applyPreset(PRESETS[2])}>↺</button>
+          {/if}
+        </div>
       </div>
     </div>
   </header>
+
+  <!-- Panel de filtros de sensores -->
+  {#if filterOpen}
+    <div class="sensor-filter-panel">
+      <div class="sfp-row">
+        <span class="sfp-label">orden</span>
+        <div class="sfp-pills">
+          <button class="sfp-pill" class:active={sensorSort === 'score'} onclick={() => sensorSort = 'score'}>anomalía</button>
+          <button class="sfp-pill" class:active={sensorSort === 'reciente'} onclick={() => sensorSort = 'reciente'}>más reciente</button>
+          <button class="sfp-pill" class:active={sensorSort === 'alfa'} onclick={() => sensorSort = 'alfa'}>alfabético</button>
+        </div>
+      </div>
+      <div class="sfp-row">
+        <span class="sfp-label">ocultar sin datos hace más de</span>
+        <div class="sfp-pills">
+          {#each [null, 1, 6, 24, 168] as h}
+            <button class="sfp-pill" class:active={hideOlderThanH === h} onclick={() => hideOlderThanH = h}>
+              {h === null ? 'todo' : h === 168 ? '7d' : `${h}h`}
+            </button>
+          {/each}
+        </div>
+      </div>
+      <div class="sfp-row">
+        <span class="sfp-label">ocultar sin variación (&lt;1% del rango)</span>
+        <button class="sfp-toggle" class:on={hideLowVariance} onclick={() => hideLowVariance = !hideLowVariance}>
+          {hideLowVariance ? 'activado' : 'desactivado'}
+        </button>
+      </div>
+      {#if hiddenCount() > 0}
+        <div class="sfp-hidden-note">{hiddenCount()} sensor{hiddenCount() !== 1 ? 'es' : ''} oculto{hiddenCount() !== 1 ? 's' : ''}</div>
+      {/if}
+    </div>
+  {/if}
 
   <!-- Cabecera de columnas -->
   <div class="sensor-cols-head">
@@ -186,8 +291,8 @@
     <span class="align-right">último dato</span>
   </div>
 
-  <!-- Sensores únicos (ordenados por anomaly score) ──────────────────────── -->
-  {#each uniqueSensors() as stat (stat.sensor_id)}
+  <!-- Sensores únicos (filtrados y ordenados) ─────────────────────────────── -->
+  {#each visibleUnique() as stat (stat.sensor_id)}
     {@const ac = anomalyClass(stat.anomaly_score)}
     {@const color = sensorColor(stat.sensor_type)}
 
@@ -431,7 +536,29 @@
     color: var(--text-muted);
     margin-top: 2px;
   }
-  .card-head__presets { display: flex; gap: calc(3px * var(--font-scale)); }
+  .card-head__time {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: calc(5px * var(--font-scale));
+  }
+  .card-head__presets { display: flex; gap: calc(3px * var(--font-scale)); flex-wrap: wrap; justify-content: flex-end; }
+  .card-head__pickers {
+    display: flex;
+    align-items: center;
+    gap: calc(5px * var(--font-scale));
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .picker-sep { color: var(--text-muted); font-size: calc(12px * var(--font-scale)); }
+  .picker-reset {
+    padding: calc(2px * var(--font-scale)) calc(6px * var(--font-scale));
+    border: 0.5px solid var(--border-default); border-radius: 4px;
+    background: transparent; color: var(--text-muted);
+    font-size: calc(12px * var(--font-scale)); cursor: pointer;
+    transition: all .12s;
+  }
+  .picker-reset:hover { background: var(--interactive-hover); color: var(--text-secondary); }
 
   /* Preset buttons */
   .pbtn {
@@ -603,6 +730,8 @@
     }
     .card-head__info { width: 100%; }
     .card-head__controls { width: 100%; }
+    .card-head__time { align-items: flex-start; }
+    .card-head__pickers { display: none; }   /* ocultar pickers en mobile — presets bastan */
     .card-head__title { font-size: calc(13px * var(--font-scale)); }
     .card-head__sub { font-size: calc(11px * var(--font-scale)); }
 
@@ -666,6 +795,63 @@
 
     /* ── Etiqueta de correlación ── */
     .corr-label { font-size: calc(10px * var(--font-scale)); }
+  }
+
+  /* ── Filter panel button ── */
+  .filter-btn {
+    display: flex; align-items: center; gap: 4px;
+    padding: calc(3px * var(--font-scale)) calc(8px * var(--font-scale));
+    border: 0.5px solid var(--border-default);
+    border-radius: 4px; background: transparent;
+    color: var(--text-muted);
+    font-family: 'DM Mono', monospace; font-size: calc(14px * var(--font-scale));
+    cursor: pointer; transition: all .12s;
+  }
+  .filter-btn:hover { background: var(--interactive-hover); color: var(--text-secondary); }
+  .filter-btn.active { background: var(--interactive-hover); border-color: var(--text-muted); color: var(--text-secondary); }
+  .filter-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: rgba(186,117,23,0.25); color: #e8a838;
+    font-size: calc(10px * var(--font-scale)); font-weight: 600; line-height: 1;
+  }
+
+  /* ── Sensor filter panel ── */
+  .sensor-filter-panel {
+    display: flex; flex-direction: column; gap: calc(8px * var(--font-scale));
+    padding: calc(10px * var(--font-scale)) calc(14px * var(--font-scale));
+    background: var(--bg-elevated);
+    border-bottom: 0.5px solid var(--border-subtle);
+  }
+  .sfp-row {
+    display: flex; align-items: center; gap: calc(10px * var(--font-scale)); flex-wrap: wrap;
+  }
+  .sfp-label {
+    font-size: calc(11px * var(--font-scale)); color: var(--text-muted);
+    font-family: 'DM Mono', monospace; letter-spacing: .05em; min-width: 120px;
+    flex-shrink: 0;
+  }
+  .sfp-pills { display: flex; gap: calc(4px * var(--font-scale)); flex-wrap: wrap; }
+  .sfp-pill {
+    padding: calc(2px * var(--font-scale)) calc(8px * var(--font-scale));
+    border: 0.5px solid var(--border-default); border-radius: 4px;
+    background: transparent; color: var(--text-secondary);
+    font-family: 'DM Mono', monospace; font-size: calc(11px * var(--font-scale));
+    cursor: pointer; transition: all .1s;
+  }
+  .sfp-pill:hover { background: var(--interactive-hover); }
+  .sfp-pill.active { background: var(--accent-bg); color: var(--accent-text); border-color: transparent; }
+  .sfp-toggle {
+    padding: calc(2px * var(--font-scale)) calc(8px * var(--font-scale));
+    border: 0.5px solid var(--border-default); border-radius: 4px;
+    background: transparent; color: var(--text-muted);
+    font-family: 'DM Mono', monospace; font-size: calc(11px * var(--font-scale));
+    cursor: pointer; transition: all .1s;
+  }
+  .sfp-toggle.on { background: var(--accent-bg); color: var(--accent-text); border-color: transparent; }
+  .sfp-hidden-note {
+    font-size: calc(10px * var(--font-scale)); color: #e8a838;
+    font-family: 'DM Mono', monospace; letter-spacing: .04em;
   }
 
 </style>
