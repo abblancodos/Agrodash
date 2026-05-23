@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            created_at        AS \"bucket!: chrono::NaiveDateTime\",\n            value::float8     AS \"value!: f64\"\n        FROM readings\n        WHERE sensor_id = $1\n        ORDER BY created_at DESC\n        LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "bucket!: chrono::NaiveDateTime",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 1,
+        "name": "value!: f64",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "178bf83e5963e374e0bf429504b8a45573cf3fc5159cf8fcb65f8ea18736c036"
+}
