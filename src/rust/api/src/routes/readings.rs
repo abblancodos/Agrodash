@@ -1,16 +1,22 @@
 // src/routes/readings.rs
 //
-// TIMEZONE — regla única:
-//   • created_at en la DB es timestamptz. Los datos entran en hora CR pero
-//     Postgres los almacena correctamente como UTC internamente.
-//   • El frontend manda from/to como ISO-8601 UTC ("...Z"). Axum los parsea
-//     como DateTime<Utc> — son valores UTC reales.
-//   • Al comparar con created_at se usa $2::timestamptz directamente, sin
-//     ningún AT TIME ZONE, porque ya son UTC.
-//   • Los buckets se devuelven AT TIME ZONE 'UTC' → NaiveDateTime representando
-//     hora UTC. El frontend agrega 'Z' y convierte a la zona local del usuario.
-//   • NO agregar AT TIME ZONE 'America/Costa_Rica' a los parámetros de filtro:
-//     eso desplazaría el filtro 6h al futuro (bug "lecturas de las próximas 6h").
+// TIMEZONE — regla definitiva (auditada 2026-05-22):
+//
+//   La columna created_at es `timestamp WITHOUT time zone` en hora CR.
+//   Los datos entran vía INSERT con el timestamp CR naive (ya sea via NOW()
+//   con sesión en America/Costa_Rica, o enviado explícitamente en hora CR).
+//
+//   Para convertir correctamente a UTC:
+//     created_at AT TIME ZONE 'America/Costa_Rica' AT TIME ZONE 'UTC'
+//   Primer AT TIME ZONE: "este naive está en CR" → produce timestamptz CR.
+//   Segundo AT TIME ZONE: convierte ese timestamptz a UTC naive.
+//   El frontend agrega 'Z' al string recibido → lo trata como UTC → correcto.
+//
+//   Para los filtros WHERE (from/to):
+//   El frontend manda ISO-8601 UTC real ("...Z"). Axum los parsea como
+//   DateTime<Utc>. Se comparan con $2::timestamptz — Postgres usa la sesión
+//   (America/Costa_Rica) para interpretar el naive created_at al comparar,
+//   lo que es equivalente a comparar en UTC directamente.
 #![allow(clippy::panic)]
 
 use axum::{
@@ -41,7 +47,7 @@ pub async fn get_readings(
                 created_at::timestamptz - (
                     EXTRACT(EPOCH FROM created_at)::bigint % $4
                 ) * INTERVAL '1 second'
-            ) AT TIME ZONE 'UTC'     AS "bucket!: chrono::NaiveDateTime",
+            ) AT TIME ZONE 'America/Costa_Rica' AT TIME ZONE 'UTC' AS "bucket!: chrono::NaiveDateTime",
             AVG(value)::float8       AS "value!: f64"
         FROM readings
         WHERE
@@ -78,8 +84,8 @@ pub async fn get_time_range(
     let row = sqlx::query!(
         r#"
         SELECT
-            MIN(created_at) AT TIME ZONE 'UTC' AS "first!: chrono::NaiveDateTime",
-            MAX(created_at) AT TIME ZONE 'UTC' AS "last!:  chrono::NaiveDateTime"
+            MIN(created_at) AT TIME ZONE 'America/Costa_Rica' AT TIME ZONE 'UTC' AS "first!: chrono::NaiveDateTime",
+            MAX(created_at) AT TIME ZONE 'America/Costa_Rica' AT TIME ZONE 'UTC' AS "last!:  chrono::NaiveDateTime"
         FROM readings
         "#
     )
@@ -101,7 +107,7 @@ pub async fn get_last_reading(
     let row = sqlx::query!(
         r#"
         SELECT
-            created_at AT TIME ZONE 'UTC' AS "bucket!: chrono::NaiveDateTime",
+            created_at AT TIME ZONE 'America/Costa_Rica' AT TIME ZONE 'UTC' AS "bucket!: chrono::NaiveDateTime",
             value::float8                 AS "value!: f64"
         FROM readings
         WHERE sensor_id = $1

@@ -31,8 +31,12 @@
   ];
   let activePreset = $state<string|null>('24h');
 
+  // fmt: convierte un Date a string para <input type="datetime-local">.
+  // El input ya muestra/devuelve hora local — NO restar offset.
   function fmt(d: Date) {
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0,16);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}` +
+           `T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
   let toDate   = $state(fmt(new Date()));
   let fromDate = $state(fmt(new Date(Date.now() - 24*3600000)));
@@ -104,8 +108,9 @@
   // Density warning — show when the resulting resolution is very sparse
   const densityWarning = $derived(() => {
     if (mode === 'stats') return null;
-    const from  = new Date(fromDate + ':00Z');
-    const to    = new Date(toDate   + ':00Z');
+    // Sin 'Z': el string es hora local del browser → Date lo convierte a UTC correcto.
+    const from  = new Date(fromDate + ':00');
+    const to    = new Date(toDate   + ':00');
     const hours = Math.max(0, (to.getTime() - from.getTime()) / 3_600_000);
     if (hours === 0) return null;
     const minPerPt = (hours * 60) / points;
@@ -117,7 +122,7 @@
   });
 
   const estRows = $derived(() => {
-    const h = Math.max(0,(new Date(toDate+':00Z').getTime()-new Date(fromDate+':00Z').getTime())/3600000);
+    const h = Math.max(0,(new Date(toDate+':00').getTime()-new Date(fromDate+':00').getTime())/3600000);
     return Math.min(points, Math.round(h*12)).toLocaleString('es-CR');
   });
 
@@ -138,7 +143,8 @@
   async function download() {
     if(!activeCols.length) return;
     error='';
-    const from=new Date(fromDate+':00Z'), to=new Date(toDate+':00Z');
+    // Sin 'Z': hora local → UTC correcto vía browser.
+    const from=new Date(fromDate+':00'), to=new Date(toDate+':00');
     downloading.start(`${box.name} — preparando...`);
     try {
       if(mode==='timeseries') {
