@@ -159,6 +159,14 @@ export async function fetchBoxes(): Promise<Box[]> {
   return res.json();
 }
 
+// fmtCR: Date → string CR naive "YYYY-MM-DDTHH:MM:SS" sin Z.
+// La API recibe y compara directo con created_at CR naive.
+function fmtCR(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}` +
+         `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 export async function fetchReadings(
   sensorId: string,
   _sensorType: string,
@@ -166,11 +174,10 @@ export async function fetchReadings(
   to: Date,
   points = 300,
 ): Promise<Reading[]> {
-  const fmt = (d: Date) => d.toISOString().slice(0, 19) + 'Z';
   const params = new URLSearchParams({
     sensor_id: sensorId,
-    from: fmt(from),
-    to:   fmt(to),
+    from: fmtCR(from),
+    to:   fmtCR(to),
     points: String(points),
   });
   const res = await fetch(`${API_BASE}/api/v1/readings?${params}`);
@@ -193,7 +200,8 @@ export async function fetchTimeRange(): Promise<TimeRange> {
   const res = await fetch(`${API_BASE}/api/v1/readings/time-range`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
-  return { first: new Date(data.first + 'Z'), last: new Date(data.last + 'Z') };
+  // Los strings vienen en CR naive sin Z — parsear como hora local (sin Z).
+  return { first: new Date(data.first), last: new Date(data.last) };
 }
 
 export async function fetchLastReading(sensorId: string): Promise<LastReading | null> {

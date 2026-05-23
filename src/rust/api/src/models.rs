@@ -118,8 +118,9 @@ pub struct StatsResponse {
 #[derive(Debug, Deserialize)]
 pub struct ReadingsQuery {
     pub sensor_id: Uuid,
-    pub from: DateTime<Utc>,
-    pub to: DateTime<Utc>,
+    // CR naive — el frontend manda strings sin 'Z', se comparan directo con created_at
+    pub from: NaiveDateTime,
+    pub to: NaiveDateTime,
     #[serde(default = "default_points")]
     pub points: i64,
 }

@@ -1,23 +1,20 @@
 // src/routes/readings.rs
 //
-// TIMEZONE — regla definitiva (auditada 2026-05-22):
+// TIMEZONE — política definitiva: CR-only, sin conversiones.
 //
-//   La columna created_at es `timestamp WITHOUT time zone` en hora CR.
-//   Los datos entran vía INSERT con el timestamp CR naive (ya sea via NOW()
-//   con sesión en America/Costa_Rica, o enviado explícitamente en hora CR).
+//   created_at es `timestamp WITHOUT time zone` almacenado en hora CR
+//   (America/Costa_Rica, UTC-6). Todos los orígenes de datos (CR300,
+//   Feather/gateway, Zentra) insertan en hora CR.
 //
-//   Para convertir correctamente a UTC:
-//     created_at AT TIME ZONE 'America/Costa_Rica' AT TIME ZONE 'UTC'
-//   Primer AT TIME ZONE: "este naive está en CR" → produce timestamptz CR.
-//   Segundo AT TIME ZONE: convierte ese timestamptz a UTC naive.
-//   El frontend agrega 'Z' al string recibido → lo trata como UTC → correcto.
+//   La sesión de Postgres se fija en 'America/Costa_Rica' en after_connect
+//   (ver main.rs) — now(), comparaciones y casts implícitos son consistentes.
 //
-//   Para los filtros WHERE (from/to):
-//   El frontend manda ISO-8601 UTC real ("...Z"). Axum los parsea como
-//   DateTime<Utc>. La sesión de Postgres es CR (UTC-6), así que comparar
-//   con ::timestamptz hace que Postgres interprete el parámetro en CR — MALO.
-//   El fix: $2::timestamp AT TIME ZONE 'UTC' — fuerza la interpretación UTC
-//   del parámetro antes de comparar con el naive created_at.
+//   Reglas:
+//   • Los buckets se devuelven como NaiveDateTime CR directo — sin AT TIME ZONE.
+//   • El frontend NO agrega 'Z' a los buckets — los trata como hora local CR.
+//   • from/to llegan como NaiveDateTime CR (string "YYYY-MM-DDTHH:MM:SS" sin Z).
+//   • La comparación WHERE es directa naive vs naive — sin casts de timezone.
+//   • No hay conversiones UTC en ningún lado de este archivo.
 #![allow(clippy::panic)]
 
 use axum::{
@@ -39,28 +36,26 @@ pub async fn get_readings(
     let range_secs = (params.to - params.from).num_seconds().max(1);
     let bucket_secs = (range_secs / params.points).max(1);
 
-    // from/to son DateTime<Utc> reales — comparar directo con created_at (timestamptz).
-    // NO usar AT TIME ZONE en los parámetros: eso los desplazaría 6h incorrectamente.
     let rows = sqlx::query!(
         r#"
         SELECT
             date_trunc('second',
-                created_at::timestamptz - (
+                created_at - (
                     EXTRACT(EPOCH FROM created_at)::bigint % $4
                 ) * INTERVAL '1 second'
-            ) AT TIME ZONE 'America/Costa_Rica' AT TIME ZONE 'UTC' AS "bucket!: chrono::NaiveDateTime",
+            )                        AS "bucket!: chrono::NaiveDateTime",
             AVG(value)::float8       AS "value!: f64"
         FROM readings
         WHERE
             sensor_id  = $1
-            AND created_at >= $2::timestamp AT TIME ZONE 'UTC'
-            AND created_at <= $3::timestamp AT TIME ZONE 'UTC'
+            AND created_at >= $2
+            AND created_at <= $3
         GROUP BY 1
         ORDER BY 1
         "#,
         params.sensor_id,
-        params.from as _,
-        params.to as _,
+        params.from,
+        params.to,
         bucket_secs,
     )
     .fetch_all(&pool)
@@ -85,8 +80,8 @@ pub async fn get_time_range(
     let row = sqlx::query!(
         r#"
         SELECT
-            MIN(created_at) AT TIME ZONE 'America/Costa_Rica' AT TIME ZONE 'UTC' AS "first!: chrono::NaiveDateTime",
-            MAX(created_at) AT TIME ZONE 'America/Costa_Rica' AT TIME ZONE 'UTC' AS "last!:  chrono::NaiveDateTime"
+            MIN(created_at) AS "first!: chrono::NaiveDateTime",
+            MAX(created_at) AS "last!:  chrono::NaiveDateTime"
         FROM readings
         "#
     )
@@ -108,8 +103,8 @@ pub async fn get_last_reading(
     let row = sqlx::query!(
         r#"
         SELECT
-            created_at AT TIME ZONE 'America/Costa_Rica' AT TIME ZONE 'UTC' AS "bucket!: chrono::NaiveDateTime",
-            value::float8                 AS "value!: f64"
+            created_at        AS "bucket!: chrono::NaiveDateTime",
+            value::float8     AS "value!: f64"
         FROM readings
         WHERE sensor_id = $1
         ORDER BY created_at DESC

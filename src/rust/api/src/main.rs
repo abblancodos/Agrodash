@@ -62,6 +62,12 @@ async fn main() {
         .max_connections(20)
         .after_connect(|conn, _| {
             Box::pin(async move {
+                // TIMEZONE — todos los datos son Costa Rica naive.
+                // Fijar la sesión en CR hace que now(), comparaciones y
+                // cualquier cast implícito sean consistentes con created_at.
+                sqlx::query("SET TIME ZONE 'America/Costa_Rica'")
+                    .execute(conn)
+                    .await?;
                 sqlx::query("SET application_name = 'agrodash-api'")
                     .execute(conn)
                     .await?;

@@ -40,7 +40,8 @@
 
   /** Formatea un timestamp según el rango total para el eje X */
   function formatLabel(isoStr: string, fromDate: Date, toDate: Date): string {
-    const d = new Date(isoStr.endsWith('Z') ? isoStr : isoStr + 'Z');
+    // bucket es CR naive — parsear sin Z para que el browser lo trate como local
+    const d = new Date(isoStr);
     const hours = (toDate.getTime() - fromDate.getTime()) / 3_600_000;
     if (hours <= 24) {
       return d.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -151,7 +152,7 @@
           const last = await fetchLastReading(sensorId);
           if (last) {
             lastValue = last.value;
-            lastTimestamp = new Date(last.bucket + 'Z').toLocaleString('es-CR', { timeZone: userTz,
+            lastTimestamp = new Date(last.bucket).toLocaleString('es-CR', { timeZone: userTz,
               day: '2-digit', month: '2-digit', year: '2-digit',
               hour: '2-digit', minute: '2-digit',
             });

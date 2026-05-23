@@ -6,21 +6,12 @@
   let { box, onclose }: Props = $props();
 
   // ── Timezone ──────────────────────────────────────────────────────────────
-  const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const tzOffset = (() => {
-    const off = -new Date().getTimezoneOffset();
-    const h   = Math.floor(Math.abs(off) / 60);
-    const m   = Math.abs(off) % 60;
-    const s   = off >= 0 ? '+' : '-';
-    return m ? `UTC${s}${h}:${String(m).padStart(2,'0')}` : `UTC${s}${h}`;
-  })();
+  const userTz = 'America/Costa_Rica'; // sistema CR-only
+  // Sistema CR-only — timezone fijo independiente del browser
+  const tzOffset = 'UTC-6';
 
-  function bucketToLocal(b: string) {
-    return new Date(b + 'Z').toLocaleString('sv-SE', {
-      timeZone: userTz, year:'numeric', month:'2-digit', day:'2-digit',
-      hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false,
-    }).replace('T',' ');
-  }
+  // bucket ya viene en CR naive ("YYYY-MM-DD HH:MM:SS") — usar directo.
+  function bucketToLocal(b: string): string { return b.replace('T', ' '); }
 
   // ── Time range ────────────────────────────────────────────────────────────
   const PRESETS = [
