@@ -14,9 +14,10 @@
 //
 //   Para los filtros WHERE (from/to):
 //   El frontend manda ISO-8601 UTC real ("...Z"). Axum los parsea como
-//   DateTime<Utc>. Se comparan con $2::timestamptz — Postgres usa la sesión
-//   (America/Costa_Rica) para interpretar el naive created_at al comparar,
-//   lo que es equivalente a comparar en UTC directamente.
+//   DateTime<Utc>. La sesión de Postgres es CR (UTC-6), así que comparar
+//   con ::timestamptz hace que Postgres interprete el parámetro en CR — MALO.
+//   El fix: $2::timestamp AT TIME ZONE 'UTC' — fuerza la interpretación UTC
+//   del parámetro antes de comparar con el naive created_at.
 #![allow(clippy::panic)]
 
 use axum::{
@@ -52,8 +53,8 @@ pub async fn get_readings(
         FROM readings
         WHERE
             sensor_id  = $1
-            AND created_at >= $2::timestamptz
-            AND created_at <= $3::timestamptz
+            AND created_at >= $2::timestamp AT TIME ZONE 'UTC'
+            AND created_at <= $3::timestamp AT TIME ZONE 'UTC'
         GROUP BY 1
         ORDER BY 1
         "#,
