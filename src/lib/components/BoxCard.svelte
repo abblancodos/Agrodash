@@ -14,7 +14,7 @@
     box: Box;
     stats: SensorStat[];
     correlations: SensorCorrelation[];
-    /** Rango global — usado como fallback si no hay prefs guardadas */
+    /** Rango global — usado como fallback si no hay prefs guardadas.... */
     from: Date;
     to: Date;
     live: boolean;
