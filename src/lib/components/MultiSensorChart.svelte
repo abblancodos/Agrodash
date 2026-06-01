@@ -13,8 +13,12 @@
     sensorType?: string;
     boxName?: string;
     onRangeChange?: (from: Date, to: Date) => void;
+    /** Puntos solicitados al API (resolución). 0 = sin límite (raw). Default 300. */
+    points?: number;
+    /** Tensión de la curva Chart.js: 0 = líneas rectas, 0.4 = suave. Default 0. */
+    tension?: number;
   }
-  let { sensors, from, to, live = false, onRangeChange }: Props = $props();
+  let { sensors, from, to, live = false, onRangeChange, points = 300, tension = 0 }: Props = $props();
 
   let canvas = $state<HTMLCanvasElement | null>(null);
   let chart = $state<any>(null);
@@ -44,7 +48,7 @@
     loading = true; error = '';
     try {
       datasets = await Promise.all(
-        sensors.map(async s => ({ sensor: s, readings: await fetchReadings(s.id, s.type, from, to) }))
+        sensors.map(async s => ({ sensor: s, readings: await fetchReadings(s.id, s.type, from, to, points || 9999) }))
       );
       if (rafId) cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
@@ -116,7 +120,7 @@ const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
         pointRadius: n > 500 ? 0 : n > 100 ? 1.5 : 3,
         pointHoverRadius: 5,
         pointHitRadius: 8,
-        tension: 0,
+        tension,
         spanGaps: false,
         hidden: !visible[sensor.id],
         yAxisID: 'y',
@@ -278,6 +282,10 @@ const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   let liveInterval: ReturnType<typeof setInterval> | null = null;
   $effect(() => {
+    // Tracking `points` y `tension` aquí dispara un reload cuando cambian.
+    void points; void tension;
+    // Destruir el chart cuando cambia tension para forzar re-render con la nueva curva
+    if (chart) { chart.destroy(); chart = null; }
     loadAll();
     if (live) liveInterval = setInterval(loadAll, 15_000);
     return () => {

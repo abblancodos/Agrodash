@@ -19,12 +19,16 @@
   }
 
   interface ChartCard {
-    id:     string;
-    title:  string;
-    preset: string; // '1h' | '6h' | '24h' | '7d' | '30d' | 'custom'
-    fromMs: number;
-    toMs:   number;
-    series: ChartSeries[];
+    id:      string;
+    title:   string;
+    preset:  string; // '1h' | '6h' | '24h' | '7d' | '30d' | 'custom'
+    fromMs:  number;
+    toMs:    number;
+    series:  ChartSeries[];
+    /** Puntos solicitados al API. 0 = sin límite (raw). Default 0. */
+    points:  number;
+    /** Tensión de curva: 0 = recta (raw feel), 0.4 = suave. Default 0. */
+    tension: number;
   }
 
   // ── Constants ─────────────────────────────────────────────────────────────
@@ -53,9 +57,15 @@
       const parsed: ChartCard[] = JSON.parse(raw);
       const now = Date.now();
       cards = parsed.map(c => {
-        if (c.preset === 'custom') return c;
-        const p = PRESETS.find(p => p.label === c.preset);
-        return p ? { ...c, toMs: now, fromMs: now - p.hours * 3_600_000 } : c;
+        // backward-compat: cards guardadas antes de agregar points/tension
+        const base: ChartCard = {
+          points:  0,
+          tension: 0,
+          ...c,
+        };
+        if (base.preset === 'custom') return base;
+        const p = PRESETS.find(p => p.label === base.preset);
+        return p ? { ...base, toMs: now, fromMs: now - p.hours * 3_600_000 } : base;
       });
     } catch { /* silently ignore malformed storage */ }
   }
@@ -68,12 +78,14 @@
   function addCard() {
     const now = Date.now();
     const card: ChartCard = {
-      id:     Math.random().toString(36).slice(2, 10),
-      title:  `Gráfico ${cards.length + 1}`,
-      preset: '24h',
-      fromMs: now - 24 * 3_600_000,
-      toMs:   now,
-      series: [],
+      id:      Math.random().toString(36).slice(2, 10),
+      title:   `Gráfico ${cards.length + 1}`,
+      preset:  '24h',
+      fromMs:  now - 24 * 3_600_000,
+      toMs:    now,
+      series:  [],
+      points:  0,      // raw por defecto
+      tension: 0,      // líneas rectas por defecto
     };
     cards = [...cards, card];
     configOpenId = card.id;
@@ -354,6 +366,66 @@
               </div>
 
             </div>
+
+            <!-- Section C: Datos ── -->
+            <div class="cc__cfg-section">
+              <span class="cc__cfg-lbl">DATOS</span>
+              <div class="cc__cfg-row cc__cfg-row--data">
+
+                <!-- Puntos (resolución) -->
+                <div class="cc__data-group">
+                  <span class="cc__data-lbl">puntos</span>
+                  <div class="cc__presets">
+                    {#each [
+                      { label: '300',  val: 300  },
+                      { label: '1k',   val: 1000 },
+                      { label: '3k',   val: 3000 },
+                      { label: 'raw',  val: 0    },
+                    ] as opt}
+                      <button class="cc__pill"
+                        class:active={card.points === opt.val}
+                        title={opt.val === 0 ? 'Sin agregación — todos los puntos del rango' : `${opt.val} puntos (time-bucket)`}
+                        onclick={() => patch(card.id, { points: opt.val })}>
+                        {opt.label}
+                      </button>
+                    {/each}
+                    <!-- Campo numérico libre -->
+                    <input
+                      class="cc__pts-input"
+                      type="number" min="10" max="9999" step="50"
+                      value={card.points || ''}
+                      placeholder="…"
+                      title="Número de puntos exacto"
+                      oninput={(e) => {
+                        const v = parseInt((e.target as HTMLInputElement).value);
+                        if (!isNaN(v) && v >= 0) patch(card.id, { points: v });
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <span class="cc__vsep"></span>
+
+                <!-- Interpolación (tensión de curva) -->
+                <div class="cc__data-group">
+                  <span class="cc__data-lbl">interpolación</span>
+                  <div class="cc__presets">
+                    {#each [
+                      { label: 'recta',  val: 0,   title: 'Sin interpolación — segmentos lineales' },
+                      { label: 'suave',  val: 0.35, title: 'Spline cúbico suave' },
+                    ] as opt}
+                      <button class="cc__pill"
+                        class:active={card.tension === opt.val}
+                        title={opt.title}
+                        onclick={() => patch(card.id, { tension: opt.val })}>
+                        {opt.label}
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+
+              </div>
+            </div>
           </div>
         {/if}
 
@@ -376,6 +448,8 @@
               from={new Date(card.fromMs)}
               to={new Date(card.toMs)}
               {live}
+              points={card.points}
+              tension={card.tension}
             />
           {/if}
         </div>
@@ -878,6 +952,46 @@
     transition: all .12s;
   }
   .cc__chart-empty button:hover { background: var(--interactive-hover); color: var(--text-primary); }
+
+  /* ── Sección DATOS (puntos + interpolación) ────────────────────────────── */
+  .cc__cfg-row--data {
+    display: flex;
+    align-items: flex-start;
+    gap: calc(10px * var(--font-scale));
+    flex-wrap: wrap;
+  }
+
+  .cc__data-group {
+    display: flex;
+    flex-direction: column;
+    gap: calc(5px * var(--font-scale));
+  }
+
+  .cc__data-lbl {
+    font-family: 'DM Mono', monospace;
+    font-size: calc(9px * var(--font-scale));
+    letter-spacing: .08em;
+    color: var(--text-muted);
+  }
+
+  /* Input numérico libre para puntos: ancho fijo, misma altura que cc__pill */
+  .cc__pts-input {
+    height: 24px;
+    width: calc(56px * var(--font-scale));
+    padding: 0 calc(6px * var(--font-scale));
+    border: 0.5px solid var(--border-default);
+    border-radius: 4px;
+    background: var(--bg-inset, var(--bg-elevated));
+    color: var(--text-secondary);
+    font-family: 'DM Mono', monospace;
+    font-size: calc(10px * var(--font-scale));
+    outline: none;
+    -moz-appearance: textfield;
+    transition: border-color .12s;
+  }
+  .cc__pts-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+  .cc__pts-input:focus { border-color: var(--interactive-focus, var(--border-strong)); }
+  .cc__pts-input::placeholder { color: var(--text-muted); }
 
   /* ── Mobile ──────────────────────────────────────────────────────────── */
   @media (max-width: 640px) {
