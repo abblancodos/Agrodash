@@ -6,6 +6,7 @@
   import TypeSelector from '$lib/components/TypeSelector.svelte';
   import DateTimePicker from '$lib/components/DateTimePicker.svelte';
   import MultiSensorChart from '$lib/components/MultiSensorChart.svelte';
+  import CustomChartsView from '$lib/components/CustomChartsView.svelte';
   import HelpPanel from '$lib/components/HelpPanel.svelte';
   import { preferences } from '$lib/stores/preferences';
   import type { CardSort } from '$lib/stores/preferences';
@@ -263,8 +264,8 @@
       }</span>
       <div class="vsep"></div>
 
-      {#if mode !== 'cards'}
-        <!-- Controles globales de tiempo (en cards cada caja tiene los suyos) -->
+      {#if mode !== 'cards' && mode !== 'graficas'}
+        <!-- Controles globales de tiempo (en cards/graficas cada elemento tiene los suyos) -->
         <div class="presets">
           {#each PRESETS as p}
             <button class="pbtn" class:active={activePreset === p.label}
@@ -485,23 +486,8 @@
         </div>
 
       {:else if mode === 'graficas'}
-        <!-- Vista gráficas: MultiSensorChart por tipo de variable -->
-        <div class="charts-grid">
-          {#each filteredBoxes as box (box.id)}
-            {#each [...new Set(box.sensors.map(s => s.type))] as type}
-              {#if activeTypes.has(type.toLowerCase())}
-                <MultiSensorChart
-                  sensors={box.sensors.filter(s => s.type === type)}
-                  sensorType={type}
-                  boxName={box.name}
-                  from={fromDate}
-                  to={toDate}
-                  {live}
-                />
-              {/if}
-            {/each}
-          {/each}
-        </div>
+        <!-- Vista gráficas custom: cards independientes con selector de series -->
+        <CustomChartsView {boxes} {live} />
 
       {:else if mode === 'analisis'}
         <!-- Vista análisis: tabla de stats raw con pruning -->

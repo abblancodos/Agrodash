@@ -181,13 +181,21 @@
   );
 
   // ── Chart expand ─────────────────────────────────────────────────────────
-  let expandedSensorId = $state<string | null>(null);
-  let hoveredSensorId  = $state<string | null>(null);
-  let expandedCorrType = $state<string | null>(null);
-  let csvOpen          = $state(false);
+  let expandedSensorIds = $state<Set<string>>(new Set());
+  let hoveredSensorId   = $state<string | null>(null);
+  let expandedCorrTypes = $state<Set<string>>(new Set());
+  let csvOpen           = $state(false);
 
   function toggleExpand(sensorId: string) {
-    expandedSensorId = expandedSensorId === sensorId ? null : sensorId;
+    const next = new Set(expandedSensorIds);
+    next.has(sensorId) ? next.delete(sensorId) : next.add(sensorId);
+    expandedSensorIds = next;
+  }
+
+  function toggleCorrType(type: string) {
+    const next = new Set(expandedCorrTypes);
+    next.has(type) ? next.delete(type) : next.add(type);
+    expandedCorrTypes = next;
   }
 </script>
 
@@ -309,7 +317,7 @@
 
     <div class="sensor-row" class:is-warn={ac === 'warn'} class:is-alert={ac === 'alert'}
          class:is-hovered={hoveredSensorId === stat.sensor_id}
-         class:is-expanded={expandedSensorId === stat.sensor_id}
+         class:is-expanded={expandedSensorIds.has(stat.sensor_id)}
          role="button" tabindex="0"
          onmouseenter={() => hoveredSensorId = stat.sensor_id}
          onmouseleave={() => hoveredSensorId = null}
@@ -343,7 +351,7 @@
       </span>
       <!-- Hint de expandir — visible en hover desktop -->
       <div class="s-expand-hint" aria-hidden="true">
-        {#if expandedSensorId === stat.sensor_id}
+        {#if expandedSensorIds.has(stat.sensor_id)}
           <span>▲ cerrar</span>
         {:else}
           <span>▼ expandir gráfico</span>
@@ -372,7 +380,7 @@
     </div>
 
     <!-- Gráfica expandida al hacer click -->
-    {#if expandedSensorId === stat.sensor_id}
+    {#if expandedSensorIds.has(stat.sensor_id)}
       <div class="sensor-expanded">
         <SensorChart
           sensorId={stat.sensor_id}
@@ -403,12 +411,12 @@
         .reduce((a, b) => (a > b ? a : b), '')}
       {@const color = sensorColor(group.type)}
       {@const isPerfect = group.pearsonR >= 0.999}
-      {@const corrExpanded = expandedCorrType === group.type}
+      {@const corrExpanded = expandedCorrTypes.has(group.type)}
 
       <div class="sensor-row corr-group"
            role="button" tabindex="0"
-           onclick={() => expandedCorrType = corrExpanded ? null : group.type}
-           onkeydown={(e) => e.key === 'Enter' && (expandedCorrType = corrExpanded ? null : group.type)}>
+           onclick={() => toggleCorrType(group.type)}
+           onkeydown={(e) => e.key === 'Enter' && toggleCorrType(group.type)}>
         <span class="s-num" style="color: var(--text-muted)">
           <span class="ct-chevron" class:open={corrExpanded}>▶</span>
         </span>
@@ -460,11 +468,11 @@
         {#each group.sensors as s (s.sensor_id)}
             <div class="sensor-row corr-sub-row"
                  role="button" tabindex="0"
-                 class:is-expanded={expandedSensorId === s.sensor_id}
+                 class:is-expanded={expandedSensorIds.has(s.sensor_id)}
                  onmouseenter={() => hoveredSensorId = s.sensor_id}
                  onmouseleave={() => hoveredSensorId = null}
-                 onclick={() => expandedSensorId = expandedSensorId === s.sensor_id ? null : s.sensor_id}
-                 onkeydown={(e) => e.key === 'Enter' && (expandedSensorId = expandedSensorId === s.sensor_id ? null : s.sensor_id)}>
+                 onclick={() => toggleExpand(s.sensor_id)}
+                 onkeydown={(e) => e.key === 'Enter' && toggleExpand(s.sensor_id)}>
               <span class="s-num" style="color:var(--text-muted)">#{s.sensor_number}</span>
               <span class="s-type">{normaliseSensorLabel(group.type)}</span>
               <div class="s-spark">
@@ -492,7 +500,7 @@
                 </span>
               </div>
             </div>
-            {#if expandedSensorId === s.sensor_id}
+            {#if expandedSensorIds.has(s.sensor_id)}
               <div class="sensor-expanded">
                 <SensorChart sensorId={s.sensor_id} sensorType={group.type}
                   from={localFrom} to={localTo} points={300} spark={false} {color} />
