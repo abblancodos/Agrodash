@@ -59,9 +59,9 @@
       cards = parsed.map(c => {
         // backward-compat: cards guardadas antes de agregar points/tension
         const base: ChartCard = {
-          points:  0,
-          tension: 0,
           ...c,
+          points:  c.points  ?? 0,
+          tension: c.tension ?? 0,
         };
         if (base.preset === 'custom') return base;
         const p = PRESETS.find(p => p.label === base.preset);
@@ -986,6 +986,7 @@
     font-family: 'DM Mono', monospace;
     font-size: calc(10px * var(--font-scale));
     outline: none;
+    appearance: textfield;
     -moz-appearance: textfield;
     transition: border-color .12s;
   }
