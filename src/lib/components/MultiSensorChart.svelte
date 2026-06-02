@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import Chart from 'chart.js/auto';
   import { fetchReadings, sensorColor, normaliseSensorLabel, type Sensor, type Reading } from '$lib/api';
 
@@ -281,17 +281,28 @@ const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   });
 
   let liveInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Efecto principal: recarga datos cuando cambian sensores, rango, puntos o live.
+  // `void points` lo trackea; `tension` NO está aquí (no requiere reload de datos).
   $effect(() => {
-    // Tracking `points` y `tension` aquí dispara un reload cuando cambian.
-    void points; void tension;
-    // Destruir el chart cuando cambia tension para forzar re-render con la nueva curva
-    if (chart) { chart.destroy(); chart = null; }
+    void points;
     loadAll();
     if (live) liveInterval = setInterval(loadAll, 15_000);
     return () => {
       if (liveInterval) clearInterval(liveInterval);
       if (rafId) cancelAnimationFrame(rafId);
     };
+  });
+
+  // Efecto secundario: actualiza tension en los datasets en-place, sin reload.
+  // `untrack` evita que leer `chart` ($state) cree un loop reactivo.
+  $effect(() => {
+    void tension;
+    untrack(() => {
+      if (!chart) return;
+      chart.data.datasets.forEach((ds: any) => { ds.tension = tension; });
+      chart.update('none');
+    });
   });
   onDestroy(() => {
     chart?.destroy();
