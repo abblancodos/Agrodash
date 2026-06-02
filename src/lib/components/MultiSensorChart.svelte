@@ -17,8 +17,10 @@
     points?: number;
     /** Tensión de la curva Chart.js: 0 = líneas rectas, 0.4 = suave. Default 0. */
     tension?: number;
+    /** Configuración visual por sensor: color, grosor y escala multiplicativa. */
+    seriesConfig?: Record<string, { color?: string; width?: number; scale?: number }>;
   }
-  let { sensors, from, to, live = false, onRangeChange, points = 300, tension = 0 }: Props = $props();
+  let { sensors, from, to, live = false, onRangeChange, points = 300, tension = 0, seriesConfig = {} }: Props = $props();
 
   let canvas = $state<HTMLCanvasElement | null>(null);
   let chart = $state<any>(null);
@@ -31,6 +33,8 @@
 
   let menuOpen = $state(false);
   let menuEl: HTMLDivElement;
+
+  // Rango Y manual (eje único)
   let yMin = $state('');
   let yMax = $state('');
   let lockX = $state(false);
@@ -108,15 +112,19 @@ const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const allTimes = [...new Set(datasets.flatMap(d => d.readings.map(r => r.bucket)))].sort();
 
     const chartDatasets = datasets.map(({ sensor, readings }) => {
-      const map = new Map(readings.map(r => [r.bucket, r.value]));
-      const color = sensorColor(sensor.type);
-      const n = allTimes.length;
+      const conf  = seriesConfig[sensor.id] ?? {};
+      const scale = conf.scale ?? 1;
+      const color = conf.color ?? sensorColor(sensor.type);
+      const bw    = conf.width ?? 1.5;
+      const map   = new Map(readings.map(r => [r.bucket, r.value]));
+      const n     = allTimes.length;
+      const scaleTag = (scale !== 1) ? ` ×${scale}` : '';
       return {
-        label: `${normaliseSensorLabel(sensor.type)} #${sensor.sensor_number}`,
-        data: allTimes.map(t => map.get(t) ?? null),
+        label: `${normaliseSensorLabel(sensor.type)} #${sensor.sensor_number}${scaleTag}`,
+        data: allTimes.map(t => { const v = map.get(t); return v == null ? null : v * scale; }),
         borderColor: color,
         backgroundColor: color + '18',
-        borderWidth: 1.5,
+        borderWidth: bw,
         pointRadius: n > 500 ? 0 : n > 100 ? 1.5 : 3,
         pointHoverRadius: 5,
         pointHitRadius: 8,
@@ -143,7 +151,9 @@ const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (chart) {
       chart.data.labels = labels;
       chart.data.datasets = chartDatasets;
-      applyScaleOptions();
+      const mode = lockX ? 'y' : lockY ? 'x' : 'xy';
+      chart.options.plugins.zoom.pan.mode = mode;
+      chart.options.plugins.zoom.zoom.mode = mode;
       chart.update('none');
       return;
     }
@@ -177,51 +187,27 @@ const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
           borderColor: cssVar('--chart-tooltip-border'),
           borderWidth: 1, padding: 10,
           callbacks: {
-            title: (items: any[]) => {
-              if (!items.length) return '';
-              // label is already a formatted locale string
-              return items[0].label ?? '';
-            },
+            title: (items: any[]) => items.length ? items[0].label ?? '' : '',
             label: (ctx: any) => {
-              if (ctx.parsed.y == null) return null; // hide null entries from tooltip
+              if (ctx.parsed.y == null) return null;
               return ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(3)}`;
             },
           },
         },
         zoom: {
-          pan: {
-            enabled: true,
-            mode,
-            threshold: 5,        // min px before pan activates — prevents accidental pan on click
-          },
-          zoom: {
-            wheel: {
-              enabled: true,
-              speed: 0.08,       // slower zoom speed = less jumpy feel
-            },
-            pinch: { enabled: true },
-            mode,
-          },
+          pan: { enabled: true, mode, threshold: 5 },
+          zoom: { wheel: { enabled: true, speed: 0.08 }, pinch: { enabled: true }, mode },
         },
       },
       scales: {
         x: {
-          ticks: {
-            color: tick,
-            font: { size: 9, family: "'DM Mono',monospace" },
-            maxTicksLimit: 8,
-            maxRotation: 0,
-          },
+          ticks: { color: tick, font: { size: 9, family: "'DM Mono',monospace" }, maxTicksLimit: 8, maxRotation: 0 },
           grid: { color: grid }, border: { color: grid },
         },
         y: {
           min: yMin !== '' ? parseFloat(yMin) : undefined,
           max: yMax !== '' ? parseFloat(yMax) : undefined,
-          ticks: {
-            color: tick,
-            font: { size: 9, family: "'DM Mono',monospace" },
-            maxTicksLimit: 6,
-          },
+          ticks: { color: tick, font: { size: 9, family: "'DM Mono',monospace" }, maxTicksLimit: 6 },
           grid: { color: grid }, border: { color: grid },
         },
       },
@@ -304,6 +290,16 @@ const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       chart.update('none');
     });
   });
+
+  // Efecto para seriesConfig: reconstruye los datasets con los nuevos overrides,
+  // sin hacer ningún fetch al API.
+  $effect(() => {
+    void seriesConfig;
+    untrack(() => {
+      if (!chart || !datasets.length) return;
+      renderChart(); // alcanza el update path (chart ya existe)
+    });
+  });
   onDestroy(() => {
     chart?.destroy();
     if (liveInterval) clearInterval(liveInterval);
@@ -317,11 +313,16 @@ const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   <div class="msc__topbar">
     <div class="msc__toggles">
       {#each sensors as s (s.id)}
-        {@const color = sensorColor(s.type)}
+        {@const conf  = seriesConfig[s.id] ?? {}}
+        {@const color = conf.color ?? sensorColor(s.type)}
+        {@const scale = conf.scale ?? 1}
         <button class="toggle" class:off={!visible[s.id]} style="--c:{color}"
           onclick={() => toggleSensor(s.id)}>
           <span class="toggle__dot"></span>
           <span class="toggle__label">{normaliseSensorLabel(s.type)} #{s.sensor_number}</span>
+          {#if scale !== 1}
+            <span class="toggle__scale">×{scale}</span>
+          {/if}
         </button>
       {/each}
     </div>
@@ -410,6 +411,7 @@ const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   .toggle.off .toggle__label { color:var(--text-faint); }
   .toggle__dot { width:6px; height:6px; border-radius:50%; background:var(--c); flex-shrink:0; }
   .toggle__label { font-family:'DM Mono',monospace; font-size:9px; letter-spacing:.05em; color:color-mix(in srgb, var(--c) 80%, var(--text-primary)); white-space:nowrap; }
+  .toggle__scale { font-family:'DM Mono',monospace; font-size:8px; letter-spacing:.04em; color:color-mix(in srgb, var(--c) 60%, var(--text-muted)); background:color-mix(in srgb, var(--c) 12%, var(--bg-elevated)); border-radius:2px; padding:0 3px; }
 
   /* Action buttons (reset + interaction toggle) */
   .msc__actions { display:flex; align-items:center; gap:4px; flex-shrink:0; }

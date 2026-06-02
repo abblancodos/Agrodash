@@ -11,11 +11,15 @@
 
   // ── Types ─────────────────────────────────────────────────────────────────
   interface ChartSeries {
-    sensorId:     string;
-    sensorType:   string;
-    boxId:        string;
-    boxName:      string;
-    sensorNumber: number;
+    sensorId:      string;
+    sensorType:    string;
+    boxId:         string;
+    boxName:       string;
+    sensorNumber:  number;
+    // Overrides visuales por serie
+    colorOverride?: string;   // hex, undefined = color auto por tipo
+    width?:         number;   // 1 | 1.5 | 2.5, undefined = 1.5
+    scale?:         number;   // multiplicador, undefined/1 = sin escala
   }
 
   interface ChartCard {
@@ -47,7 +51,33 @@
   let configOpenId = $state<string | null>(null);
   // Per-card: which box is selected in the "add series" picker
   let pickerBox    = $state<Record<string, string>>({});
+  // Qué filas de series están expandidas (sensorId es UUID único globalmente)
+  let serieOpen    = $state<Set<string>>(new Set());
   let ready        = $state(false);
+
+  function toggleSerieOpen(sensorId: string) {
+    const next = new Set(serieOpen);
+    next.has(sensorId) ? next.delete(sensorId) : next.add(sensorId);
+    serieOpen = next;
+  }
+
+  function patchSerie(cardId: string, sensorId: string, delta: Partial<ChartSeries>) {
+    const card = cards.find(c => c.id === cardId);
+    if (!card) return;
+    patch(cardId, { series: card.series.map(s => s.sensorId === sensorId ? { ...s, ...delta } : s) });
+  }
+
+  function cardSeriesConfig(card: ChartCard) {
+    return Object.fromEntries(card.series.map(s => [s.sensorId, {
+      color: s.colorOverride,
+      width: s.width,
+      scale: s.scale,
+    }]));
+  }
+
+  function effectiveColor(s: ChartSeries): string {
+    return s.colorOverride ?? sensorColor(s.sensorType);
+  }
 
   // ── Storage ───────────────────────────────────────────────────────────────
   function load() {
@@ -299,25 +329,107 @@
                 {/if}
               </span>
 
-              <!-- Active series list: remove-on-click × button -->
+              <!-- Serie rows: expandibles con controles de color, grosor y escala -->
               {#if card.series.length > 0}
                 <div class="cc__series">
                   {#each card.series as s (s.sensorId)}
-                    {@const col = sensorColor(s.sensorType)}
-                    <div class="cc__serie" style="--c:{col}">
-                      <span class="cc__serie-dot"></span>
-                      <span class="cc__serie-info">
-                        <span class="cc__serie-box">{s.boxName}</span>
-                        <span class="cc__serie-type">
-                          {normaliseSensorLabel(s.sensorType)}
-                          <span class="cc__serie-num">#{s.sensorNumber}</span>
+                    {@const ec    = effectiveColor(s)}
+                    {@const open  = serieOpen.has(s.sensorId)}
+                    {@const scale = s.scale ?? 1}
+                    {@const bw    = s.width ?? 1.5}
+
+                    <div class="cc__serie" class:cc__serie--open={open} style="--c:{ec}">
+
+                      <!-- Fila header (siempre visible) -->
+                      <div class="cc__serie-head"
+                        role="button" tabindex="0"
+                        onclick={() => toggleSerieOpen(s.sensorId)}
+                        onkeydown={(e) => e.key === 'Enter' && toggleSerieOpen(s.sensorId)}>
+                        <span class="cc__serie-dot" style="background:{ec}"></span>
+                        <span class="cc__serie-info">
+                          <span class="cc__serie-box">{s.boxName}</span>
+                          <span class="cc__serie-type">
+                            {normaliseSensorLabel(s.sensorType)}
+                            <span class="cc__serie-num">#{s.sensorNumber}</span>
+                          </span>
                         </span>
-                      </span>
-                      <button class="cc__serie-rm"
-                        title="Quitar serie"
-                        onclick={() => patch(card.id, {
-                          series: card.series.filter(x => x.sensorId !== s.sensorId)
-                        })}>✕</button>
+                        {#if scale !== 1}
+                          <span class="cc__serie-scalebadge">×{scale}</span>
+                        {/if}
+                        <span class="cc__serie-chevron" class:cc__serie-chevron--open={open}>›</span>
+                        <button class="cc__serie-rm" title="Quitar serie"
+                          onclick={(e) => { e.stopPropagation(); patch(card.id, { series: card.series.filter(x => x.sensorId !== s.sensorId) }); }}>✕</button>
+                      </div>
+
+                      <!-- Panel de controles (expandible) -->
+                      {#if open}
+                        <div class="cc__serie-controls">
+
+                          <!-- Color -->
+                          <div class="cc__sc-group">
+                            <span class="cc__sc-lbl">COLOR</span>
+                            <div class="cc__sc-row">
+                              <label class="cc__sc-swatch" style="--c:{ec}" title="Elegir color">
+                                <input type="color" value={ec}
+                                  oninput={(e) => patchSerie(card.id, s.sensorId, { colorOverride: (e.target as HTMLInputElement).value })} />
+                              </label>
+                              {#if s.colorOverride}
+                                <button class="cc__sc-reset" title="Restablecer color automático"
+                                  onclick={() => patchSerie(card.id, s.sensorId, { colorOverride: undefined })}>↺</button>
+                              {/if}
+                            </div>
+                          </div>
+
+                          <span class="cc__sc-vsep"></span>
+
+                          <!-- Grosor -->
+                          <div class="cc__sc-group">
+                            <span class="cc__sc-lbl">GROSOR</span>
+                            <div class="cc__sc-row">
+                              {#each [
+                                { val: 1,   svg: 1   },
+                                { val: 1.5, svg: 1.5 },
+                                { val: 2.5, svg: 2.5 },
+                              ] as w}
+                                <button class="cc__sc-wpill" class:active={bw === w.val}
+                                  title="{w.val}px"
+                                  onclick={() => patchSerie(card.id, s.sensorId, { width: w.val })}>
+                                  <svg width="20" height="10" viewBox="0 0 20 10">
+                                    <line x1="2" y1="5" x2="18" y2="5"
+                                      stroke="currentColor" stroke-width={w.svg} stroke-linecap="round"/>
+                                  </svg>
+                                </button>
+                              {/each}
+                            </div>
+                          </div>
+
+                          <span class="cc__sc-vsep"></span>
+
+                          <!-- Escala -->
+                          <div class="cc__sc-group">
+                            <span class="cc__sc-lbl">ESCALA</span>
+                            <div class="cc__sc-row">
+                              {#each [0.01, 0.1, 1, 10, 100] as sv}
+                                <button class="cc__pill cc__pill--scale"
+                                  class:active={scale === sv}
+                                  onclick={() => patchSerie(card.id, s.sensorId, { scale: sv })}>
+                                  ×{sv}
+                                </button>
+                              {/each}
+                              <input class="cc__sc-scaleinput" type="number"
+                                min="0.0001" step="any"
+                                value={![0.01,0.1,1,10,100].includes(scale) ? scale : ''}
+                                placeholder="×…"
+                                title="Escala personalizada"
+                                oninput={(e) => {
+                                  const v = parseFloat((e.target as HTMLInputElement).value);
+                                  if (!isNaN(v) && v > 0) patchSerie(card.id, s.sensorId, { scale: v });
+                                }} />
+                            </div>
+                          </div>
+
+                        </div>
+                      {/if}
                     </div>
                   {/each}
                 </div>
@@ -450,6 +562,7 @@
               {live}
               points={card.points}
               tension={card.tension}
+              seriesConfig={cardSeriesConfig(card)}
             />
           {/if}
         </div>
@@ -784,57 +897,169 @@
   }
 
   .cc__serie {
+    background: color-mix(in srgb, var(--c) 5%, var(--bg-surface));
+    border: 0.5px solid color-mix(in srgb, var(--c) 18%, transparent);
+    border-radius: 5px;
+    overflow: hidden;
+    transition: border-color .12s;
+  }
+  .cc__serie--open {
+    border-color: color-mix(in srgb, var(--c) 35%, transparent);
+  }
+
+  /* Header row */
+  .cc__serie-head {
     display: flex;
     align-items: center;
-    gap: calc(8px * var(--font-scale));
+    gap: calc(7px * var(--font-scale));
     padding: calc(5px * var(--font-scale)) calc(9px * var(--font-scale));
-    background: color-mix(in srgb, var(--c) 6%, var(--bg-surface));
-    border: 0.5px solid color-mix(in srgb, var(--c) 20%, transparent);
-    border-radius: 5px;
+    cursor: pointer;
+    user-select: none;
   }
+  .cc__serie-head:hover { background: color-mix(in srgb, var(--c) 7%, var(--bg-elevated)); }
+
   .cc__serie-dot {
-    width: 6px;
-    height: 6px;
+    width: 7px; height: 7px;
     border-radius: 50%;
-    background: var(--c);
     flex-shrink: 0;
+    transition: background .15s;
   }
   .cc__serie-info {
-    display: flex;
-    align-items: center;
+    display: flex; align-items: center;
     gap: calc(6px * var(--font-scale));
-    flex: 1;
-    min-width: 0;
-    flex-wrap: wrap;
+    flex: 1; min-width: 0; flex-wrap: wrap;
   }
   .cc__serie-box {
     font-size: calc(10px * var(--font-scale));
-    font-weight: 500;
-    color: var(--text-secondary);
-    white-space: nowrap;
+    font-weight: 500; color: var(--text-secondary); white-space: nowrap;
   }
   .cc__serie-type {
     font-family: 'DM Mono', monospace;
     font-size: calc(10px * var(--font-scale));
     color: var(--text-muted);
-    display: flex;
-    align-items: center;
-    gap: 4px;
+    display: flex; align-items: center; gap: 4px;
   }
   .cc__serie-num { opacity: .7; }
+
+  .cc__serie-scalebadge {
+    font-family: 'DM Mono', monospace;
+    font-size: calc(9px * var(--font-scale));
+    letter-spacing: .04em;
+    padding: calc(1px * var(--font-scale)) calc(5px * var(--font-scale));
+    background: color-mix(in srgb, var(--c) 14%, var(--bg-elevated));
+    color: color-mix(in srgb, var(--c) 70%, var(--text-secondary));
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  .cc__serie-chevron {
+    font-size: calc(12px * var(--font-scale));
+    color: var(--text-muted);
+    line-height: 1;
+    flex-shrink: 0;
+    transition: transform .15s;
+    transform: rotate(0deg);
+  }
+  .cc__serie-chevron--open { transform: rotate(90deg); }
+
   .cc__serie-rm {
-    background: none;
-    border: none;
+    background: none; border: none;
     color: var(--text-muted);
     font-size: calc(10px * var(--font-scale));
     cursor: pointer;
     padding: calc(2px * var(--font-scale)) calc(4px * var(--font-scale));
-    border-radius: 3px;
-    line-height: 1;
-    transition: all .1s;
-    flex-shrink: 0;
+    border-radius: 3px; line-height: 1;
+    transition: all .1s; flex-shrink: 0;
   }
   .cc__serie-rm:hover { background: var(--error-bg); color: var(--error-color); }
+
+  /* Controls panel */
+  .cc__serie-controls {
+    display: flex;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: calc(6px * var(--font-scale));
+    padding: calc(8px * var(--font-scale)) calc(9px * var(--font-scale)) calc(9px * var(--font-scale));
+    border-top: 0.5px solid color-mix(in srgb, var(--c) 15%, var(--border-subtle));
+    background: color-mix(in srgb, var(--c) 3%, var(--bg-elevated));
+  }
+
+  .cc__sc-group { display: flex; flex-direction: column; gap: calc(4px * var(--font-scale)); }
+  .cc__sc-lbl {
+    font-family: 'DM Mono', monospace;
+    font-size: calc(8px * var(--font-scale));
+    letter-spacing: .1em; color: var(--text-muted);
+  }
+  .cc__sc-row { display: flex; align-items: center; gap: calc(4px * var(--font-scale)); }
+  .cc__sc-vsep { width: 0.5px; height: 28px; background: var(--border-subtle); flex-shrink: 0; align-self: flex-end; margin-bottom: calc(2px * var(--font-scale)); }
+
+  /* Color swatch */
+  .cc__sc-swatch {
+    display: flex;
+    width: 24px; height: 24px;
+    border-radius: 4px;
+    background: var(--c);
+    border: 1.5px solid color-mix(in srgb, var(--c) 50%, var(--border-default));
+    cursor: pointer;
+    overflow: hidden;
+    flex-shrink: 0;
+    transition: border-color .12s;
+  }
+  .cc__sc-swatch:hover { border-color: var(--c); }
+  .cc__sc-swatch input[type="color"] {
+    opacity: 0;
+    width: 100%; height: 100%;
+    border: none; padding: 0; cursor: pointer;
+  }
+
+  .cc__sc-reset {
+    background: none; border: none;
+    color: var(--text-muted); font-size: calc(12px * var(--font-scale));
+    cursor: pointer; padding: 2px 3px; border-radius: 3px; line-height: 1;
+    transition: all .1s;
+  }
+  .cc__sc-reset:hover { background: var(--interactive-hover); color: var(--text-secondary); }
+
+  /* Width pills with SVG line preview */
+  .cc__sc-wpill {
+    display: flex; align-items: center; justify-content: center;
+    width: 32px; height: 24px;
+    border: 0.5px solid var(--border-default);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all .1s;
+  }
+  .cc__sc-wpill:hover { background: var(--interactive-hover); color: var(--text-secondary); }
+  .cc__sc-wpill.active {
+    background: color-mix(in srgb, var(--c) 12%, var(--bg-elevated));
+    border-color: color-mix(in srgb, var(--c) 40%, transparent);
+    color: color-mix(in srgb, var(--c) 70%, var(--text-primary));
+  }
+
+  /* Scale pills — compact */
+  .cc__pill--scale { height: 24px; font-size: calc(9px * var(--font-scale)); padding: 0 calc(6px * var(--font-scale)); }
+
+  /* Scale free input */
+  .cc__sc-scaleinput {
+    height: 24px;
+    width: calc(48px * var(--font-scale));
+    padding: 0 calc(5px * var(--font-scale));
+    border: 0.5px solid var(--border-default);
+    border-radius: 4px;
+    background: var(--bg-inset, var(--bg-elevated));
+    color: var(--text-secondary);
+    font-family: 'DM Mono', monospace;
+    font-size: calc(10px * var(--font-scale));
+    outline: none;
+    appearance: textfield;
+    -moz-appearance: textfield;
+    transition: border-color .12s;
+  }
+  .cc__sc-scaleinput::-webkit-inner-spin-button { -webkit-appearance: none; }
+  .cc__sc-scaleinput:focus { border-color: var(--interactive-focus, var(--border-strong)); }
+  .cc__sc-scaleinput::placeholder { color: var(--text-muted); }
 
   /* ── Sensor picker ────────────────────────────────────────────────────── */
   .cc__picker {
