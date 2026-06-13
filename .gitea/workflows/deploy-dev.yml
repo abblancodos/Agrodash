@@ -1,0 +1,199 @@
+# .gitea/workflows/deploy-dev.yml
+#
+# Igual que deploy.yml pero:
+#   - Solo corre en el branch `dev`
+#   - Deploya frontend a agrodash-dev/web
+#   - Deploya binarios a agrodash-dev/api
+#   - Reinicia el container de dev (no el de producción)
+#   - VITE_API_BASE apunta a dev.agrodash.*
+#   - No requiere secrets adicionales: reutiliza DATABASE_URL_DEV y las vars de dev
+
+name: Deploy Dev
+
+on:
+  push:
+    branches: [dev]
+
+jobs:
+
+  # ── Detectar qué cambió ──────────────────────────────────────────────────────
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      backend:  ${{ steps.filter.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            frontend:
+              - 'src/**'
+              - '*.json'
+              - '*.js'
+              - '*.ts'
+              - '!src/rust/**'
+            backend:
+              - 'src/rust/**'
+
+  # ── Lint frontend ────────────────────────────────────────────────────────────
+  lint-frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('package-lock.json') }}
+      - run: npm ci
+      - run: npx svelte-check --tsconfig ./tsconfig.json
+
+  # ── Lint backend ─────────────────────────────────────────────────────────────
+  lint-backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/rust/target
+          key: rust-dev-${{ hashFiles('src/rust/Cargo.lock') }}
+          restore-keys: rust-dev-
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: rustfmt
+        working-directory: src/rust
+        run: cargo fmt --all -- --check
+      - name: clippy
+        working-directory: src/rust
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_DEV }}
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # ── Tests backend ─────────────────────────────────────────────────────────────
+  test-backend:
+    needs: [changes, lint-backend]
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/rust/target
+          key: rust-dev-${{ hashFiles('src/rust/Cargo.lock') }}
+          restore-keys: rust-dev-
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Tests
+        working-directory: src/rust
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_DEV }}
+        run: cargo test --workspace -- --nocapture
+
+  # ── Deploy frontend DEV ───────────────────────────────────────────────────────
+  deploy-frontend:
+    needs: [changes, lint-frontend]
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('package-lock.json') }}
+
+      - name: Build frontend (dev)
+        run: |
+          npm ci
+          VITE_API_BASE=https://dev.agrodash.nm.35-208-114-233.nip.io npm run build
+
+      - name: Deploy frontend a agrodash-dev/web
+        run: |
+          docker rm -f agrodash-dev-web-tmp 2>/dev/null || true
+          docker run -d --name agrodash-dev-web-tmp \
+            -v /home/embebidos/.server-lab/agrodash-dev/web:/output \
+            alpine sleep 30
+          docker cp build/. agrodash-dev-web-tmp:/output/
+          docker rm -f agrodash-dev-web-tmp
+
+  # ── Deploy backend DEV ────────────────────────────────────────────────────────
+  deploy-backend:
+    needs: [changes, test-backend]
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/rust/target
+          key: rust-dev-${{ hashFiles('src/rust/Cargo.lock') }}
+          restore-keys: rust-dev-
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install sqlx-cli
+        uses: actions/cache@v4
+        id: sqlx-cache
+        with:
+          path: ~/.cargo/bin/cargo-sqlx
+          key: sqlx-cli-${{ hashFiles('src/rust/Cargo.lock') }}
+
+      - name: Build sqlx-cli if not cached
+        if: steps.sqlx-cache.outputs.cache-hit != 'true'
+        run: cargo install sqlx-cli --no-default-features --features postgres
+
+      - name: sqlx prepare
+        working-directory: src/rust/api
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_DEV }}
+        run: cargo sqlx prepare
+
+      - name: Commit sqlx cache
+        run: |
+          git config user.email "ci@agrodash"
+          git config user.name "CI Bot"
+          git add src/rust/api/.sqlx
+          git diff --cached --quiet || git commit -m "chore: update sqlx cache [skip ci]"
+          git push --force-with-lease
+
+      - name: Build release binaries
+        working-directory: src/rust
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_DEV }}
+        run: cargo build --release
+
+      - name: Deploy API binary a agrodash-dev/api
+        run: |
+          docker rm -f agrodash-dev-api-tmp 2>/dev/null || true
+          docker run -d --name agrodash-dev-api-tmp \
+            -v /home/embebidos/.server-lab/agrodash-dev/api:/output \
+            alpine sleep 30
+          docker cp src/rust/target/release/agrodash-api agrodash-dev-api-tmp:/output/
+          docker rm -f agrodash-dev-api-tmp
+
+      - name: Deploy Agent binary a agrodash-dev/api
+        run: |
+          docker rm -f agrodash-dev-agent-tmp 2>/dev/null || true
+          docker run -d --name agrodash-dev-agent-tmp \
+            -v /home/embebidos/.server-lab/agrodash-dev/api:/output \
+            alpine sleep 30
+          docker cp src/rust/target/release/agrodash-agent agrodash-dev-agent-tmp:/output/
+          docker rm -f agrodash-dev-agent-tmp
+
+      - name: Restart API container DEV
+        run: |
+          docker kill --signal=SIGTERM server-lab-api-rust-agrodash-dev-1 2>/dev/null || true
+          sleep 6
+          docker restart server-lab-api-rust-agrodash-dev-1
